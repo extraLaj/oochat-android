@@ -47,6 +47,14 @@ object OipProtocol {
      */
     const val UNSUPPORTED_VERSION_CODE = "-32010"
 
+    /** Experimental retained-session index negotiated independently of OIP 0.1. */
+    const val SESSION_SYNC_EXTENSION = "session-sync"
+    const val SESSION_SYNC_VERSION = "0.1"
+
+    /** The signed CONNECT offer expected by Host `requests_session_sync()`. */
+    val SESSION_SYNC_OFFER: Map<String, List<String>> =
+        mapOf(SESSION_SYNC_EXTENSION to listOf(SESSION_SYNC_VERSION))
+
     val DESCRIPTOR = ProtocolDescriptor(
         name = NAME,
         version = VERSION,
@@ -64,5 +72,20 @@ object OipProtocol {
         if (descriptor == null || descriptor is JsonNull) return true
         val fields = descriptor as? JsonObject ?: return false
         return fields.stringField("name") == NAME && fields.stringField("version") == VERSION
+    }
+
+    /**
+     * Whether CONNECTED selected Session Sync 0.1.
+     *
+     * The offer is a list in the client's signed CONNECT payload, but the
+     * Host's selected descriptor is a single string:
+     * `{"extensions":{"session-sync":"0.1"}}`. Missing, malformed and
+     * differently-versioned selections all fail closed so extension commands
+     * are never sent to a Host that did not negotiate them.
+     */
+    fun supportsSessionSync(descriptor: JsonElement?): Boolean {
+        val fields = descriptor as? JsonObject ?: return false
+        val extensions = fields["extensions"] as? JsonObject ?: return false
+        return extensions.stringField(SESSION_SYNC_EXTENSION) == SESSION_SYNC_VERSION
     }
 }

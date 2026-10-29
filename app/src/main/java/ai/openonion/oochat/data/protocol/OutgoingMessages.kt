@@ -44,7 +44,9 @@ data class ConnectPayload(
     val timestamp: Long,
     val to: String? = null,
     val nonce: String,
-    @SerialName("signed_commands") val signedCommands: Int = SignedCommand.CAPABILITY
+    @SerialName("signed_commands") val signedCommands: Int = SignedCommand.CAPABILITY,
+    val extensions: Map<String, List<String>>? = null,
+    @SerialName("session_sync_only") val sessionSyncOnly: Int? = null
 )
 
 @Serializable

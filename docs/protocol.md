@@ -44,6 +44,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `SESSION_SYNC` index request | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt); wire models and negotiation are pinned, transport and persistence are not yet connected |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
 
 ### Server-to-client frame checklist
@@ -65,6 +66,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `session_sync` | Partial | [`ProtocolParserSessionSyncTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserSessionSyncTest.kt); assistant messages are replayed, while other session entries are not rendered as separate items |
+| `SESSION_SYNC_RESULT` index response | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt); summary, removal, pagination, cursor-expiry and unsupported-extension shapes are modelled, but not yet transported or reconciled into Room |
 | `user_input` | Partial by design | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt); ignored because the local user message is authoritative |
 | `ask_user` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -160,7 +162,7 @@ They are `@Serializable` Kotlin data classes and are encoded with
 | --- | --- |
 | `type` | Always `"CONNECT"`. |
 | `protocol` | The OIP protocol descriptor, `OipProtocol.DESCRIPTOR`. See below. |
-| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. See [Signed commands](#signed-commands). |
+| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands, extensions, session_sync_only)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. The final two fields are absent on ordinary chat connections and reserved for an index-only Session Sync connection. See [Signed commands](#signed-commands). |
 | `from` | The local Ed25519 address. |
 | `signature` | Hex Ed25519 signature over the canonical payload JSON. |
 | `timestamp` | Unix time in seconds. The same value is used in `payload`. |
@@ -767,6 +769,41 @@ saved SessionState -> SessionStore.getSession(agentAddress)
                    -> (a reconnect on the same AgentConnection also carries last_msg_id)
                    -> CONNECTED / OUTPUT / session_sync refresh local state
 ```
+
+### Session Sync retained-session index
+
+The experimental `session-sync/0.1` extension is a different protocol surface
+from the lower-case `session_sync` event above. `session_sync` carries one open
+conversation's current `SessionState`; the extension discovers the retained
+conversation summaries owned by the Ed25519 identity that signed `CONNECT`.
+
+An index connection offers the extension and asks not to create a chat inside
+the signed CONNECT payload:
+
+```json
+{
+  "extensions": {"session-sync": ["0.1"]},
+  "session_sync_only": 1
+}
+```
+
+It omits chat `session_id` and `session`. A supporting Host answers
+`CONNECTED` with `status: "index"` and selects
+`protocol.extensions["session-sync"] == "0.1"`. `OipProtocol.supportsSessionSync`
+checks that exact selection; absence or another version fails closed.
+
+`SESSION_SYNC` is a signed command. Omitting its opaque `cursor` requests a
+full snapshot; a final `SESSION_SYNC_RESULT` returns a new cursor for the next
+incremental request. Non-final pages return `next_page_token` instead, which
+must be drained before the cursor is replaced. Each result contains changed
+`sessions` and `removed_session_ids`. An `ERROR` with `code: "cursor_expired"`
+means the caller should discard the cursor and make one full request;
+`unsupported_extension` means an older Host remains local-only.
+
+`SessionSyncProtocol.kt` models and validates these frames. This revision does
+not open the index socket, persist a cursor, or reconcile summaries into Room;
+those remain later W16AAPPLE-70 implementation layers.
+
 ### Reconnect and replay
 
 A dropped socket does not stop the agent. The Host keeps the running turn and a
