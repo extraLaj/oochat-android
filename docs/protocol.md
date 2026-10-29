@@ -206,8 +206,8 @@ The client treats that as final; see
 
 Covered by `OutgoingMessagesTest`, which checks the serialised `CONNECT`
 frame, and by `AgentConnectionRobolectricTest`, which checks the frame sent
-when the socket opens, the frame re-sent after onboarding, and that the
-descriptor is not part of the signed payload.
+when the socket opens and that the descriptor is not part of the signed
+payload.
 
 #### Incompatible protocol version
 
@@ -506,7 +506,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `ask_user` | `id`, `text`, `options`, `multi_select` | Creates an answer card and enters a waiting state. |
 | `approval_needed` | `id`, `tool`, `arguments`, `description`, `batch_remaining` | Creates an approval card and enters a waiting state. `batch_remaining` previews the next queued tool calls in the current approval batch. |
 | `ONBOARD_REQUIRED` | `id`, `methods`, `payment_amount`, `payment_address` | Creates an onboarding card and enters a waiting state. |
-| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card; the connection re-authenticates on the live socket. |
+| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card. The client does not send CONNECT again: the Host completes the CONNECT it held back and sends CONNECTED itself, and a second CONNECT is refused with "already authenticated: open a new connection" (W16AAPPLE-83). The connection waits for that CONNECTED as for any CONNECT. |
 | `intent` | `id`, `status`, `ack`, `is_build` | Updates a `ChatItem.IntentItem`. Status is `UNDERSTOOD` only when `status` is exactly `"understood"`, otherwise `ANALYZING`. |
 | `eval` | `id`, `status`, `passed`, `summary`, `expected`, `eval_path` | Updates a `ChatItem.EvalItem` holding the agent's self-grading result. Status is `DONE` only when `status` is exactly `"done"`, otherwise `EVALUATING`. |
 | `compact` | `id`, `status`, `context_before`, `context_after`, `context_percent`, `message`, `error` | Updates a `ChatItem.CompactItem` tracking context-window compaction. Status is `DONE` for `"done"`, `ERROR` for `"error"`, otherwise `COMPACTING` — the one status event with three terminal states rather than two. Rendered as a subtle divider in the chat timeline (see [Compaction in the timeline](#compaction-in-the-timeline)). |
