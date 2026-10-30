@@ -3,15 +3,21 @@ package ai.openonion.oochat.ui.dashboard
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import android.annotation.SuppressLint
+import android.content.Context
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 
 /**
@@ -20,8 +26,10 @@ import androidx.compose.ui.viewinterop.AndroidView
  * The document itself — CSP, bridge, and the agent's HTML as body content — is
  * built by [DashboardDocument]; read its doc first, it carries the security
  * model. This file is the Android half: the settings that make the WebView the
- * equivalent of the web client's `sandbox="allow-scripts"` iframe, and the
- * navigation refusal that keeps the page from replacing itself.
+ * equivalent of the web client's `sandbox="allow-scripts"` iframe, the
+ * navigation refusal that keeps the page from replacing itself, and the
+ * [SnapshotSwitcher] that replaces one snapshot with the next without a blank
+ * frame in between.
  *
  * `javaScriptEnabled = true` is required — the bridge is a script. Everything
  * else a WebView can reach is switched off.
@@ -38,32 +46,118 @@ fun DashboardWebView(
     val currentRunSkill by rememberUpdatedState(onRunSkill)
     val currentNavigationBlocked by rememberUpdatedState(onNavigationBlocked)
     val bridge = remember { SkillBridge { skill, args -> currentRunSkill(skill, args) } }
+    val surface = MaterialTheme.colorScheme.surface
 
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            WebView(context).apply {
+            SnapshotSwitcher(context, onNavigationBlocked = { currentNavigationBlocked() }) {
                 configureForUntrustedContent()
                 addJavascriptInterface(bridge, DashboardDocument.BRIDGE_NAME)
-                webViewClient = BlockAllNavigationClient { currentNavigationBlocked() }
             }
         },
-        update = { webView ->
-            // Only on a genuinely new snapshot. `update` runs on every
-            // recomposition, and reloading the same document would restart the
-            // page (losing scroll and any filter the user typed) for reasons
-            // that have nothing to do with the dashboard.
-            if (webView.tag !== document) {
-                webView.tag = document
-                // A null base URL is what makes the origin opaque: no
-                // same-origin peer, no file:// resolution, no app storage. It
-                // is also why the CSP has to travel inside the document as a
-                // meta tag — there are no response headers to put it in.
-                webView.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
-            }
+        update = { switcher ->
+            // Painted before the first snapshot draws, so a dark theme does
+            // not flash white.
+            switcher.setPageBackground(surface.toArgb())
+            switcher.show(document)
         },
         onRelease = { it.destroy() }
     )
+}
+
+/**
+ * Two WebViews, one on screen. Loading a new snapshot into the page being
+ * shown blanks it until the new document paints, so a newer snapshot loads
+ * into the hidden one instead, and the two swap only once WebView reports it
+ * ready to draw (`onPageCommitVisible`, which exists for exactly this: making
+ * a recycled WebView visible without showing stale or blank content). Until
+ * then the old page stays up, still scrollable and still clickable.
+ *
+ * The hidden page keeps its last snapshot rather than being blanked: blanking
+ * is a load of its own, and its commit could arrive after the next snapshot
+ * had started loading there and swap an empty page on screen.
+ *
+ * Main thread only, as WebView is.
+ */
+internal class SnapshotSwitcher(
+    context: Context,
+    private val onNavigationBlocked: () -> Unit,
+    configure: WebView.() -> Unit
+) : FrameLayout(context) {
+
+    /** The page on screen. */
+    var front: WebView
+        private set
+
+    /** The page a newer snapshot loads into, kept [View.INVISIBLE] — not GONE, or it never draws. */
+    var back: WebView
+        private set
+
+    /** The latest document asked for, whether shown yet or still loading. */
+    private var requested: String? = null
+
+    init {
+        back = newPage(configure).also { it.visibility = View.INVISIBLE }
+        front = newPage(configure)
+    }
+
+    /**
+     * Shows [document], or starts loading it in the background. Compared by
+     * identity: the caller builds a new document (with a new nonce) for a new
+     * snapshot and passes the same instance otherwise, and `update` runs on
+     * every recomposition — reloading the same page would lose scroll and any
+     * filter the user typed for reasons unrelated to the dashboard.
+     */
+    fun show(document: String) {
+        if (document === requested) return
+        requested = document
+        // The first snapshot has no old page to keep up, so it loads in place.
+        load(if (front.tag == null) front else back, document)
+    }
+
+    fun setPageBackground(color: Int) {
+        front.setBackgroundColor(color)
+        back.setBackgroundColor(color)
+    }
+
+    fun destroy() {
+        removeAllViews()
+        front.destroy()
+        back.destroy()
+    }
+
+    private fun onCommitVisible(view: WebView) {
+        // Only the hidden page's commit of the snapshot still wanted swaps;
+        // a commit on the page already shown has nothing to replace. A commit
+        // for snapshot A that lands just after B started loading over it can
+        // still swap A in; B then finishes in place on screen, which is the
+        // behaviour this class replaces, not a wrong page.
+        if (view !== back || back.tag !== requested) return
+        back = front.also { front = back }
+        front.visibility = View.VISIBLE
+        back.visibility = View.INVISIBLE
+    }
+
+    private fun load(view: WebView, document: String) {
+        view.tag = document
+        // A null base URL is what makes the origin opaque: no same-origin
+        // peer, no file:// resolution, no app storage. It is also why the CSP
+        // has to travel inside the document as a meta tag — there are no
+        // response headers to put it in.
+        view.loadDataWithBaseURL(null, document, "text/html", "utf-8", null)
+    }
+
+    private fun newPage(configure: WebView.() -> Unit): WebView =
+        WebView(context).apply {
+            configure()
+            webViewClient = BlockAllNavigationClient(
+                onBlocked = onNavigationBlocked,
+                onCommitVisible = ::onCommitVisible
+            )
+        }.also {
+            addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
 }
 
 /**
@@ -118,12 +212,19 @@ private class SkillBridge(private val onRunSkill: (String, String) -> Unit) {
  * link would turn a page that cannot phone home into one that can, with the
  * user's tap as the authorisation.
  */
-private class BlockAllNavigationClient(private val onBlocked: () -> Unit) : WebViewClient() {
+private class BlockAllNavigationClient(
+    private val onBlocked: () -> Unit,
+    private val onCommitVisible: (WebView) -> Unit
+) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         // Scheme only — the rest of an agent-supplied URL has no business in
         // a log file.
         FileLogger.w(LogTags.DASHBOARD, "Blocked dashboard navigation to ${request?.url?.scheme} URL")
         onBlocked()
         return true
+    }
+
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        view?.let(onCommitVisible)
     }
 }

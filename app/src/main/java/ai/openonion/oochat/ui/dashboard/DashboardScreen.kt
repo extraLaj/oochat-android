@@ -31,6 +31,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The connected agent's Home page: the `dashboard.html` it wrote for itself,
@@ -80,15 +83,25 @@ fun DashboardScreen(
     // A new snapshot is a new document with a new nonce; an unchanged snapshot
     // keeps the one already loaded, so a run that didn't touch the dashboard
     // leaves it exactly as it was.
-    val document = remember(html, surfaceCss, onSurfaceCss) {
-        html?.let {
-            DashboardDocument.build(it, DashboardDocument.generateNonce(), surfaceCss, onSurfaceCss)
+    //
+    // Built off the main thread: a snapshot can be 2 MiB, and copying it into
+    // the wrapper must not cost frames. Until the new document is ready the
+    // previous one stays in place, so a newer snapshot replaces an older one
+    // with no empty state in between.
+    val built by produceState<String?>(initialValue = null, html, surfaceCss, onSurfaceCss) {
+        value = html?.let {
+            withContext(Dispatchers.Default) {
+                DashboardDocument.build(it, DashboardDocument.generateNonce(), surfaceCss, onSurfaceCss)
+            }
         }
     }
+    // A cleared snapshot is cleared now, not one frame later.
+    val document = if (html == null) null else built
     var navigationBlocked by remember(document) { mutableStateOf(false) }
 
     DashboardScreenContent(
         document = document,
+        building = html != null && document == null,
         allowedSkills = allowedSkills,
         onRunSkill = onRunSkill,
         onNavigateBack = onNavigateBack,
@@ -117,7 +130,8 @@ internal fun DashboardScreenContent(
     navigationBlocked: Boolean,
     onNavigationBlocked: () -> Unit,
     onDismissNavigationBlocked: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    building: Boolean = false
 ) {
     Scaffold(
         modifier = modifier,
@@ -151,6 +165,10 @@ internal fun DashboardScreenContent(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
+                // The first snapshot is still being wrapped. Usually a frame
+                // or two; claiming there is no page would be wrong.
+                document == null && building -> Unit
+
                 document == null -> DashboardNotice(
                     // Nothing on the wire says "this agent has no dashboard" —
                     // the host simply never sends one. Reaching this screen at
