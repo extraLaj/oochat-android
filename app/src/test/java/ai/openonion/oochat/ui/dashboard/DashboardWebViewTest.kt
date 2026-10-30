@@ -1,5 +1,6 @@
 package ai.openonion.oochat.ui.dashboard
 
+import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
@@ -7,7 +8,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
-import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
