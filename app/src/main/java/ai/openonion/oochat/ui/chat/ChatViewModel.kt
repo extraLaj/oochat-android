@@ -49,6 +49,7 @@ import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActionRejected
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActions
 import ai.openonion.oochat.ui.controlcenter.ControlCenterCancelled
+import ai.openonion.oochat.ui.controlcenter.ControlCenterChatItems
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSnapshot
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
@@ -77,6 +78,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -663,7 +665,10 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /**
      * What the Control Center app is told about the chat. The session id is read when the
-     * connection, status or profile changes. Declared below [sessionActivity], which it reads.
+     * connection, status, profile or chat changes. Declared below [sessionActivity], which it reads.
+     *
+     * The chat is the full list, not [uiState]'s: the Streaming responses setting hides
+     * in-progress items on this screen, but the app follows the chat as it happens.
      */
     val controlCenterSnapshot: StateFlow<ControlCenterSnapshot> = combine(
         combine(
@@ -676,19 +681,21 @@ open class ChatViewModel @JvmOverloads constructor(
             Triple(state, if (activity != null && (actionInFlight || stopping)) SessionActivity.RUNNING else activity, profile)
         },
         // Only a trigger: a conversation switch changes the session id but often nothing above.
-        conversationHistory.activeSessionId
-    ) { (state, shown, profile), _ ->
-        controlCenterSnapshotOf(state, shown, profile)
+        conversationHistory.activeSessionId,
+        _uiState.map { it.chatItems }.distinctUntilChanged()
+    ) { (state, shown, profile), _, items ->
+        controlCenterSnapshotOf(state, shown, profile, items)
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        controlCenterSnapshotOf(connectionState.value, null, agentProfile.value)
+        controlCenterSnapshotOf(connectionState.value, null, agentProfile.value, _uiState.value.chatItems)
     )
 
     private fun controlCenterSnapshotOf(
         state: ConnectionState,
         activity: SessionActivity?,
-        profile: AgentLiveProfile?
+        profile: AgentLiveProfile?,
+        items: List<ChatItem>
     ): ControlCenterSnapshot {
         val address = (state as? ConnectionState.Connected)?.address ?: _targetAgentAddress
         return ControlCenterSnapshot.of(
@@ -696,7 +703,8 @@ open class ChatViewModel @JvmOverloads constructor(
             agentAddress = address,
             activity = activity,
             connection = state,
-            skills = profile?.skills.orEmpty()
+            skills = profile?.skills.orEmpty(),
+            chatItems = ControlCenterChatItems.of(items)
         )
     }
 

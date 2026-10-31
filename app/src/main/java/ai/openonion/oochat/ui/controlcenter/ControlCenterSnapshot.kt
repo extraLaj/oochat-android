@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
  * The chat as the Control Center app sees it: `ControlSnapshot` in connectonion-react's
  * `src/control-center.ts`, which the app's SDK validates before using.
  *
- * [chatItems] is empty until W16AAPPLE-30 fills it.
+ * [chatItems] are already in the SDK's `ChatItem` shape; see [ControlCenterChatItems].
  */
 data class ControlCenterSnapshot(
     val sessionId: String?,
@@ -49,6 +49,8 @@ data class ControlCenterSnapshot(
     }
 
     companion object {
+        const val MAX_CHAT_ITEMS = 2000
+        const val MAX_CHAT_ITEM_BYTES = 1024 * 1024
         const val MAX_SKILLS = 2000
         private const val MAX_SKILL_NAME = 64
         private const val MAX_SKILL_DESCRIPTION = 256
@@ -66,14 +68,37 @@ data class ControlCenterSnapshot(
             agentAddress: String,
             activity: SessionActivity?,
             connection: ConnectionState,
-            skills: List<AgentSkill>
-        ) = ControlCenterSnapshot(
-            sessionId = sessionId,
-            agentAddress = agentAddress,
-            status = ControlCenterAgentStatus.of(activity),
-            connectionState = ControlCenterConnection.of(connection),
-            skills = boundSkills(skills)
-        )
+            skills: List<AgentSkill>,
+            chatItems: List<JsonObject> = emptyList()
+        ): ControlCenterSnapshot {
+            val kept = boundChatItems(chatItems)
+            return ControlCenterSnapshot(
+                sessionId = sessionId,
+                agentAddress = agentAddress,
+                status = ControlCenterAgentStatus.of(activity),
+                connectionState = ControlCenterConnection.of(connection),
+                skills = boundSkills(skills),
+                chatItems = kept,
+                truncated = kept.size != chatItems.size
+            )
+        }
+
+        /**
+         * `boundControlSnapshot`'s rule: of the latest [MAX_CHAT_ITEMS], the newest that fit in
+         * [MAX_CHAT_ITEM_BYTES] of JSON. An item too big for what is left is skipped, not a stop,
+         * so older, smaller items can still be kept.
+         */
+        private fun boundChatItems(items: List<JsonObject>): List<JsonObject> {
+            var bytes = 0
+            val kept = ArrayList<JsonObject>()
+            for (item in items.takeLast(MAX_CHAT_ITEMS).asReversed()) {
+                val size = ControlCenterHost.utf8Length(item.toString())
+                if (bytes + size > MAX_CHAT_ITEM_BYTES) continue
+                bytes += size
+                kept += item
+            }
+            return kept.asReversed()
+        }
 
         private fun boundSkills(skills: List<AgentSkill>): List<ControlCenterSkill> {
             var bytes = 0

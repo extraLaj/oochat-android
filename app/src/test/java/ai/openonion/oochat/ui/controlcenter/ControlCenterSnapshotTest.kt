@@ -3,6 +3,10 @@ package ai.openonion.oochat.ui.controlcenter
 import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.SessionActivity
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,8 +18,19 @@ class ControlCenterSnapshotTest {
     private fun of(
         activity: SessionActivity? = SessionActivity.IDLE,
         connection: ConnectionState = ConnectionState.Connected(address = "0xagent"),
-        skills: List<AgentSkill> = emptyList()
-    ) = ControlCenterSnapshot.of("conv-1", "0xagent", activity, connection, skills)
+        skills: List<AgentSkill> = emptyList(),
+        chatItems: List<JsonObject> = emptyList()
+    ) = ControlCenterSnapshot.of("conv-1", "0xagent", activity, connection, skills, chatItems)
+
+    private fun chatItem(id: Int, content: String = "m$id") = buildJsonObject {
+        put("id", "i$id")
+        put("type", "agent")
+        put("content", content)
+    }
+
+    private fun bytes(item: JsonObject) = item.toString().toByteArray(Charsets.UTF_8).size
+
+    private fun ids(snapshot: ControlCenterSnapshot) = snapshot.chatItems.map { it["id"].toString().trim('"') }
 
     @Test
     fun `the agent's status is the chat's own status line`() {
@@ -60,5 +75,54 @@ class ControlCenterSnapshotTest {
         val skills = of(skills = heavy).toJson()["skills"].toString().toByteArray(Charsets.UTF_8).size
 
         assertTrue("skills JSON was $skills bytes", skills <= ControlCenterSnapshot.MAX_SKILL_BYTES)
+    }
+
+    @Test
+    fun `a chat that fits is sent whole and not truncated`() {
+        val items = (0 until 3).map { chatItem(it) }
+
+        val snapshot = of(chatItems = items)
+
+        assertEquals(items, snapshot.chatItems)
+        assertFalse(snapshot.truncated)
+        assertEquals(items, (snapshot.toJson()["chatItems"] as JsonArray).toList())
+    }
+
+    @Test
+    fun `only the latest 2000 chat items are sent, and the snapshot says so`() {
+        val snapshot = of(chatItems = (0 until 2001).map { chatItem(it) })
+
+        assertEquals(ControlCenterSnapshot.MAX_CHAT_ITEMS, snapshot.chatItems.size)
+        assertEquals("i1", ids(snapshot).first())
+        assertEquals("i2000", ids(snapshot).last())
+        assertTrue(snapshot.truncated)
+    }
+
+    @Test
+    fun `chat items are kept newest first within 1 MiB, skipping one that does not fit`() {
+        val big = chatItem(1, "x".repeat(600 * 1024))
+        val bigger = chatItem(2, "y".repeat(600 * 1024))
+        val small = chatItem(0)
+        val latest = chatItem(3)
+
+        // As boundControlSnapshot: [bigger] no longer fits after [big], but the older [small] still does.
+        val snapshot = of(chatItems = listOf(small, bigger, big, latest))
+
+        assertEquals(listOf("i0", "i1", "i3"), ids(snapshot))
+        assertTrue(snapshot.chatItems.sumOf(::bytes) <= ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES)
+        assertTrue(snapshot.truncated)
+    }
+
+    @Test
+    fun `a chat item measured exactly at the 1 MiB limit is kept`() {
+        val empty = bytes(chatItem(0, ""))
+        val exact = chatItem(0, "z".repeat(ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES - empty))
+        assertEquals(ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES, bytes(exact))
+
+        val snapshot = of(chatItems = listOf(exact))
+
+        assertEquals(listOf("i0"), ids(snapshot))
+        assertFalse(snapshot.truncated)
+        assertTrue(of(chatItems = listOf(chatItem(9), exact)).truncated)
     }
 }

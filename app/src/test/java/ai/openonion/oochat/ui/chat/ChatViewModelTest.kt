@@ -53,6 +53,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConnection
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.util.stringField
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -6053,6 +6054,85 @@ class ChatViewModelTest {
         val session = messageRepo.snapshot().single { it.content == "hi" }.sessionId
         assertEquals(ControlCenterAgentStatus.IDLE, vm.controlCenterSnapshot.value.status)
         assertEquals(session, vm.controlCenterSnapshot.value.sessionId)
+    }
+
+    // --- Control Center chat sync (W16AAPPLE-30) ---
+
+    /** The snapshot's chat items as (type, content-or-status) pairs, enough to tell them apart. */
+    private fun controlCenterChat(): List<Pair<String?, String?>> =
+        vm.controlCenterSnapshot.value.chatItems.map { it.stringField("type") to (it.stringField("content") ?: it.stringField("status")) }
+
+    @Test
+    fun `each change in the chat reaches the Control Center snapshot`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        assertEquals(emptyList<Pair<String?, String?>>(), controlCenterChat())
+
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi", "tool_call" to "running"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", status = ToolStatus.DONE, result = "ok")))
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi", "tool_call" to "done"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.OutputReceived("hello", null))
+        testScheduler.runCurrent()
+        assertEquals("agent" to "hello", controlCenterChat().last())
+        assertFalse(vm.controlCenterSnapshot.value.truncated)
+    }
+
+    @Test
+    fun `after a conversation switch the Control Center snapshot holds that conversation's chat`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        vm.sendMessage("in A")
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.OutputReceived("answer A", null))
+        testScheduler.runCurrent()
+        val a = vm.activeSessionId.value!!
+        vm.startNewSession()
+        testScheduler.runCurrent()
+        assertEquals("a new conversation starts empty", emptyList<Pair<String?, String?>>(), controlCenterChat())
+
+        vm.sendMessage("in B")
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "in B"), controlCenterChat())
+
+        vm.switchToSession(a)
+        testScheduler.runCurrent()
+
+        assertEquals(a, vm.controlCenterSnapshot.value.sessionId)
+        assertEquals(listOf("user" to "in A", "agent" to "answer A"), controlCenterChat().filter { it.first != "thinking" })
+    }
+
+    @Test
+    fun `through a reconnect the Control Center snapshot keeps the chat and then takes what was replayed`() = runTest(testDispatcher) {
+        val address = connectedForControlCenter()
+        vm.sendMessage("first")
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+
+        connectUseCase.forceState(ConnectionState.Reconnecting)
+        testScheduler.runCurrent()
+        assertEquals(ControlCenterConnection.RECONNECTING, vm.controlCenterSnapshot.value.connectionState)
+        assertEquals(listOf("user" to "first", "tool_call" to "running"), controlCenterChat())
+
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        // The host replays what was missed.
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", status = ToolStatus.DONE)))
+        connectUseCase.emit(ChatEvent.OutputReceived("after", null))
+        testScheduler.runCurrent()
+
+        assertEquals(ControlCenterConnection.CONNECTED, vm.controlCenterSnapshot.value.connectionState)
+        assertEquals(
+            listOf("user" to "first", "tool_call" to "done", "agent" to "after"),
+            controlCenterChat().filter { it.first != "thinking" }
+        )
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
