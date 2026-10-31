@@ -1270,6 +1270,7 @@ class FakeDatabaseForTest : ai.openonion.oochat.data.local.db.AppDatabase() {
     override fun sessionDao(): ai.openonion.oochat.data.local.db.dao.SessionDao = NoOpSessionDao
     override fun messageDao(): ai.openonion.oochat.data.local.db.dao.MessageDao = NoOpMessageDao
     override fun sessionStateDao() = throw NotImplementedError()
+    override fun sessionSyncDao() = throw NotImplementedError()
     override fun pendingMessageDao() = throw NotImplementedError()
     override fun clearAllTables() = throw NotImplementedError()
     // RoomDatabase's own constructor eagerly assigns `invalidationTracker = createInvalidationTracker()`

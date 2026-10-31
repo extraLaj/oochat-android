@@ -1,0 +1,230 @@
+package ai.openonion.oochat.data.repository
+
+import ai.openonion.oochat.data.local.db.AppDatabase
+import ai.openonion.oochat.data.local.db.entity.AgentEntity
+import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
+import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
+import ai.openonion.oochat.data.protocol.RemoteSessionSummary
+import ai.openonion.oochat.network.SessionSyncSnapshot
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class SessionSyncRepositoryImplTest {
+    private lateinit var database: AppDatabase
+    private lateinit var repository: SessionSyncRepositoryImpl
+
+    @Before
+    fun setUp() = runTest {
+        database = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            AppDatabase::class.java
+        ).allowMainThreadQueries().build()
+        repository = SessionSyncRepositoryImpl(database, clock = { 9_999L })
+        seedAgent("agent-1")
+        seedAgent("agent-2")
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    private suspend fun seedAgent(id: String) {
+        database.agentDao().insertAgent(
+            AgentEntity(
+                id = id,
+                address = "0x$id",
+                name = id,
+                serverUrl = "https://example.com",
+                createdAt = 0L
+            )
+        )
+    }
+
+    private fun summary(
+        id: String,
+        revision: Long = 1,
+        title: String = "Remote $id",
+        preview: String? = "preview $id"
+    ) = RemoteSessionSummary(
+        sessionId = id,
+        revision = revision,
+        title = title,
+        activity = "idle",
+        createdAt = "2026-10-01T00:00:00Z",
+        updatedAt = "2026-10-02T00:00:00Z",
+        lastSequence = 7,
+        preview = preview
+    )
+
+    private fun snapshot(
+        sessions: List<RemoteSessionSummary> = emptyList(),
+        removed: List<String> = emptyList(),
+        cursor: String = "cursor-1"
+    ) = SessionSyncSnapshot(sessions, removed, cursor)
+
+    @Test
+    fun `remote session is inserted and final cursor is scoped to identity and agent`() = runTest {
+        repository.reconcile("0xidentity-a", "agent-1", snapshot(sessions = listOf(summary("remote-1"))))
+
+        val stored = database.sessionDao().getSessionById("remote-1")
+        assertEquals("agent-1", stored?.agentId)
+        assertEquals("Remote remote-1", stored?.title)
+        assertEquals("preview remote-1", stored?.lastMessagePreview)
+        assertEquals(1L, stored?.remoteRevision)
+        assertEquals(0, stored?.messageCount)
+        assertEquals("cursor-1", repository.cursorFor("0xidentity-a", "agent-1"))
+        assertNull(repository.cursorFor("0xidentity-b", "agent-1"))
+        assertNull(repository.cursorFor("0xidentity-a", "agent-2"))
+    }
+
+    @Test
+    fun `duplicate summaries create one row using their greatest revision`() = runTest {
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(
+                sessions = listOf(
+                    summary("same", revision = 1, title = "Old"),
+                    summary("same", revision = 3, title = "Newest"),
+                    summary("same", revision = 2, title = "Middle")
+                )
+            )
+        )
+
+        val sessions = database.sessionDao().getSessionsByAgent("agent-1").first()
+        assertEquals(listOf("same"), sessions.map { it.id })
+        assertEquals("Newest", sessions.single().title)
+        assertEquals(3L, sessions.single().remoteRevision)
+    }
+
+    @Test
+    fun `newer metadata updates in place and preserves local messages and count`() = runTest {
+        database.sessionDao().insertSession(
+            ChatSessionEntity(
+                id = "existing",
+                agentId = "agent-1",
+                title = "Local title",
+                createdAt = 100L,
+                updatedAt = 200L,
+                messageCount = 4,
+                lastMessagePreview = "local preview",
+                remoteRevision = 1
+            )
+        )
+        database.messageDao().insertMessage(
+            ChatMessageEntity(
+                id = "message-1",
+                sessionId = "existing",
+                role = "USER",
+                content = "keep me",
+                timestamp = 300L
+            )
+        )
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("existing", revision = 2, title = "Remote title")))
+        )
+
+        val stored = database.sessionDao().getSessionById("existing")
+        assertEquals("Remote title", stored?.title)
+        assertEquals(2L, stored?.remoteRevision)
+        assertEquals(4, stored?.messageCount)
+        assertEquals("keep me", database.messageDao().getMessagesListBySession("existing").single().content)
+    }
+
+    @Test
+    fun `equal or older revision cannot overwrite newer metadata`() = runTest {
+        database.sessionDao().insertSession(
+            ChatSessionEntity(
+                id = "existing",
+                agentId = "agent-1",
+                title = "Newest",
+                createdAt = 100L,
+                updatedAt = 500L,
+                remoteRevision = 5
+            )
+        )
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("existing", revision = 4, title = "Stale")))
+        )
+
+        val stored = database.sessionDao().getSessionById("existing")
+        assertEquals("Newest", stored?.title)
+        assertEquals(5L, stored?.remoteRevision)
+    }
+
+    @Test
+    fun `removal is scoped to the synchronized agent`() = runTest {
+        database.sessionDao().insertSession(
+            ChatSessionEntity("remove-me", "agent-1", "one", 0L, 0L)
+        )
+        database.sessionDao().insertSession(
+            ChatSessionEntity("other-agent", "agent-2", "two", 0L, 0L)
+        )
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(removed = listOf("remove-me", "other-agent"))
+        )
+
+        assertNull(database.sessionDao().getSessionById("remove-me"))
+        assertEquals("agent-2", database.sessionDao().getSessionById("other-agent")?.agentId)
+    }
+
+    @Test
+    fun `failure rolls back inserted sessions and leaves the old cursor`() = runTest {
+        repository.reconcile("0xidentity", "agent-1", snapshot(cursor = "old-cursor"))
+        database.sessionDao().insertSession(
+            ChatSessionEntity("collision", "agent-2", "other", 0L, 0L)
+        )
+
+        val failure = runCatching {
+            repository.reconcile(
+                "0xidentity",
+                "agent-1",
+                snapshot(
+                    sessions = listOf(summary("inserted-first"), summary("collision")),
+                    cursor = "new-cursor"
+                )
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertNull(database.sessionDao().getSessionById("inserted-first"))
+        assertEquals("old-cursor", repository.cursorFor("0xidentity", "agent-1"))
+    }
+
+    @Test
+    fun `snapshot cannot update and remove the same session`() = runTest {
+        val failure = runCatching {
+            repository.reconcile(
+                "0xidentity",
+                "agent-1",
+                snapshot(sessions = listOf(summary("ambiguous")), removed = listOf("ambiguous"))
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertNull(repository.cursorFor("0xidentity", "agent-1"))
+    }
+}

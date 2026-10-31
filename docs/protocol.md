@@ -44,7 +44,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
-| `SESSION_SYNC` index request | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt); a bounded index-only socket signs the request and drains every page, while persistence and Recent Chat reconciliation remain pending |
+| `SESSION_SYNC` index request | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt); transport and atomic Room reconciliation are implemented, while the refresh/reconnect trigger remains pending |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
 
 ### Server-to-client frame checklist
@@ -66,7 +66,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `session_sync` | Partial | [`ProtocolParserSessionSyncTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserSessionSyncTest.kt); assistant messages are replayed, while other session entries are not rendered as separate items |
-| `SESSION_SYNC_RESULT` index response | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt); pages are transported and combined into one complete snapshot, but that snapshot is not yet reconciled into Room |
+| `SESSION_SYNC_RESULT` index response | Partial | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt); pages are combined and revision-aware changes plus the final cursor are committed to Room together, but no app lifecycle path invokes the sync yet |
 | `user_input` | Partial by design | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt); ignored because the local user message is authoritative |
 | `ask_user` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -805,7 +805,10 @@ opens a separate, short-lived index socket, validates the exact negotiated
 extension, signs each request and drains every page before returning one
 snapshot. A partial fetch is never presented as authoritative state: timeout,
 premature close and malformed frames close the socket and fail the operation.
-Cursor persistence and Room reconciliation remain later W16AAPPLE-70 layers.
+`SessionSyncRepositoryImpl` then applies only newer revisions, explicit
+removals and the final identity-and-agent-scoped cursor in one Room transaction;
+existing message rows are preserved by targeted updates rather than parent-row
+replacement. Refresh/reconnect integration remains a later W16AAPPLE-70 layer.
 
 ### Reconnect and replay
 

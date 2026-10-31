@@ -40,5 +40,9 @@ data class ChatSessionEntity(
     val messageCount: Int = 0,
 
     @ColumnInfo(name = "last_message_preview")
-    val lastMessagePreview: String? = null
+    val lastMessagePreview: String? = null,
+
+    /** Newest Host index revision applied to this row */
+    @ColumnInfo(name = "remote_revision")
+    val remoteRevision: Long? = null
 )

@@ -5,11 +5,13 @@ import ai.openonion.oochat.data.local.db.dao.MessageDao
 import ai.openonion.oochat.data.local.db.dao.PendingMessageDao
 import ai.openonion.oochat.data.local.db.dao.SessionDao
 import ai.openonion.oochat.data.local.db.dao.SessionStateDao
+import ai.openonion.oochat.data.local.db.dao.SessionSyncDao
 import ai.openonion.oochat.data.local.db.entity.AgentEntity
 import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
 import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
 import ai.openonion.oochat.data.local.db.entity.PendingMessageEntity
 import ai.openonion.oochat.data.local.db.entity.SessionStateEntity
+import ai.openonion.oochat.data.local.db.entity.SessionSyncStateEntity
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
@@ -18,15 +20,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * Versions 1-4 predate schema export, so an upgrade from one of those still
- * rebuilds destructively — scoped via [fallbackToDestructiveMigrationFrom]
- * rather than a blanket fallback that silently wipes on every future bump.
- * From v5 on every change is a real [Migration]. Add one here for any new
- * schema change instead of growing the destructive list.
+ * The app's Room database.
  *
- * Numbering matches the team repo (the previous project repository)
- * as of this commit, so the two stay mergeable; see the commit message for
- * what that realignment cost.
+ * Very old databases (versions 1-4) must be rebuilt because their original
+ * layouts were not recorded. From version 5 onward, each upgrade has a
+ * migration that keeps existing data. Every future database change must bump
+ * [version] and add its migration to [ALL_MIGRATIONS].
  */
 @Database(
     entities = [
@@ -34,9 +33,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatSessionEntity::class,
         ChatMessageEntity::class,
         SessionStateEntity::class,
-        PendingMessageEntity::class
+        PendingMessageEntity::class,
+        SessionSyncStateEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -49,14 +49,15 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun sessionStateDao(): SessionStateDao
 
+    abstract fun sessionSyncDao(): SessionSyncDao
+
     abstract fun pendingMessageDao(): PendingMessageDao
 
     companion object {
         private const val DATABASE_NAME = "connectonion_db"
 
-        // internal (not private): Migration8To9Test opens a hand-built v8
-        // database and drives this migration directly, so it needs access
-        // from outside this class body.
+        // Migrations are internal so tests can run the same upgrade code used
+        // by the real app.
         internal val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN voice_transcript_status TEXT")
@@ -234,14 +235,42 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * The one migration chain, shared with the migration tests so a
-         * migration can never be written, tested, and then left out of the
-         * builder below — which would crash a real upgrade.
+         * Adds the information needed for Recent Chat sync:
+         *
+         * - `remote_revision` records which Host update a chat has received.
+         * - `session_sync_states` stores where each identity and agent last
+         *   finished syncing.
+         */
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN remote_revision INTEGER")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `session_sync_states` (
+                        `identity_address` TEXT NOT NULL,
+                        `agent_id` TEXT NOT NULL,
+                        `cursor` TEXT NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`identity_address`, `agent_id`),
+                        FOREIGN KEY(`agent_id`) REFERENCES `agent_profiles`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_session_sync_states_agent_id` " +
+                        "ON `session_sync_states` (`agent_id`)"
+                )
+            }
+        }
+
+        /**
+         * Lists every supported upgrade for tests and database use.
          */
         internal val ALL_MIGRATIONS = arrayOf(
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-            MIGRATION_12_13, MIGRATION_13_14
+            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
         )
 
         @Volatile
@@ -255,10 +284,8 @@ abstract class AppDatabase : RoomDatabase() {
                     DATABASE_NAME
                 )
                     .addMigrations(*ALL_MIGRATIONS)
-                    // dropAllTables = false: rebuild only what Room declares.
-                    // The two are equivalent here — nothing outside Room owns a
-                    // table in this database — so this takes the narrower of the
-                    // two, which stays correct if that ever stops being true.
+                    // Only versions 1-4 may be rebuilt. Newer versions must use
+                    // migrations so an upgrade cannot silently erase user data.
                     .fallbackToDestructiveMigrationFrom(dropAllTables = false, 1, 2, 3, 4)
                     .build()
                 INSTANCE = instance
