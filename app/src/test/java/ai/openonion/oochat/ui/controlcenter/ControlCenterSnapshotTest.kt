@@ -20,7 +20,7 @@ class ControlCenterSnapshotTest {
         connection: ConnectionState = ConnectionState.Connected(address = "0xagent"),
         skills: List<AgentSkill> = emptyList(),
         chatItems: List<JsonObject> = emptyList()
-    ) = ControlCenterSnapshot.of("conv-1", "0xagent", activity, connection, skills, chatItems)
+    ) = ControlCenterSnapshot.of("conv-1", "0xagent", activity, connection, skills, ControlCenterChat.bounded(chatItems))
 
     private fun chatItem(id: Int, content: String = "m$id") = buildJsonObject {
         put("id", "i$id")
@@ -92,7 +92,7 @@ class ControlCenterSnapshotTest {
     fun `only the latest 2000 chat items are sent, and the snapshot says so`() {
         val snapshot = of(chatItems = (0 until 2001).map { chatItem(it) })
 
-        assertEquals(ControlCenterSnapshot.MAX_CHAT_ITEMS, snapshot.chatItems.size)
+        assertEquals(ControlCenterChat.MAX_ITEMS, snapshot.chatItems.size)
         assertEquals("i1", ids(snapshot).first())
         assertEquals("i2000", ids(snapshot).last())
         assertTrue(snapshot.truncated)
@@ -109,20 +109,33 @@ class ControlCenterSnapshotTest {
         val snapshot = of(chatItems = listOf(small, bigger, big, latest))
 
         assertEquals(listOf("i0", "i1", "i3"), ids(snapshot))
-        assertTrue(snapshot.chatItems.sumOf(::bytes) <= ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES)
+        assertTrue(snapshot.chatItems.sumOf(::bytes) <= ControlCenterChat.MAX_BYTES)
         assertTrue(snapshot.truncated)
     }
 
     @Test
     fun `a chat item measured exactly at the 1 MiB limit is kept`() {
         val empty = bytes(chatItem(0, ""))
-        val exact = chatItem(0, "z".repeat(ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES - empty))
-        assertEquals(ControlCenterSnapshot.MAX_CHAT_ITEM_BYTES, bytes(exact))
+        val exact = chatItem(0, "z".repeat(ControlCenterChat.MAX_BYTES - empty))
+        assertEquals(ControlCenterChat.MAX_BYTES, bytes(exact))
 
         val snapshot = of(chatItems = listOf(exact))
 
         assertEquals(listOf("i0"), ids(snapshot))
         assertFalse(snapshot.truncated)
         assertTrue(of(chatItems = listOf(chatItem(9), exact)).truncated)
+    }
+
+    @Test
+    fun `the chat is built from the app's own items`() {
+        val chat = ControlCenterChat.of(
+            listOf(
+                ai.openonion.oochat.domain.model.ChatItem.User(id = "u1", content = "hi"),
+                ai.openonion.oochat.domain.model.ChatItem.ModeChangedItem(id = "m1", mode = "auto")
+            )
+        )
+
+        assertEquals(listOf("u1"), chat.items.map { it["id"].toString().trim('"') })
+        assertFalse("an item with no SDK type is not one left out by the bounds", chat.truncated)
     }
 }

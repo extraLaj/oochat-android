@@ -71,6 +71,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -668,6 +669,7 @@ class ChatViewModelTest {
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
+            controlCenterDispatcher = testDispatcher,
         )
     }
 
@@ -3060,6 +3062,7 @@ class ChatViewModelTest {
         requiresNotificationPermission = true,
         hasNotificationPermission = { notificationPermissionGranted },
         isAppInForeground = { appInForeground },
+        controlCenterDispatcher = testDispatcher,
     )
 
     private fun ChatViewModel.errorItems() =
@@ -3908,6 +3911,7 @@ class ChatViewModelTest {
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
+            controlCenterDispatcher = testDispatcher,
         )
         testScheduler.runCurrent()
 
@@ -5697,7 +5701,14 @@ class ChatViewModelTest {
 
     // --- Control Center actions (W16AAPPLE-29) ---
 
+    /** Reads the snapshot as the Control Center screen does; it only updates while read. */
+    private fun TestScope.watchControlCenter() {
+        backgroundScope.launch { vm.controlCenterSnapshot.collect {} }
+        testScheduler.runCurrent()
+    }
+
     private fun TestScope.connectedForControlCenter(): String {
+        watchControlCenter()
         val address = validHexAddress()
         vm.connectToAgent(address)
         testScheduler.runCurrent()
@@ -6058,9 +6069,59 @@ class ChatViewModelTest {
 
     // --- Control Center chat sync (W16AAPPLE-30) ---
 
-    /** The snapshot's chat items as (type, content-or-status) pairs, enough to tell them apart. */
-    private fun controlCenterChat(): List<Pair<String?, String?>> =
-        vm.controlCenterSnapshot.value.chatItems.map { it.stringField("type") to (it.stringField("content") ?: it.stringField("status")) }
+    /**
+     * The snapshot's chat items as (type, content-or-status) pairs, enough to tell them apart,
+     * once a change made since the last rebuild has had time to come through.
+     */
+    private fun TestScope.controlCenterChat(): List<Pair<String?, String?>> {
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+        return vm.controlCenterSnapshot.value.chatItems.map { it.stringField("type") to (it.stringField("content") ?: it.stringField("status")) }
+    }
+
+    @Test
+    fun `the Control Center chat is only built while the Control Center is open`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+        assertEquals("nothing reads it, so nothing is built", emptyList<JsonObject>(), vm.controlCenterSnapshot.value.chatItems)
+
+        watchControlCenter()
+
+        assertEquals(listOf("user" to "hi"), controlCenterChat())
+    }
+
+    @Test
+    fun `a streaming reply rebuilds the Control Center chat at most once per interval, ending on the latest`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        val seen = mutableListOf<List<JsonObject>>()
+        backgroundScope.launch { vm.controlCenterSnapshot.collect { seen += it.chatItems } }
+        testScheduler.runCurrent()
+        seen.clear()
+
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        assertEquals("the first change goes at once", 1, seen.size)
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+        seen.clear()
+        repeat(20) { n ->
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", result = "part $n")))
+            testScheduler.advanceTimeBy(10)
+            testScheduler.runCurrent()
+        }
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+
+        assertTrue("20 changes in 200 ms gave ${seen.size} rebuilds", seen.size in 1..2)
+        assertEquals("part 19", seen.last().last().stringField("result"))
+    }
 
     @Test
     fun `each change in the chat reaches the Control Center snapshot`() = runTest(testDispatcher) {

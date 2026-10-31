@@ -1213,7 +1213,8 @@ while an action or a stopped turn is in progress, otherwise read off the chat's
 own status line, so `working`, `waiting` or `idle`) and the connection (`connected`,
 `reconnecting`, or `disconnected`, which includes a first connect still in
 progress). Its chat items (`ControlCenterChatItems`) are the conversation in the
-React SDK's `ChatItem` shape, bounded as `boundControlSnapshot` does.
+React SDK's `ChatItem` shape, bounded as `boundControlSnapshot` does. Tool-call `args`
+and approval `arguments` go out with string values, as the app stores them.
 
 **The screen.** The chat's Home button opens `ControlCenterScreen` when the agent
 has an app and the device's WebView supports message listeners, and the legacy

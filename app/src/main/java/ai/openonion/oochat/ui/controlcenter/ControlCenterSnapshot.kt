@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.controlcenter
 
 import ai.openonion.oochat.domain.model.AgentSkill
+import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.SessionActivity
 import kotlinx.serialization.json.JsonArray
@@ -49,8 +50,6 @@ data class ControlCenterSnapshot(
     }
 
     companion object {
-        const val MAX_CHAT_ITEMS = 2000
-        const val MAX_CHAT_ITEM_BYTES = 1024 * 1024
         const val MAX_SKILLS = 2000
         private const val MAX_SKILL_NAME = 64
         private const val MAX_SKILL_DESCRIPTION = 256
@@ -69,36 +68,16 @@ data class ControlCenterSnapshot(
             activity: SessionActivity?,
             connection: ConnectionState,
             skills: List<AgentSkill>,
-            chatItems: List<JsonObject> = emptyList()
-        ): ControlCenterSnapshot {
-            val kept = boundChatItems(chatItems)
-            return ControlCenterSnapshot(
-                sessionId = sessionId,
-                agentAddress = agentAddress,
-                status = ControlCenterAgentStatus.of(activity),
-                connectionState = ControlCenterConnection.of(connection),
-                skills = boundSkills(skills),
-                chatItems = kept,
-                truncated = kept.size != chatItems.size
-            )
-        }
-
-        /**
-         * `boundControlSnapshot`'s rule: of the latest [MAX_CHAT_ITEMS], the newest that fit in
-         * [MAX_CHAT_ITEM_BYTES] of JSON. An item too big for what is left is skipped, not a stop,
-         * so older, smaller items can still be kept.
-         */
-        private fun boundChatItems(items: List<JsonObject>): List<JsonObject> {
-            var bytes = 0
-            val kept = ArrayList<JsonObject>()
-            for (item in items.takeLast(MAX_CHAT_ITEMS).asReversed()) {
-                val size = ControlCenterHost.utf8Length(item.toString())
-                if (bytes + size > MAX_CHAT_ITEM_BYTES) continue
-                bytes += size
-                kept += item
-            }
-            return kept.asReversed()
-        }
+            chat: ControlCenterChat = ControlCenterChat()
+        ) = ControlCenterSnapshot(
+            sessionId = sessionId,
+            agentAddress = agentAddress,
+            status = ControlCenterAgentStatus.of(activity),
+            connectionState = ControlCenterConnection.of(connection),
+            skills = boundSkills(skills),
+            chatItems = chat.items,
+            truncated = chat.truncated
+        )
 
         private fun boundSkills(skills: List<AgentSkill>): List<ControlCenterSkill> {
             var bytes = 0
@@ -117,6 +96,36 @@ data class ControlCenterSnapshot(
         }
 
         private fun jsonBytes(text: String) = JsonPrimitive(text).toString().toByteArray(Charsets.UTF_8).size
+    }
+}
+
+/**
+ * The chat as the snapshot carries it: [items] bounded as `boundControlSnapshot` does, and
+ * whether any were left out. Built apart from the snapshot because it costs time in proportion
+ * to the conversation, so the chat builds it off the main thread.
+ */
+data class ControlCenterChat(val items: List<JsonObject> = emptyList(), val truncated: Boolean = false) {
+    companion object {
+        const val MAX_ITEMS = 2000
+        const val MAX_BYTES = 1024 * 1024
+
+        fun of(items: List<ChatItem>): ControlCenterChat = bounded(ControlCenterChatItems.of(items))
+
+        /**
+         * Of the latest [MAX_ITEMS], the newest that fit in [MAX_BYTES] of JSON. An item too big
+         * for what is left is skipped, not a stop, so older, smaller items can still be kept.
+         */
+        fun bounded(items: List<JsonObject>): ControlCenterChat {
+            var bytes = 0
+            val kept = ArrayList<JsonObject>()
+            for (item in items.takeLast(MAX_ITEMS).asReversed()) {
+                val size = ControlCenterHost.utf8Length(item.toString())
+                if (bytes + size > MAX_BYTES) continue
+                bytes += size
+                kept += item
+            }
+            return ControlCenterChat(kept.asReversed(), truncated = kept.size != items.size)
+        }
     }
 }
 
