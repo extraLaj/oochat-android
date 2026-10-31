@@ -5,6 +5,7 @@ import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.toConnectTarget
+import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.di.appContainer
 import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentStatus
@@ -2544,10 +2545,16 @@ open class ChatViewModel @JvmOverloads constructor(
                 return@launch
             }
             _voiceInput.update { it.copy(phase = VoiceInputPhase.TRANSCRIBING) }
-            val transcript = voiceTranscriptionService.transcribe(recorded.file).getOrNull()
+            val result = voiceTranscriptionService.transcribe(recorded.file)
+            val transcript = result.getOrNull()
             _voiceInput.value = VoiceInputState(
                 transcript = transcript.orEmpty(),
-                error = if (transcript.isNullOrBlank()) "Couldn't transcribe that. Try again." else null
+                error = when {
+                    // Trying again cannot help: the account server refuses this device's clock.
+                    result.exceptionOrNull() is AccountClockException -> TRANSCRIPTION_CLOCK_WRONG
+                    transcript.isNullOrBlank() -> "Couldn't transcribe that. Try again."
+                    else -> null
+                }
             )
         }
     }
@@ -2821,5 +2828,10 @@ open class ChatViewModel @JvmOverloads constructor(
          * this long means it was not runtime input.
          */
         internal const val RUNTIME_INPUT_REPLY_TIMEOUT_MS = 10_000L
+
+        /** Dictation's error when the account sign-in is refused over this device's clock (W16AAPPLE-91). */
+        internal const val TRANSCRIPTION_CLOCK_WRONG =
+            "Couldn't transcribe that: this device's clock is wrong. " +
+                "Check the date and time in Settings (set them to automatic), then try again."
     }
 }

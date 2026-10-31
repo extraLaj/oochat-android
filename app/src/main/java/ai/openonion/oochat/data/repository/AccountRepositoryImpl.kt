@@ -3,6 +3,7 @@ package ai.openonion.oochat.data.repository
 import ai.openonion.oochat.crypto.KeyManager
 import ai.openonion.oochat.di.sharedHttpClient
 import ai.openonion.oochat.domain.model.UserProfile
+import ai.openonion.oochat.network.HostClock
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import ai.openonion.oochat.util.runCatchingCancellable
@@ -15,6 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 /**
  * Talks to `oo.openonion.ai`'s account API. Auth is a signed-challenge
@@ -31,8 +33,17 @@ import java.util.concurrent.TimeUnit
  */
 class AccountRepositoryImpl(
     private val keyManager: KeyManager,
-    private val baseUrl: String = "https://oo.openonion.ai"
+    private val baseUrl: String = "https://oo.openonion.ai",
+    private val deviceMillis: () -> Long = System::currentTimeMillis
 ) : AccountRepository {
+
+    /**
+     * `/api/v1/auth` refuses a timestamp more than five minutes from its own clock, and the app
+     * signs in again on every launch, so a phone whose clock is off had no balance and no voice
+     * transcription at all. Every sign-in response's `Date` header corrects the clock, bounded as
+     * for the agent connection (W16AAPPLE-90).
+     */
+    private val serverClock = HostClock(deviceMillis)
 
     // Derived from the app's one client rather than built fresh, so these
     // calls reuse the connection already pooled for oo.openonion.ai instead
@@ -97,7 +108,29 @@ class AccountRepositoryImpl(
 
     private fun authenticate(epochAtStart: Int): String {
         val keys = keyManager.loadOrGenerate()
-        val timestamp = System.currentTimeMillis() / 1000
+        val signedAt = serverClock.nowSeconds()
+        val token = try {
+            signIn(keys, signedAt)
+        } catch (refused: AuthRefusedException) {
+            // The refusal's Date has just corrected the clock. If that moved it, one more try
+            // signed with the server's time can pass; with the same time it would be refused again.
+            val retryAt = serverClock.nowSeconds()
+            if (abs(retryAt - signedAt) < MIN_CORRECTION_SECONDS) throw refused.clockProblemOrSelf()
+            try {
+                signIn(keys, retryAt)
+            } catch (again: AuthRefusedException) {
+                throw again.clockProblemOrSelf()
+            }
+        }
+        // Only publish under the epoch this load started with - if the
+        // identity switched mid-auth, this token was signed by the OLD
+        // keys and caching it would resurrect the stale identity.
+        if (identityEpoch.get() == epochAtStart) cachedToken = token
+        return token
+    }
+
+    /** One signed sign-in at [timestamp]; feeds the response's `Date` to [serverClock] either way. */
+    private fun signIn(keys: KeyManager.AddressData, timestamp: Long): String {
         val message = "ConnectOnion-Auth-${keys.address}-$timestamp"
         val signature = keyManager.sign(keys, message)
 
@@ -111,16 +144,16 @@ class AccountRepositoryImpl(
             .build()
 
         httpClient.newCall(request).execute().use { response ->
+            serverClock.observe(response)
             val body = response.body?.string()
+            if (response.code == 401) {
+                val serverMillis = runCatching { response.headers.getDate("Date")?.time }.getOrNull()
+                throw AuthRefusedException(skewMillis = serverMillis?.let { it - deviceMillis() })
+            }
             if (!response.isSuccessful || body == null) {
                 throw AuthFailedException("auth returned ${response.code}")
             }
-            val token = json.decodeFromString(AuthResponse.serializer(), body).token
-            // Only publish under the epoch this load started with — if the
-            // identity switched mid-auth, this token was signed by the OLD
-            // keys and caching it would resurrect the stale identity.
-            if (identityEpoch.get() == epochAtStart) cachedToken = token
-            return token
+            return json.decodeFromString(AuthResponse.serializer(), body).token
         }
     }
 
@@ -149,10 +182,22 @@ class AccountRepositoryImpl(
 
     companion object {
         private const val TIMEOUT_SECONDS = 15L
+
+        /** A correction smaller than this cannot be why a sign-in was refused. */
+        private const val MIN_CORRECTION_SECONDS = 60L
     }
 }
 
+/** `/api/v1/auth`'s timestamp window, from oo-api's published spec. */
+private const val AUTH_WINDOW_MS = 5 * 60 * 1000L
+
 private class AuthFailedException(message: String) : Exception(message)
+
+/** A 401 from `/api/v1/auth`; [skewMillis] is the server's clock minus this device's, when it sent one. */
+private class AuthRefusedException(val skewMillis: Long?) : Exception("auth returned 401") {
+    fun clockProblemOrSelf(): Exception =
+        if (skewMillis != null && abs(skewMillis) > AUTH_WINDOW_MS) AccountClockException() else this
+}
 private class AuthExpiredException : Exception("token expired")
 private class ProfileFetchException(message: String) : Exception(message)
 private class StaleIdentityException : Exception("identity changed while account load was in flight")
