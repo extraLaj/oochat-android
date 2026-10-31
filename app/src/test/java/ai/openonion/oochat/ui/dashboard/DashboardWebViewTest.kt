@@ -12,8 +12,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -28,6 +32,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowWebView
+import java.util.concurrent.Executor
+import kotlin.concurrent.thread
 
 /** Verifies the Android half of the untrusted dashboard sandbox. */
 @RunWith(RobolectricTestRunner::class)
@@ -48,11 +54,17 @@ class DashboardWebViewTest {
             DashboardWebView(
                 document = document,
                 onRunSkill = { _, _ -> },
-                onNavigationBlocked = { blocked++ }
+                onNavigationBlocked = { blocked++ },
+                awaitVisualState = { _, id, onReady -> visualStateRequests += VisualStateRequest(id, onReady) }
             )
         }
         composeRule.waitForIdle()
     }
+
+    private class VisualStateRequest(val id: Long, val onReady: (Long) -> Unit)
+
+    /** Visual state callbacks the switcher asked for, in order. Robolectric never draws, so tests fire them. */
+    private val visualStateRequests = mutableListOf<VisualStateRequest>()
 
     /** Swaps in a newer snapshot, as a new DASHBOARD_SNAPSHOT would. */
     private fun replaceWith(next: String) {
@@ -79,10 +91,24 @@ class DashboardWebViewTest {
 
     private fun loaded(view: WebView): String? = shadowOf(view).lastLoadDataWithBaseURL?.data
 
-    /** What WebView reports once a load is ready to draw; Robolectric never fires it itself. */
-    private fun commitVisible(view: WebView) {
-        composeRule.runOnUiThread { shadowOf(view).webViewClient.onPageCommitVisible(view, "about:blank") }
+    /** What WebView reports once a document is fully parsed; Robolectric never fires it itself. */
+    private fun finishLoading(view: WebView) {
+        composeRule.runOnUiThread { shadowOf(view).webViewClient.onPageFinished(view, "about:blank") }
         composeRule.waitForIdle()
+    }
+
+    /** What WebView does once the DOM a callback was posted for can be drawn. */
+    private fun drawReady(request: VisualStateRequest) {
+        composeRule.runOnUiThread { request.onReady(request.id) }
+        composeRule.waitForIdle()
+    }
+
+    /** The hidden page's load runs to completion, as it would on a device. */
+    private fun backBecomesReady() {
+        val posted = visualStateRequests.size
+        finishLoading(switcher().back)
+        assertEquals("a finished load asks for one visual state callback", posted + 1, visualStateRequests.size)
+        drawReady(visualStateRequests.last())
     }
 
     private fun request(url: String) = object : WebResourceRequest {
@@ -187,27 +213,43 @@ class DashboardWebViewTest {
     }
 
     @Test
-    fun `the newer snapshot is swapped in once it is ready to draw`() {
+    fun `a finished load is swapped in only once it is ready to draw`() {
         showWebView("<h1>v1</h1>")
         val old = shown()
         replaceWith("<h1>v2</h1>")
         val next = switcher().back
 
-        commitVisible(next)
+        finishLoading(next)
+        assertSame("parsed is not drawable yet", old, shown())
 
+        drawReady(visualStateRequests.single())
         assertSame(next, shown())
         assertEquals("<h1>v2</h1>", loaded(shown()))
         assertEquals("the old page is hidden, not left on top", View.INVISIBLE, old.visibility)
     }
 
     @Test
-    fun `a commit on the page already shown swaps nothing`() {
+    fun `a repeated ready signal after the swap does not swap back`() {
+        showWebView("<h1>v1</h1>")
+        replaceWith("<h1>v2</h1>")
+        backBecomesReady()
+        val next = shown()
+
+        drawReady(visualStateRequests.last())
+
+        assertSame(next, shown())
+        assertEquals("the hidden page is not reloaded", "<h1>v1</h1>", loaded(switcher().back))
+    }
+
+    @Test
+    fun `a finish on the page already shown asks for nothing and swaps nothing`() {
         showWebView("<h1>v1</h1>")
         val old = shown()
         replaceWith("<h1>v2</h1>")
 
-        commitVisible(old)
+        finishLoading(old)
 
+        assertTrue(visualStateRequests.isEmpty())
         assertSame(old, shown())
     }
 
@@ -216,20 +258,52 @@ class DashboardWebViewTest {
         showWebView("<h1>v1</h1>")
         listOf("<h1>v2</h1>", "<h1>v3</h1>", "<h1>v4</h1>").forEach { next ->
             replaceWith(next)
-            commitVisible(switcher().back)
+            backBecomesReady()
             assertEquals(next, loaded(shown()))
         }
         assertEquals(2, webViews().size)
+        assertEquals("each load gets a fresh request id", listOf(1L, 2L, 3L), visualStateRequests.map { it.id })
     }
 
     @Test
-    fun `a snapshot superseded while loading is never swapped in`() {
+    fun `a snapshot arriving mid-load waits rather than loading over the one in flight`() {
+        showWebView("<h1>v1</h1>")
+        replaceWith("<h1>v2</h1>")
+
+        replaceWith("<h1>v3</h1>")
+
+        // Loading v3 over v2 would leave v2's signals indistinguishable from v3's.
+        assertEquals("<h1>v2</h1>", loaded(switcher().back))
+    }
+
+    @Test
+    fun `a snapshot superseded while it loaded is never put on screen`() {
         showWebView("<h1>v1</h1>")
         replaceWith("<h1>v2</h1>")
         replaceWith("<h1>v3</h1>")
 
-        commitVisible(switcher().back)
+        backBecomesReady()
+        assertEquals("v2 is stale by the time it is ready", "<h1>v1</h1>", loaded(shown()))
+        assertEquals("the latest loads instead", "<h1>v3</h1>", loaded(switcher().back))
 
+        backBecomesReady()
+        assertEquals("<h1>v3</h1>", loaded(shown()))
+    }
+
+    @Test
+    fun `a late ready signal from an earlier load cannot swap in the page now loading`() {
+        showWebView("<h1>v1</h1>")
+        replaceWith("<h1>v2</h1>")
+        finishLoading(switcher().back)
+        val v2Ready = visualStateRequests.single()
+        replaceWith("<h1>v3</h1>")
+        drawReady(v2Ready) // v2 is stale; v3 starts loading in the hidden page
+
+        drawReady(v2Ready) // the same signal again, while v3 is still mid-load
+
+        assertEquals("<h1>v1</h1>", loaded(shown()))
+        assertEquals(View.INVISIBLE, switcher().back.visibility)
+        backBecomesReady()
         assertEquals("<h1>v3</h1>", loaded(shown()))
     }
 
@@ -255,6 +329,23 @@ class DashboardWebViewTest {
         val document = loaded(shown())!!
         assertTrue(document.contains("<h1>v1</h1>"))
         assertTrue("the wrapper, not the raw snapshot", document.contains("Content-Security-Policy"))
+    }
+
+    @Test
+    fun `the screen draws while a held-back build has not finished, so the build is off the main thread`() {
+        val held = mutableListOf<Runnable>()
+        val gate = Executor { held += it }.asCoroutineDispatcher()
+        composeRule.setContent { screen(html = "<h1>v1</h1>", buildDispatcher = gate) }
+        composeRule.waitForIdle()
+
+        assertTrue("the wrap was handed to the build dispatcher", held.isNotEmpty())
+        composeRule.onNodeWithText("Agent home").assertIsDisplayed()
+        composeRule.onNodeWithText("No Home page yet").assertDoesNotExist()
+        assertTrue("nothing is loaded while the build is held", webViews().isEmpty())
+
+        thread { held.toList().forEach(Runnable::run) }.join()
+        composeRule.waitUntil(5_000) { webViews().isNotEmpty() && loaded(shown()) != null }
+        assertTrue(loaded(shown())!!.contains("<h1>v1</h1>"))
     }
 
     @Test
@@ -289,8 +380,14 @@ class DashboardWebViewTest {
     }
 
     @Composable
-    private fun screen(html: String?) = ConnectOnionTheme {
-        DashboardScreen(html = html, allowedSkills = emptyList(), onRunSkill = {}, onNavigateBack = {})
+    private fun screen(html: String?, buildDispatcher: CoroutineDispatcher = Dispatchers.Default) = ConnectOnionTheme {
+        DashboardScreen(
+            html = html,
+            allowedSkills = emptyList(),
+            onRunSkill = {},
+            onNavigateBack = {},
+            buildDispatcher = buildDispatcher
+        )
     }
 
     /** Robolectric records every addJavascriptInterface call but exposes lookups only by name. */

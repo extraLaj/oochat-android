@@ -39,7 +39,8 @@ fun DashboardWebView(
     document: String,
     onRunSkill: (skill: String, args: String) -> Unit,
     onNavigationBlocked: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    awaitVisualState: VisualStateWaiter = ::postVisualState
 ) {
     // The bridge is called from a WebView thread and must see the *current*
     // handler, not the one captured when the WebView was first created.
@@ -51,7 +52,7 @@ fun DashboardWebView(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            SnapshotSwitcher(context, onNavigationBlocked = { currentNavigationBlocked() }) {
+            SnapshotSwitcher(context, onNavigationBlocked = { currentNavigationBlocked() }, awaitVisualState) {
                 configureForUntrustedContent()
                 addJavascriptInterface(bridge, DashboardDocument.BRIDGE_NAME)
             }
@@ -67,22 +68,48 @@ fun DashboardWebView(
 }
 
 /**
+ * Waits until [WebView]'s DOM, as it is now, is ready to draw, then calls
+ * back with the same request id. [postVisualState] in the app; a test drives
+ * it by hand, since Robolectric's WebView never draws.
+ */
+typealias VisualStateWaiter = (view: WebView, requestId: Long, onReady: (requestId: Long) -> Unit) -> Unit
+
+internal fun postVisualState(view: WebView, requestId: Long, onReady: (Long) -> Unit) =
+    view.postVisualStateCallback(
+        requestId,
+        object : WebView.VisualStateCallback() {
+            override fun onComplete(requestId: Long) = onReady(requestId)
+        }
+    )
+
+/**
  * Two WebViews, one on screen. Loading a new snapshot into the page being
  * shown blanks it until the new document paints, so a newer snapshot loads
- * into the hidden one instead, and the two swap only once WebView reports it
- * ready to draw (`onPageCommitVisible`, which exists for exactly this: making
- * a recycled WebView visible without showing stale or blank content). Until
- * then the old page stays up, still scrollable and still clickable.
+ * into the hidden one instead, and the two swap only once the new page is
+ * ready to draw. Until then the old page stays up, still scrollable and still
+ * clickable.
+ *
+ * "Ready to draw" is two signals: `onPageFinished` (the whole document is
+ * parsed — `onPageCommitVisible` can come with only part of a 2 MiB page) and
+ * then a visual state callback, which is what guarantees the next draw shows
+ * that DOM. Posted any earlier, the callback would cover the old document.
+ *
+ * Neither signal says *which* load it belongs to, so a load in the hidden page
+ * is never interrupted: a snapshot that arrives meanwhile waits, only the
+ * latest is kept, and it loads once the current one is done. Every signal
+ * from the hidden page is then about its one load in flight. Each load also
+ * gets a fresh request id, and a callback whose id is not the latest is
+ * ignored.
  *
  * The hidden page keeps its last snapshot rather than being blanked: blanking
- * is a load of its own, and its commit could arrive after the next snapshot
- * had started loading there and swap an empty page on screen.
+ * would be a load of its own, for no gain.
  *
  * Main thread only, as WebView is.
  */
 internal class SnapshotSwitcher(
     context: Context,
     private val onNavigationBlocked: () -> Unit,
+    private val awaitVisualState: VisualStateWaiter,
     configure: WebView.() -> Unit
 ) : FrameLayout(context) {
 
@@ -94,8 +121,14 @@ internal class SnapshotSwitcher(
     var back: WebView
         private set
 
-    /** The latest document asked for, whether shown yet or still loading. */
+    /** The latest document asked for, whether shown yet, loading, or waiting. */
     private var requested: String? = null
+
+    /** The document loading in [back], or null when [back] is idle. */
+    private var loading: String? = null
+
+    /** The request id of the latest load into [back]. */
+    private var loadId = 0L
 
     init {
         back = newPage(configure).also { it.visibility = View.INVISIBLE }
@@ -112,8 +145,13 @@ internal class SnapshotSwitcher(
     fun show(document: String) {
         if (document === requested) return
         requested = document
-        // The first snapshot has no old page to keep up, so it loads in place.
-        load(if (front.tag == null) front else back, document)
+        when {
+            // The first snapshot has no old page to keep up, so it loads in place.
+            front.tag == null -> load(front, document)
+            // Picked up when the load in flight is done; see onReady.
+            loading != null -> Unit
+            else -> loadInBack(document)
+        }
     }
 
     fun setPageBackground(color: Int) {
@@ -127,13 +165,30 @@ internal class SnapshotSwitcher(
         back.destroy()
     }
 
-    private fun onCommitVisible(view: WebView) {
-        // Only the hidden page's commit of the snapshot still wanted swaps;
-        // a commit on the page already shown has nothing to replace. A commit
-        // for snapshot A that lands just after B started loading over it can
-        // still swap A in; B then finishes in place on screen, which is the
-        // behaviour this class replaces, not a wrong page.
-        if (view !== back || back.tag !== requested) return
+    private fun loadInBack(document: String) {
+        loading = document
+        loadId++
+        load(back, document)
+    }
+
+    private fun onPageFinished(view: WebView) {
+        // The page on screen has nothing to replace, and an idle back page
+        // has nothing in flight.
+        if (view !== back || loading == null) return
+        awaitVisualState(back, loadId, ::onReady)
+    }
+
+    private fun onReady(requestId: Long) {
+        if (requestId != loadId) return
+        val ready = loading ?: return
+        loading = null
+        val latest = requested
+        if (ready !== latest) {
+            // Superseded while it loaded: load the latest rather than put a
+            // stale page on screen.
+            if (latest != null && latest !== front.tag) loadInBack(latest)
+            return
+        }
         back = front.also { front = back }
         front.visibility = View.VISIBLE
         back.visibility = View.INVISIBLE
@@ -151,9 +206,12 @@ internal class SnapshotSwitcher(
     private fun newPage(configure: WebView.() -> Unit): WebView =
         WebView(context).apply {
             configure()
+            // Rasterised while hidden, so the first frame after a swap is
+            // not drawn tile by tile.
+            settings.offscreenPreRaster = true
             webViewClient = BlockAllNavigationClient(
                 onBlocked = onNavigationBlocked,
-                onCommitVisible = ::onCommitVisible
+                onPageFinished = ::onPageFinished
             )
         }.also {
             addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -214,7 +272,7 @@ private class SkillBridge(private val onRunSkill: (String, String) -> Unit) {
  */
 private class BlockAllNavigationClient(
     private val onBlocked: () -> Unit,
-    private val onCommitVisible: (WebView) -> Unit
+    private val onPageFinished: (WebView) -> Unit
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         // Scheme only — the rest of an agent-supplied URL has no business in
@@ -224,7 +282,7 @@ private class BlockAllNavigationClient(
         return true
     }
 
-    override fun onPageCommitVisible(view: WebView?, url: String?) {
-        view?.let(onCommitVisible)
+    override fun onPageFinished(view: WebView?, url: String?) {
+        view?.let(onPageFinished)
     }
 }

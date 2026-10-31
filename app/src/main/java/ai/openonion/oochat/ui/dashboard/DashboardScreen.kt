@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -63,6 +64,8 @@ import kotlinx.coroutines.withContext
  * @param chatAwaitsUser The conversation is parked on something only the user
  *   can answer. This screen replaces the chat, so without saying so the run
  *   stalls out of sight — see [ChatViewModel.chatAwaitsUser].
+ * @param buildDispatcher Where a snapshot is wrapped. For tests, which hold
+ *   it back to see the screen draw before the document is ready.
  */
 @Composable
 fun DashboardScreen(
@@ -72,7 +75,8 @@ fun DashboardScreen(
     onNavigateBack: () -> Unit,
     agentName: String? = null,
     chatAwaitsUser: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    buildDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     // A fallback for pages that declare no background of their own; one that
     // does still wins, since its rule comes later in the document. Resolved
@@ -90,7 +94,7 @@ fun DashboardScreen(
     // with no empty state in between.
     val built by produceState<String?>(initialValue = null, html, surfaceCss, onSurfaceCss) {
         value = html?.let {
-            withContext(Dispatchers.Default) {
+            withContext(buildDispatcher) {
                 DashboardDocument.build(it, DashboardDocument.generateNonce(), surfaceCss, onSurfaceCss)
             }
         }
