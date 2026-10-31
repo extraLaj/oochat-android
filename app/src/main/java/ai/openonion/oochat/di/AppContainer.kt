@@ -31,9 +31,9 @@ import ai.openonion.oochat.data.repository.MessageRepository
 import ai.openonion.oochat.data.repository.MessageRepositoryImpl
 import ai.openonion.oochat.data.repository.SessionRepository
 import ai.openonion.oochat.data.repository.SessionRepositoryImpl
-import ai.openonion.oochat.data.repository.SessionSyncRepositoryImpl
 import ai.openonion.oochat.data.repository.SessionStore
 import ai.openonion.oochat.data.repository.SessionStoreImpl
+import ai.openonion.oochat.data.repository.SessionSyncRepositoryImpl
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCase
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.PersistenceTransaction
@@ -43,8 +43,8 @@ import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.AndroidSpeechRecognitionService
 import ai.openonion.oochat.network.ConnectivityManagerNetworkMonitor
 import ai.openonion.oochat.network.NetworkMonitor
-import ai.openonion.oochat.network.SpeechRecognitionService
 import ai.openonion.oochat.network.SessionSyncClient
+import ai.openonion.oochat.network.SpeechRecognitionService
 import ai.openonion.oochat.network.VoiceTranscriptionService
 import ai.openonion.oochat.network.VoiceTranscriptionServiceImpl
 import ai.openonion.oochat.notification.AndroidAgentReplyNotifier

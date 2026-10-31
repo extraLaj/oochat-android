@@ -5,6 +5,9 @@ import ai.openonion.oochat.data.local.db.entity.AgentEntity
 import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
 import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
 import ai.openonion.oochat.data.protocol.RemoteSessionSummary
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
+import ai.openonion.oochat.domain.usecase.SyncRecentChatsUseCase
+import ai.openonion.oochat.network.SessionSyncFetchResult
 import ai.openonion.oochat.network.SessionSyncSnapshot
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -13,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -89,6 +93,35 @@ class SessionSyncRepositoryImplTest {
         assertEquals("cursor-1", repository.cursorFor("0xidentity-a", "agent-1"))
         assertNull(repository.cursorFor("0xidentity-b", "agent-1"))
         assertNull(repository.cursorFor("0xidentity-a", "agent-2"))
+    }
+
+    @Test
+    fun `completed sync becomes visible through the Recent Chat session flow`() = runTest {
+        val snapshot = snapshot(
+            sessions = listOf(summary("remote-visible", title = "From another device")),
+            cursor = "cursor-visible"
+        )
+        val sync = SyncRecentChatsUseCase(
+            repository = repository,
+            identityAddress = { "0xidentity" },
+            fetch = { agentAddress, directUrl, cursor ->
+                assertEquals("0xagent-1", agentAddress)
+                assertEquals("https://agent.example", directUrl)
+                assertNull(cursor)
+                SessionSyncFetchResult.Complete(snapshot)
+            }
+        )
+
+        val result = sync.sync("agent-1", "0xagent-1", "https://agent.example")
+        val visible = SessionRepositoryImpl(database.sessionDao())
+            .getSessionsByAgent("agent-1")
+            .first()
+
+        assertSame(RecentChatsSyncResult.Synced, result)
+        assertEquals(listOf("remote-visible"), visible.map { it.id })
+        assertEquals("From another device", visible.single().title)
+        assertEquals(1L, visible.single().remoteRevision)
+        assertEquals("cursor-visible", repository.cursorFor("0xidentity", "agent-1"))
     }
 
     @Test

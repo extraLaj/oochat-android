@@ -85,7 +85,7 @@ internal const val CONVERSATION_PAGE_SIZE = 200
  * rule has exactly one definition.
  */
 internal fun ChatSession.isEmptyPlaceholder(): Boolean =
-    messageCount == 0 && title == "New conversation"
+    remoteRevision == null && messageCount == 0 && title == "New conversation"
 
 /**
  * Local (Room-backed) conversation history — session + message read/write
@@ -249,8 +249,8 @@ class ConversationHistoryUseCase(
 
         // Sweep up empty "New conversation" rows left behind by the old
         // eager-creation behavior (or any other now-closed path) — the exact
-        // title + zero-message match means this can never touch a real,
-        // user-named, or non-empty session.
+        // title + zero-message match is limited to rows never seen in the
+        // Host index, so a synced chat with that default title is still real.
         val (empty, real) = existing.partition { it.isEmptyPlaceholder() }
         empty.forEach { stale ->
             runCatchingCancellable { sessionRepository.deleteSession(stale.id) }

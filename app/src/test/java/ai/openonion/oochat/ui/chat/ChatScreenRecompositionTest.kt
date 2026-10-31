@@ -23,6 +23,8 @@ import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.ConversationHistoryUseCase
+import ai.openonion.oochat.domain.usecase.RecentChatsSync
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.NetworkMonitor
 import ai.openonion.oochat.ui.perf.BodyExecutionProbe
@@ -148,6 +150,9 @@ class ChatScreenRecompositionTest {
                 agentRepo, sessionRepo, messageRepo,
                 FakePersistenceTransaction(messageRepo, sessionRepo)
             ),
+            // Session Sync has its own integration tests. This suite measures
+            // Compose invalidation and must not load production identity crypto.
+            recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
             initialMyAddress = "0xTEST",
             networkMonitor = RecompFakeNetworkMonitor(),
         )
