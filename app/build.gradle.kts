@@ -181,6 +181,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // Window size
+    implementation("androidx.compose.material3.adaptive:adaptive")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     // Navigation
