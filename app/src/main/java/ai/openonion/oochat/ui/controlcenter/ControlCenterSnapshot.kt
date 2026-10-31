@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.controlcenter
 
 import ai.openonion.oochat.domain.model.AgentSkill
+import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.SessionActivity
 import kotlinx.serialization.json.JsonArray
@@ -15,7 +16,7 @@ import kotlinx.serialization.json.put
  * The chat as the Control Center app sees it: `ControlSnapshot` in connectonion-react's
  * `src/control-center.ts`, which the app's SDK validates before using.
  *
- * [chatItems] is empty until W16AAPPLE-30 fills it.
+ * [chatItems] are already in the SDK's `ChatItem` shape; see [ControlCenterChatItems].
  */
 data class ControlCenterSnapshot(
     val sessionId: String?,
@@ -66,13 +67,16 @@ data class ControlCenterSnapshot(
             agentAddress: String,
             activity: SessionActivity?,
             connection: ConnectionState,
-            skills: List<AgentSkill>
+            skills: List<AgentSkill>,
+            chat: ControlCenterChat = ControlCenterChat()
         ) = ControlCenterSnapshot(
             sessionId = sessionId,
             agentAddress = agentAddress,
             status = ControlCenterAgentStatus.of(activity),
             connectionState = ControlCenterConnection.of(connection),
-            skills = boundSkills(skills)
+            skills = boundSkills(skills),
+            chatItems = chat.items,
+            truncated = chat.truncated
         )
 
         private fun boundSkills(skills: List<AgentSkill>): List<ControlCenterSkill> {
@@ -92,6 +96,36 @@ data class ControlCenterSnapshot(
         }
 
         private fun jsonBytes(text: String) = JsonPrimitive(text).toString().toByteArray(Charsets.UTF_8).size
+    }
+}
+
+/**
+ * The chat as the snapshot carries it: [items] bounded as `boundControlSnapshot` does, and
+ * whether any were left out. Built apart from the snapshot because it costs time in proportion
+ * to the conversation, so the chat builds it off the main thread.
+ */
+data class ControlCenterChat(val items: List<JsonObject> = emptyList(), val truncated: Boolean = false) {
+    companion object {
+        const val MAX_ITEMS = 2000
+        const val MAX_BYTES = 1024 * 1024
+
+        fun of(items: List<ChatItem>): ControlCenterChat = bounded(ControlCenterChatItems.of(items))
+
+        /**
+         * Of the latest [MAX_ITEMS], the newest that fit in [MAX_BYTES] of JSON. An item too big
+         * for what is left is skipped, not a stop, so older, smaller items can still be kept.
+         */
+        fun bounded(items: List<JsonObject>): ControlCenterChat {
+            var bytes = 0
+            val kept = ArrayList<JsonObject>()
+            for (item in items.takeLast(MAX_ITEMS).asReversed()) {
+                val size = ControlCenterHost.utf8Length(item.toString())
+                if (bytes + size > MAX_BYTES) continue
+                bytes += size
+                kept += item
+            }
+            return ControlCenterChat(kept.asReversed(), truncated = kept.size != items.size)
+        }
     }
 }
 

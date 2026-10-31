@@ -133,6 +133,35 @@ class ControlCenterHostTest {
         assertEquals(working.toJson(), posted.last()["snapshot"])
     }
 
+    @Test
+    fun `each chat change is the next event, and a resnapshot after a gap carries the chat as it is now`() = runTest {
+        val host = host(backgroundScope)
+        val chat = listOf(
+            listOf(ai.openonion.oochat.domain.model.ChatItem.User(id = "u1", content = "hi")),
+            listOf(
+                ai.openonion.oochat.domain.model.ChatItem.User(id = "u1", content = "hi"),
+                ai.openonion.oochat.domain.model.ChatItem.ToolCall(id = "c1", name = "search")
+            ),
+            listOf(
+                ai.openonion.oochat.domain.model.ChatItem.User(id = "u1", content = "hi"),
+                ai.openonion.oochat.domain.model.ChatItem.ToolCall(
+                    id = "c1",
+                    name = "search",
+                    status = ai.openonion.oochat.domain.model.ToolStatus.DONE
+                )
+            )
+        ).map { snapshot().copy(chatItems = ControlCenterChatItems.of(it)) }
+
+        chat.forEach(host::publish)
+        // The app missed an event and asks for the state again.
+        host.onMessage(fromApp("type" to prefix + "resnapshot"))
+
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), posted.map { it["sequence"]!!.jsonPrimitive.long })
+        assertEquals(chat.map { it.toJson() }, posted.subList(1, 4).map { it["snapshot"] })
+        assertEquals(prefix + "snapshot", posted.last()["type"]!!.jsonPrimitive.content)
+        assertEquals(chat.last().toJson(), posted.last()["snapshot"])
+    }
+
     // --- what the host ignores ---
 
     @Test
