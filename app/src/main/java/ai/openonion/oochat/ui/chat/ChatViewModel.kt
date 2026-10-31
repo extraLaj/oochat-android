@@ -37,6 +37,8 @@ import ai.openonion.oochat.domain.model.resolveRunningItems
 import ai.openonion.oochat.domain.model.sessionUsageTotals
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.ConversationHistoryUseCase
+import ai.openonion.oochat.domain.usecase.RecentChatsSync
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.SessionResume
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
 import ai.openonion.oochat.network.OFFLINE_GRACE_MS
@@ -210,6 +212,7 @@ open class ChatViewModel @JvmOverloads constructor(
         // connection already holds instead of minting a rival one.
         liveSessionId = { connectUseCase.liveSessionIdFor(it) }
     ),
+    private val recentChatsSync: RecentChatsSync = application.appContainer.recentChatsSync,
     // Deliberately NOT defaulted to keyManager.loadOrGenerate(): a constructor
     // default is evaluated wherever the ViewModel is constructed, which for
     // Compose is the main thread during composition — and that call builds an
@@ -550,6 +553,12 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     private var connectJob: Job? = null
 
+    // onConnectedTo() is deliberately reached from both the state collector
+    // and connectToAgent(). It can also see a second Connected value when the
+    // Host status is consumed. This stays true until an actual non-connected
+    // transition, preventing duplicate index sockets for the same connection.
+    private var syncedCurrentConnection = false
+
     /**
      * Blocking cards the user has already answered, so [ChatEventReducer] can
      * stop pinning them to the bottom of the list.
@@ -796,6 +805,7 @@ open class ChatViewModel @JvmOverloads constructor(
             connectionState.collect { state ->
                 val atCreation = alreadyCurrent
                 alreadyCurrent = false
+                if (state !is ConnectionState.Connected) syncedCurrentConnection = false
                 when (state) {
                     is ConnectionState.Connected -> {
                         FileLogger.i(LogTags.CHAT_VM, "Connected to ${state.addressOrNull()?.take(16)}")
@@ -1143,9 +1153,38 @@ open class ChatViewModel @JvmOverloads constructor(
         // ONBOARD_REQUIRED won its race, and clearing this then put the banner
         // back to "Connecting to agent…" over a gate still waiting for a code
         // (W16AAPPLE-80). The Connected transition reaches here again.
-        if (connectionState.value is ConnectionState.Connected) _awaitingOnboardCode.value = false
+        val joined = connectionState.value as? ConnectionState.Connected
+        if (joined != null) {
+            _awaitingOnboardCode.value = false
+            startRecentChatsSync(agentAddress, directUrl)
+        }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
-        (connectionState.value as? ConnectionState.Connected)?.let { actOnHostAnswer(it) }
+        joined?.let { actOnHostAnswer(it) }
+    }
+
+    private suspend fun startRecentChatsSync(
+        agentAddress: String,
+        directUrl: String?
+    ) {
+        if (syncedCurrentConnection) return
+        val agent = agentRepository.getAgentByAddress(canonicalAgentAddress(agentAddress)) ?: return
+        syncedCurrentConnection = true
+        val effectiveDirectUrl = directUrl
+            ?: agent.serverUrl.takeIf { !Constants.isDefaultServerUrl(it) }
+
+        // This is deliberately detached from the connection setup. An older
+        // Host, a timeout, or an index failure must not hold the chat screen
+        // closed; Room keeps showing the last safe local list.
+        viewModelScope.launch {
+            when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl)) {
+                RecentChatsSyncResult.Synced ->
+                    FileLogger.i(LogTags.CHAT_VM, "Recent Chat sync completed")
+                RecentChatsSyncResult.Unsupported ->
+                    FileLogger.i(LogTags.CHAT_VM, "Host does not support Recent Chat sync")
+                is RecentChatsSyncResult.Failed ->
+                    FileLogger.w(LogTags.CHAT_VM, "Recent Chat sync failed: ${result.message}")
+            }
+        }
     }
 
     /**

@@ -35,6 +35,8 @@ import ai.openonion.oochat.domain.model.isInProgress
 import ai.openonion.oochat.domain.model.stableAssistantId
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.ConversationHistoryUseCase
+import ai.openonion.oochat.domain.usecase.RecentChatsSync
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
 import ai.openonion.oochat.knownIssue
@@ -326,6 +328,21 @@ class ChatViewModelTest {
         override val isOnline: Flow<Boolean> = online
     }
 
+    private class FakeRecentChatsSync : RecentChatsSync {
+        data class Call(val agentId: String, val agentAddress: String, val directUrl: String?)
+        val calls = mutableListOf<Call>()
+        var result: RecentChatsSyncResult = RecentChatsSyncResult.Synced
+
+        override suspend fun sync(
+            agentId: String,
+            agentAddress: String,
+            directUrl: String?
+        ): RecentChatsSyncResult {
+            calls += Call(agentId, agentAddress, directUrl)
+            return result
+        }
+    }
+
     private class FakeAppSettings : AppSettings {
         private val renderMarkdownFlow = MutableStateFlow(true)
         private val fontSizeIndexFlow = MutableStateFlow(1)
@@ -612,6 +629,7 @@ class ChatViewModelTest {
     private lateinit var speechRecognition: FakeSpeechRecognitionService
     private lateinit var appSettings: FakeAppSettings
     private lateinit var networkMonitor: FakeNetworkMonitor
+    private lateinit var recentChatsSync: FakeRecentChatsSync
     private lateinit var agentReplyNotifier: FakeAgentReplyNotifier
 
     // Backing vars for the two gates ChatViewModel reads through lambdas
@@ -639,6 +657,7 @@ class ChatViewModelTest {
         speechRecognition = FakeSpeechRecognitionService()
         appSettings = FakeAppSettings()
         networkMonitor = FakeNetworkMonitor()
+        recentChatsSync = FakeRecentChatsSync()
         agentReplyNotifier = FakeAgentReplyNotifier()
         appInForeground = false
         notificationPermissionGranted = true
@@ -661,6 +680,7 @@ class ChatViewModelTest {
                 agentRepo, sessionRepo, messageRepo,
                 FakePersistenceTransaction(messageRepo, sessionRepo)
             ),
+            recentChatsSync = recentChatsSync,
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
@@ -3053,6 +3073,7 @@ class ChatViewModelTest {
             agentRepo, sessionRepo, messageRepo,
             FakePersistenceTransaction(messageRepo, sessionRepo)
         ),
+        recentChatsSync = recentChatsSync,
         initialMyAddress = "0xTEST",
         networkMonitor = networkMonitor,
         agentReplyNotifier = agentReplyNotifier,
@@ -3877,6 +3898,52 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `connected agent refreshes Recent Chat exactly once for that connection`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        // Consuming this non-UNKNOWN status publishes another Connected value;
+        // it still represents the same socket and must not start a second sync.
+        connectUseCase.markConnected(address, status = ServerSessionStatus.CONNECTED)
+        testScheduler.runCurrent()
+
+        val call = recentChatsSync.calls.single()
+        assertEquals(address, call.agentAddress)
+        assertEquals(agentRepo.createdAgents.single().id, call.agentId)
+    }
+
+    @Test
+    fun `a later reconnect refreshes Recent Chat again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        connectUseCase.forceState(ConnectionState.Reconnecting)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `Recent Chat sync failure does not fail the live chat`() = runTest(testDispatcher) {
+        recentChatsSync.result = RecentChatsSyncResult.Failed("index unavailable", retryable = true)
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        assertEquals(1, recentChatsSync.calls.size)
+        assertNull(vm.uiState.value.error)
+        assertTrue(connectUseCase.connectionState.value is ConnectionState.Connected)
+    }
+
+    @Test
     fun `an already-Connected shared connection at construction saves no blank agent`() = runTest(testDispatcher) {
         // The state collector sees Connected the instant it subscribes, which
         // is before ChatScreen has said which agent this ViewModel is for —
@@ -3901,6 +3968,7 @@ class ChatViewModelTest {
                 agentRepo, sessionRepo, messageRepo,
                 FakePersistenceTransaction(messageRepo, sessionRepo)
             ),
+            recentChatsSync = recentChatsSync,
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
