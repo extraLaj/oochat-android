@@ -355,6 +355,21 @@ If no identity is loaded, a command is dropped rather than sent unsigned.
   expired`) is shown as `ServerErrorText.CLOCK_WRONG`, advice to check the
   device's date and time. That covers a connection error, a refused reconnect
   and a refused invite code.
+
+  Account sign-in at `oo.openonion.ai/api/v1/auth` (the bearer token for voice
+  transcription) has the same five-minute window, and the app signs in again
+  on every launch (W16AAPPLE-91). `AccountRepositoryImpl` keeps its own
+  `HostClock`, corrected by each sign-in response that carries a `Date`
+  (`HostClock.correctFrom()`; a response without one keeps the correction),
+  with the same 30-minute bound. A 401 whose `Date` moves the correction by a
+  minute or more is retried once, signed with the server's time. A refusal is
+  blamed on the clock only when the server's time is more than five minutes
+  from the timestamp actually signed, so a retry signed with the server's time
+  never is. That failure is an `AccountClockException`, carrying the refusal as
+  its cause: dictation says to check the date and time instead of "Try again",
+  and Settings says so under the account. Covered by `AccountRepositoryImplTest`
+  (MockWebServer, real signatures), `HostClockTest`, `ChatViewModelTest` and
+  `SettingsViewModelTest`.
 - Every refusal comes back as an ordinary `ERROR`. On a live session it
   surfaces as a `ConnectionError` like any other; in reply to a reconnect's
   `CONNECT` it ends the reconnect (see [When a reconnect fails](#when-a-reconnect-fails)).

@@ -265,7 +265,8 @@ fun SettingsScreen(
                     showBackupSheet = true
                 },
                 onImportKey = { showImportSheet = true },
-                onReset = { showResetSheet = true }
+                onReset = { showResetSheet = true },
+                accountProblem = uiState.accountProblem
             )
 
             SettingsSection("Appearance") {
