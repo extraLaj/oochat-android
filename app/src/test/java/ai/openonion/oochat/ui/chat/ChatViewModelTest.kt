@@ -9,6 +9,7 @@ import ai.openonion.oochat.data.local.RecordedVoice
 import ai.openonion.oochat.data.local.StoredImage
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
+import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.data.repository.AgentRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
 import ai.openonion.oochat.data.repository.MessageRepository
@@ -472,10 +473,12 @@ class ChatViewModelTest {
     private class FakeVoiceTranscriptionService : VoiceTranscriptionService {
         /** Set by a test: null simulates a failed/empty transcription. */
         var nextTranscript: String? = "hello from voice"
+        /** What a failed transcription fails with, when [nextTranscript] is null. */
+        var nextFailure: Exception = Exception("transcription failed")
         var transcribeCalls = 0
         override suspend fun transcribe(audioFile: File): Result<String> {
             transcribeCalls++
-            return nextTranscript?.let { Result.success(it) } ?: Result.failure(Exception("transcription failed"))
+            return nextTranscript?.let { Result.success(it) } ?: Result.failure(nextFailure)
         }
     }
 
@@ -1798,6 +1801,19 @@ class ChatViewModelTest {
             assertEquals("Couldn't transcribe that. Try again.", vm.voiceInput.value.error)
             assertEquals("", vm.voiceInput.value.transcript)
             assertEquals(VoiceInputPhase.IDLE, vm.voiceInput.value.phase)
+            assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
+    fun `a transcription refused over the device clock says to fix the clock, not to try again`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-91: trying again cannot help while the account server refuses the clock.
+            voiceTranscriptionService.nextTranscript = null
+            voiceTranscriptionService.nextFailure = AccountClockException()
+
+            dictateOnFallbackPath()
+
+            assertEquals(ChatViewModel.TRANSCRIPTION_CLOCK_WRONG, vm.voiceInput.value.error)
             assertTrue(connectUseCase.sentMessages.isEmpty())
         }
 
