@@ -224,6 +224,15 @@ class AgentConnection(
     // unable to suppress the other.
     private val socketGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
+    /**
+     * Frames the current socket has delivered, so [probeAfterForeground] can tell whether
+     * anything arrived after its query without a clock.
+     */
+    private val framesReceived = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** The check [probeAfterForeground] is waiting on, if any. */
+    @Volatile private var probeJob: Job? = null
+
     // True once this connect() cycle has already tried the "stale
     // session" recovery — see [recoverFromStaleSession]'s doc. Bounds
     // the recovery to once per cycle so a server that keeps rejecting
@@ -953,16 +962,24 @@ class AgentConnection(
     }
 
     /**
-     * Retry the pending reconnect now instead of waiting out its backoff.
+     * The app is back in the foreground: retry the pending reconnect now instead of waiting out
+     * its backoff, or, with none pending, check that the socket still works.
      *
      * Returning to the foreground is new information: the socket was almost
      * certainly aborted *because* the app was backgrounded, so the reason it
      * failed has just gone away. A delay computed for a flaky network is the
      * wrong thing to sit through at the one moment the user is watching.
-     * No-op unless a reconnect is already pending — this does not start one.
+     *
+     * A socket that died in the background without a close frame (the process was frozen, or the
+     * network changed) still reads as connected, and nothing would notice until OkHttp's ping
+     * failed; see [probeAfterForeground].
      */
     fun retryNow() {
-        if (!isReconnecting || protocolRejected) return
+        if (protocolRejected) return
+        if (!isReconnecting) {
+            if (isConnectionReady) probeAfterForeground()
+            return
+        }
         FileLogger.i(LogTags.AGENT_CONN, "Reconnect: retrying now (foreground)")
         reconnectJob?.cancel()
         reconnectAttempts = 0
@@ -985,6 +1002,29 @@ class AgentConnection(
                 FileLogger.e(LogTags.AGENT_CONN, "Immediate reconnect failed: ${e.message}")
                 attemptReconnect()
             }
+        }
+    }
+
+    /**
+     * Ask the Host for this session's status, which it answers on any live connection, and
+     * reconnect if nothing at all arrives within [FOREGROUND_PROBE_TIMEOUT_MS]. The reconnect is
+     * on this connection, so it resumes from [replayCursor] and only what was missed is replayed.
+     * The Host clients re-sync on focus for the same reason (`websocket-protocol.md`). The reply
+     * itself is a fresh status for the status line.
+     *
+     * Without a session there is nothing to replay and nothing to ask about, so no check.
+     */
+    private fun probeAfterForeground() {
+        val sessionId = _currentSession?.sessionId ?: return
+        val generation = socketGeneration.get()
+        val framesBefore = framesReceived.get()
+        probeJob?.cancel()
+        querySessionStatus(sessionId)
+        probeJob = reconnectScope.launch {
+            delay(FOREGROUND_PROBE_TIMEOUT_MS)
+            if (generation != socketGeneration.get() || framesReceived.get() != framesBefore) return@launch
+            FileLogger.w(LogTags.AGENT_CONN, "No reply ${FOREGROUND_PROBE_TIMEOUT_MS}ms after returning to the foreground; reconnecting")
+            reopenSocket("Silent after the background")
         }
     }
 
@@ -1279,6 +1319,7 @@ class AgentConnection(
                     FileLogger.i(LogTags.AGENT_CONN, "Ignoring frame from a replaced socket (gen=$generationForThisSocket, current=${socketGeneration.get()})")
                     return
                 }
+                framesReceived.incrementAndGet()
                 handleMessage(text, addressForThisSocket)
             }
 
@@ -1759,6 +1800,9 @@ class AgentConnection(
 
         /** Reconnect attempts before the ladder gives up; see attemptReconnect. */
         internal const val MAX_RECONNECT_ATTEMPTS = 5
+
+        /** How long [retryNow]'s check waits for any frame before reconnecting. */
+        internal const val FOREGROUND_PROBE_TIMEOUT_MS = 5_000L
 
         /** How long a reconnect's CONNECT may go unanswered; see awaitConnectedOrRetry. */
         internal const val CONNECTED_TIMEOUT_MS = 15_000L

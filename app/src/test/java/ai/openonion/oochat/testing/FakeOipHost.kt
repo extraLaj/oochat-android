@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -68,6 +69,7 @@ open class FakeOipHost : WebSocketFactory {
     val sockets = CopyOnWriteArrayList<FakeOipSocket>()
     val connects = CopyOnWriteArrayList<JsonObject>()
     val inputs = CopyOnWriteArrayList<JsonObject>()
+    val statusQueries = CopyOnWriteArrayList<JsonObject>()
     private val answered = mutableSetOf<String>()
 
     /** This turn's events, in order — the Host's `_msgs_from_agent`. */
@@ -113,6 +115,12 @@ open class FakeOipHost : WebSocketFactory {
                 inputs += frame
                 turnEvents.clear()
                 running = true
+            }
+            // Answered on any live connection, as session.py does.
+            "SESSION_STATUS" -> {
+                statusQueries += frame
+                val sid = frame["session"]?.jsonObject?.get("session_id")?.jsonPrimitive?.content
+                deliver(socket, """{"type":"SESSION_STATUS","session_id":"$sid","status":"${if (running) "running" else "connected"}"}""")
             }
         }
     }

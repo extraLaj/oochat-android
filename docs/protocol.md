@@ -894,6 +894,12 @@ skipped, and `retryNow()`, which the chat screen calls when it comes back,
 goes at once with a fresh ladder. A plain network failure still stops at the
 cap with `Disconnected`, as before.
 
+**Returning to the app (W16AAPPLE-46).** With no reconnect pending, `retryNow()`
+checks the socket instead: it sends `SESSION_STATUS` for the session on screen and,
+if no frame arrives within `FOREGROUND_PROBE_TIMEOUT_MS` (5 s), reopens it on the
+same connection, so the `CONNECT` carries `last_msg_id` and only what was missed is
+replayed. Covered by `ForegroundReturnTest`.
+
 Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82 and -79
 sections, on a virtual clock) and `ConnectionRepositoryImplTest` (a refused
 reconnect ends in `Error` although the attempt had connected).
