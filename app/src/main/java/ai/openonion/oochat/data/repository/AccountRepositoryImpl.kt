@@ -115,9 +115,13 @@ class AccountRepositoryImpl(
             // The refusal's Date has just corrected the clock. If that moved it, one more try
             // signed with the server's time can pass; with the same correction it would be
             // refused again. Compared by offset, not by time passed: a slow 401 changes nothing.
-            if (abs(serverClock.offsetMillis - offsetBefore) < MIN_CORRECTION_MS) throw refused.clockProblemOrSelf()
+            // A Date past HostClock's bound resets the correction instead of applying it, which
+            // is a change too, so the retry must also land inside the server's window.
+            val retryAt = serverClock.nowSeconds()
+            val corrected = abs(serverClock.offsetMillis - offsetBefore) >= MIN_CORRECTION_MS
+            if (!corrected || !refused.wouldAccept(retryAt)) throw refused.clockProblemOrSelf()
             try {
-                signIn(keys, serverClock.nowSeconds())
+                signIn(keys, retryAt)
             } catch (again: AuthRefusedException) {
                 // Signed with the server's own time, so the clock is ruled out unless the
                 // server's Date moved again since.
@@ -151,7 +155,7 @@ class AccountRepositoryImpl(
             if (response.code == 401) {
                 // Against what was signed, not this device's raw clock: a sign-in already signed
                 // with the corrected time and refused for another reason is not the clock's fault.
-                throw AuthRefusedException(skewMillis = serverMillis?.let { it - timestamp * 1000 })
+                throw AuthRefusedException(serverMillis = serverMillis, signedAt = timestamp)
             }
             if (!response.isSuccessful || body == null) {
                 throw AuthFailedException("auth returned ${response.code}")
@@ -197,10 +201,19 @@ private const val AUTH_WINDOW_MS = 5 * 60 * 1000L
 private class AuthFailedException(message: String) : Exception(message)
 
 /**
- * A 401 from `/api/v1/auth`; [skewMillis] is the server's clock minus the signed timestamp, when the
- * server sent its time.
+ * A 401 from `/api/v1/auth`. [serverMillis] is the server's clock when it answered, if it sent one;
+ * its skew is measured against the timestamp actually signed, not this device's raw clock.
  */
-private class AuthRefusedException(val skewMillis: Long?) : Exception("auth returned 401 (skew ${skewMillis}ms)") {
+private class AuthRefusedException(
+    private val serverMillis: Long?,
+    signedAt: Long
+) : Exception("auth returned 401 (skew ${serverMillis?.let { it - signedAt * 1000 }}ms)") {
+    private val skewMillis = serverMillis?.let { it - signedAt * 1000 }
+
+    /** Whether a signature at [timestamp] would fall inside the server's window, by its own clock. */
+    fun wouldAccept(timestamp: Long): Boolean =
+        serverMillis != null && abs(serverMillis - timestamp * 1000) <= AUTH_WINDOW_MS
+
     fun clockProblemOrSelf(): Exception =
         if (skewMillis != null && abs(skewMillis) > AUTH_WINDOW_MS) AccountClockException(this) else this
 }

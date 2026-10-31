@@ -275,6 +275,21 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `a later failure for another reason clears the clock message`() = runTest(testDispatcher) {
+        // The user may have fixed the clock since; a lost network must not keep blaming it.
+        accountRepo.queuedResults += Result.failure(AccountClockException())
+        accountRepo.queuedResults += Result.failure(RuntimeException("network down"))
+        val vm = createVm()
+        testScheduler.runCurrent()
+        assertEquals(SettingsViewModel.ACCOUNT_CLOCK_WRONG, vm.uiState.value.accountProblem)
+
+        vm.loadAccount()
+        testScheduler.runCurrent()
+
+        assertNull(vm.uiState.value.accountProblem)
+    }
+
+    @Test
     fun `any other account failure is not shown as a problem to fix`() = runTest(testDispatcher) {
         accountRepo.queuedResults += Result.failure(RuntimeException("network down"))
         val vm = createVm()

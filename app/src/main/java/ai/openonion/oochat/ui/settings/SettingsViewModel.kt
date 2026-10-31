@@ -207,8 +207,11 @@ open class SettingsViewModel @JvmOverloads constructor(
                 .onFailure { error ->
                     if (generation != identityGeneration) return@launch
                     FileLogger.w(LogTags.ACCOUNT, "loadAccount failed; API key stays unset")
-                    // Only a cause the user can act on is shown; anything else stays a log line.
-                    if (error is AccountClockException) _uiState.update { it.copy(accountProblem = ACCOUNT_CLOCK_WRONG) }
+                    // Only a cause the user can act on is shown; anything else stays a log line,
+                    // and clears an earlier clock message the user may since have acted on.
+                    _uiState.update {
+                        it.copy(accountProblem = if (error is AccountClockException) ACCOUNT_CLOCK_WRONG else null)
+                    }
                 }
         }
     }

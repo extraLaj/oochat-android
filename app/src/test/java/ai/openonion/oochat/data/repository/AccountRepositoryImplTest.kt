@@ -295,6 +295,20 @@ class AccountRepositoryImplTest {
     }
 
     @Test
+    fun `a Date past the bound after a learned correction does not cost a retry`() = runTest {
+        // The reading past HostClock's bound resets the correction to the device clock, which
+        // the server's window would refuse anyway.
+        val repository = signingRepository()
+        learnCorrection(repository, deviceNow + 10 * 60_000L)
+        server.enqueue(auth(401, deviceNow + 40 * 60_000L, refused))
+
+        val result = repository.loadAccount(forceReauth = true)
+
+        assertTrue(result.exceptionOrNull() is AccountClockException)
+        assertEquals("no retry with a time the server would refuse", 4, server.requestCount)
+    }
+
+    @Test
     fun `a clock failure keeps the refusal it came from`() = runTest {
         val repository = signingRepository()
         server.enqueue(auth(401, deviceNow + 2 * 60 * 60_000L, refused))
