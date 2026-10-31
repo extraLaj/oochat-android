@@ -1,9 +1,9 @@
 package ai.openonion.oochat.ui.controlcenter
 
 import ai.openonion.oochat.domain.model.ControlCenterApp
-import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.EmptyStateMessage
 import ai.openonion.oochat.ui.dashboard.ChatAwaitsUserBar
+import ai.openonion.oochat.ui.dashboard.HomeTopBar
 import ai.openonion.oochat.ui.dashboard.NavigationBlockedBar
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Box
@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +44,7 @@ fun ControlCenterScreen(
     onNavigateBack: () -> Unit,
     agentName: String? = null,
     chatAwaitsUser: Boolean = false,
+    besideChat: Boolean = false,
     supported: Boolean = remember { controlCenterSupported() },
     modifier: Modifier = Modifier,
     addMessageListener: (WebView, WebViewCompat.WebMessageListener) -> Unit = ::addPageListener
@@ -76,6 +76,7 @@ fun ControlCenterScreen(
         chatAwaitsUser = chatAwaitsUser,
         navigationBlocked = navigationBlocked,
         onDismissNavigationBlocked = { navigationBlocked = false },
+        besideChat = besideChat,
         modifier = modifier
     )
 }
@@ -93,20 +94,19 @@ internal fun ControlCenterScreenContent(
     chatAwaitsUser: Boolean,
     navigationBlocked: Boolean,
     onDismissNavigationBlocked: () -> Unit,
+    besideChat: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         modifier = modifier,
         topBar = {
             Column {
-                BackTopAppBar(
+                HomeTopBar(
                     title = agentName?.takeIf { it.isNotBlank() } ?: "Agent home",
-                    onNavigateBack = onNavigateBack,
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                    besideChat = besideChat,
+                    onNavigateBack = onNavigateBack
                 )
-                if (chatAwaitsUser) ChatAwaitsUserBar(onNavigateBack = onNavigateBack)
+                if (chatAwaitsUser && !besideChat) ChatAwaitsUserBar(onNavigateBack = onNavigateBack)
                 if (navigationBlocked) NavigationBlockedBar(onDismiss = onDismissNavigationBlocked)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
