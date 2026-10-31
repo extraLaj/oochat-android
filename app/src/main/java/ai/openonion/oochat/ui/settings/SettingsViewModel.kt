@@ -3,6 +3,7 @@ package ai.openonion.oochat.ui.settings
 import ai.openonion.oochat.crypto.IdentityManager
 import ai.openonion.oochat.crypto.KeyManager
 import ai.openonion.oochat.data.local.AppSettings
+import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.data.repository.AccountRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
 import ai.openonion.oochat.data.repository.SessionRepository
@@ -40,6 +41,8 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val walletAddress: String = "",
     val accountApiKey: String? = null,
+    /** Why the account could not be loaded, when it is something the user can fix. */
+    val accountProblem: String? = null,
 )
 
 /**
@@ -178,7 +181,8 @@ open class SettingsViewModel @JvmOverloads constructor(
         _uiState.update {
             it.copy(
                 walletAddress = newAddress,
-                accountApiKey = null
+                accountApiKey = null,
+                accountProblem = null
             )
         }
         FileLogger.i(LogTags.ACCOUNT, "identity changed → account cache invalidated, reloading")
@@ -195,13 +199,16 @@ open class SettingsViewModel @JvmOverloads constructor(
                     if (generation != identityGeneration) return@launch
                     _uiState.update {
                         it.copy(
-                            accountApiKey = snapshot.apiKey
+                            accountApiKey = snapshot.apiKey,
+                            accountProblem = null
                         )
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     if (generation != identityGeneration) return@launch
                     FileLogger.w(LogTags.ACCOUNT, "loadAccount failed; API key stays unset")
+                    // Only a cause the user can act on is shown; anything else stays a log line.
+                    if (error is AccountClockException) _uiState.update { it.copy(accountProblem = ACCOUNT_CLOCK_WRONG) }
                 }
         }
     }
@@ -260,5 +267,12 @@ open class SettingsViewModel @JvmOverloads constructor(
         if (autoLoadAccountOnInit) {
             loadAccount()
         }
+    }
+
+    companion object {
+        /** Shown under the account when sign-in is refused over the device clock (W16AAPPLE-91). */
+        internal const val ACCOUNT_CLOCK_WRONG =
+            "Can't sign in to your account: this device's clock is wrong. " +
+                "Check the date and time in your phone's settings (set them to automatic)."
     }
 }

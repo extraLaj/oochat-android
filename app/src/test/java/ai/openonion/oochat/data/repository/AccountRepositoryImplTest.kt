@@ -146,10 +146,19 @@ class AccountRepositoryImplTest {
     /** A whole second, so a `Date` header (whole seconds) can say it exactly. */
     private val deviceNow = 1_800_000_000_000L
 
-    private fun signingRepository(): AccountRepositoryImpl {
+    private fun signingRepository(deviceMillis: () -> Long = { deviceNow }): AccountRepositoryImpl {
         val keyManager = KeyManager(ApplicationProvider.getApplicationContext(), BouncyCastleEd25519())
         keyManager.save(TestIdentity.keys())
-        return AccountRepositoryImpl(keyManager, baseUrl = server.url("/").toString().trimEnd('/'), deviceMillis = { deviceNow })
+        return AccountRepositoryImpl(keyManager, baseUrl = server.url("/").toString().trimEnd('/'), deviceMillis = deviceMillis)
+    }
+
+    /** Signs in once against a server [serverNow] ahead, so the repository learns that correction. */
+    private suspend fun learnCorrection(repository: AccountRepositoryImpl, serverNow: Long) {
+        server.enqueue(auth(401, serverNow, refused))
+        server.enqueue(auth(200, serverNow))
+        server.enqueue(profileOk())
+        repository.loadAccount().exceptionOrNull()?.let { throw AssertionError("sign-in failed", it) }
+        repeat(3) { server.takeRequest() }
     }
 
     /** `/api/v1/auth`'s answer, with the server's clock in `Date` as the live service sends it. */
@@ -224,15 +233,75 @@ class AccountRepositoryImplTest {
     }
 
     @Test
-    fun `a retry that is refused again is blamed on the clock`() = runTest {
+    fun `a retry signed with the server's time and refused again is not blamed on the clock`() = runTest {
         val repository = signingRepository()
         val serverNow = deviceNow + 10 * 60_000L
         server.enqueue(auth(401, serverNow, refused))
-        server.enqueue(auth(401, serverNow, refused))
+        server.enqueue(auth(401, serverNow, """{"detail":"Invalid signature"}"""))
 
         val result = repository.loadAccount()
 
-        assertTrue(result.exceptionOrNull() is AccountClockException)
+        assertTrue(result.isFailure)
+        assertFalse("the retry carried the server's own time", result.exceptionOrNull() is AccountClockException)
         assertEquals("one retry, not a loop", 2, server.requestCount)
+    }
+
+    @Test
+    fun `a refusal after the clock was already corrected is not blamed on the clock`() = runTest {
+        val repository = signingRepository()
+        val serverNow = deviceNow + 10 * 60_000L
+        learnCorrection(repository, serverNow)
+        server.enqueue(auth(401, serverNow, """{"detail":"Invalid signature"}"""))
+
+        val result = repository.loadAccount(forceReauth = true)
+
+        assertTrue(result.isFailure)
+        assertFalse(
+            "the device clock is still 10 minutes off, but this sign-in was signed with the server's time",
+            result.exceptionOrNull() is AccountClockException
+        )
+        assertEquals("nothing for a retry to correct", 4, server.requestCount)
+    }
+
+    @Test
+    fun `a response with no Date keeps the correction already learned`() = runTest {
+        val repository = signingRepository()
+        val serverNow = deviceNow + 10 * 60_000L
+        learnCorrection(repository, serverNow)
+        server.enqueue(MockResponse().setResponseCode(503))
+        assertTrue(repository.loadAccount(forceReauth = true).isFailure)
+        server.takeRequest()
+
+        server.enqueue(auth(200, serverNow))
+        server.enqueue(profileOk())
+        repository.loadAccount(forceReauth = true).exceptionOrNull()?.let { throw AssertionError("sign-in failed", it) }
+
+        assertEquals("still signed with the server's time", serverNow / 1000, signedTimestamp())
+    }
+
+    @Test
+    fun `a slow refusal from a server whose clock agrees is not retried`() = runTest {
+        // Each reading of the device clock is 90 s later, as if the 401 took that long; the
+        // server's Date matches the device's clock when it answered.
+        var reads = 0
+        val repository = signingRepository(deviceMillis = { deviceNow + 90_000L * reads++ })
+        server.enqueue(auth(401, deviceNow + 90_000L, """{"detail":"Invalid signature"}"""))
+
+        val result = repository.loadAccount()
+
+        assertTrue(result.isFailure)
+        assertFalse(result.exceptionOrNull() is AccountClockException)
+        assertEquals("time passing is not a correction", 1, server.requestCount)
+    }
+
+    @Test
+    fun `a clock failure keeps the refusal it came from`() = runTest {
+        val repository = signingRepository()
+        server.enqueue(auth(401, deviceNow + 2 * 60 * 60_000L, refused))
+
+        val failure = repository.loadAccount().exceptionOrNull()
+
+        assertTrue(failure is AccountClockException)
+        assertTrue("cause: ${failure?.cause}", failure?.cause?.message?.contains("401") == true)
     }
 }

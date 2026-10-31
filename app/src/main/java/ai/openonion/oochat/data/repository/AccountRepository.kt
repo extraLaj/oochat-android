@@ -17,7 +17,8 @@ data class AccountSnapshot(
  * from this device's, beyond what its `Date` header may correct (W16AAPPLE-91). Only fixing the
  * device's date and time helps; retrying does not.
  */
-class AccountClockException : Exception("account sign-in refused: this device's clock is wrong")
+class AccountClockException(cause: Throwable? = null) :
+    Exception("account sign-in refused: this device's clock is wrong", cause)
 
 /**
  * Repository for the OpenOnion account service (balance/credits). UI must

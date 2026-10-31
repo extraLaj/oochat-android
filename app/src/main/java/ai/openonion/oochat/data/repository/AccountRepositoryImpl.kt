@@ -34,13 +34,13 @@ import kotlin.math.abs
 class AccountRepositoryImpl(
     private val keyManager: KeyManager,
     private val baseUrl: String = "https://oo.openonion.ai",
-    private val deviceMillis: () -> Long = System::currentTimeMillis
+    deviceMillis: () -> Long = System::currentTimeMillis
 ) : AccountRepository {
 
     /**
      * `/api/v1/auth` refuses a timestamp more than five minutes from its own clock, and the app
      * signs in again on every launch, so a phone whose clock is off had no balance and no voice
-     * transcription at all. Every sign-in response's `Date` header corrects the clock, bounded as
+     * transcription at all. Each sign-in response's `Date` header corrects the clock, bounded as
      * for the agent connection (W16AAPPLE-90).
      */
     private val serverClock = HostClock(deviceMillis)
@@ -108,17 +108,19 @@ class AccountRepositoryImpl(
 
     private fun authenticate(epochAtStart: Int): String {
         val keys = keyManager.loadOrGenerate()
-        val signedAt = serverClock.nowSeconds()
+        val offsetBefore = serverClock.offsetMillis
         val token = try {
-            signIn(keys, signedAt)
+            signIn(keys, serverClock.nowSeconds())
         } catch (refused: AuthRefusedException) {
             // The refusal's Date has just corrected the clock. If that moved it, one more try
-            // signed with the server's time can pass; with the same time it would be refused again.
-            val retryAt = serverClock.nowSeconds()
-            if (abs(retryAt - signedAt) < MIN_CORRECTION_SECONDS) throw refused.clockProblemOrSelf()
+            // signed with the server's time can pass; with the same correction it would be
+            // refused again. Compared by offset, not by time passed: a slow 401 changes nothing.
+            if (abs(serverClock.offsetMillis - offsetBefore) < MIN_CORRECTION_MS) throw refused.clockProblemOrSelf()
             try {
-                signIn(keys, retryAt)
+                signIn(keys, serverClock.nowSeconds())
             } catch (again: AuthRefusedException) {
+                // Signed with the server's own time, so the clock is ruled out unless the
+                // server's Date moved again since.
                 throw again.clockProblemOrSelf()
             }
         }
@@ -129,7 +131,7 @@ class AccountRepositoryImpl(
         return token
     }
 
-    /** One signed sign-in at [timestamp]; feeds the response's `Date` to [serverClock] either way. */
+    /** One signed sign-in at [timestamp]; feeds the response's `Date`, if any, to [serverClock]. */
     private fun signIn(keys: KeyManager.AddressData, timestamp: Long): String {
         val message = "ConnectOnion-Auth-${keys.address}-$timestamp"
         val signature = keyManager.sign(keys, message)
@@ -144,11 +146,12 @@ class AccountRepositoryImpl(
             .build()
 
         httpClient.newCall(request).execute().use { response ->
-            serverClock.observe(response)
+            val serverMillis = serverClock.correctFrom(response)
             val body = response.body?.string()
             if (response.code == 401) {
-                val serverMillis = runCatching { response.headers.getDate("Date")?.time }.getOrNull()
-                throw AuthRefusedException(skewMillis = serverMillis?.let { it - deviceMillis() })
+                // Against what was signed, not this device's raw clock: a sign-in already signed
+                // with the corrected time and refused for another reason is not the clock's fault.
+                throw AuthRefusedException(skewMillis = serverMillis?.let { it - timestamp * 1000 })
             }
             if (!response.isSuccessful || body == null) {
                 throw AuthFailedException("auth returned ${response.code}")
@@ -184,7 +187,7 @@ class AccountRepositoryImpl(
         private const val TIMEOUT_SECONDS = 15L
 
         /** A correction smaller than this cannot be why a sign-in was refused. */
-        private const val MIN_CORRECTION_SECONDS = 60L
+        private const val MIN_CORRECTION_MS = 60_000L
     }
 }
 
@@ -193,10 +196,13 @@ private const val AUTH_WINDOW_MS = 5 * 60 * 1000L
 
 private class AuthFailedException(message: String) : Exception(message)
 
-/** A 401 from `/api/v1/auth`; [skewMillis] is the server's clock minus this device's, when it sent one. */
-private class AuthRefusedException(val skewMillis: Long?) : Exception("auth returned 401") {
+/**
+ * A 401 from `/api/v1/auth`; [skewMillis] is the server's clock minus the signed timestamp, when the
+ * server sent its time.
+ */
+private class AuthRefusedException(val skewMillis: Long?) : Exception("auth returned 401 (skew ${skewMillis}ms)") {
     fun clockProblemOrSelf(): Exception =
-        if (skewMillis != null && abs(skewMillis) > AUTH_WINDOW_MS) AccountClockException() else this
+        if (skewMillis != null && abs(skewMillis) > AUTH_WINDOW_MS) AccountClockException(this) else this
 }
 private class AuthExpiredException : Exception("token expired")
 private class ProfileFetchException(message: String) : Exception(message)
