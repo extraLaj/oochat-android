@@ -5,6 +5,7 @@ import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.toConnectTarget
+import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.di.appContainer
 import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentStatus
@@ -49,6 +50,7 @@ import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActionRejected
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActions
 import ai.openonion.oochat.ui.controlcenter.ControlCenterCancelled
+import ai.openonion.oochat.ui.controlcenter.ControlCenterChat
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSnapshot
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
@@ -66,24 +68,31 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -239,6 +248,9 @@ open class ChatViewModel @JvmOverloads constructor(
     private val isAppInForeground: () -> Boolean = {
         (application as? ConnectOnionApplication)?.isInForeground ?: true
     },
+    // Builds the Control Center's copy of the chat, which costs time in proportion to the
+    // conversation. A seam for tests.
+    private val controlCenterDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ChatUiState())
 
@@ -662,8 +674,29 @@ open class ChatViewModel @JvmOverloads constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
+     * The chat as the Control Center app sees it, built on [controlCenterDispatcher]. The first
+     * change goes at once and later ones at most every [CONTROL_CENTER_CHAT_INTERVAL_MS], the
+     * latest winning, so a streaming reply does not rebuild the whole conversation per token.
+     *
+     * The full list, not [uiState]'s: the Streaming responses setting hides in-progress items on
+     * this screen, but the app follows the chat as it happens.
+     */
+    private val controlCenterChat: Flow<ControlCenterChat> = _uiState
+        .map { it.chatItems }
+        .distinctUntilChanged()
+        .conflate()
+        .transform { items ->
+            emit(ControlCenterChat.of(items))
+            delay(CONTROL_CENTER_CHAT_INTERVAL_MS)
+        }
+        .flowOn(controlCenterDispatcher)
+
+    /**
      * What the Control Center app is told about the chat. The session id is read when the
-     * connection, status or profile changes. Declared below [sessionActivity], which it reads.
+     * connection, status, profile or chat changes. Declared below [sessionActivity], which it reads.
+     *
+     * Only while the Control Center is open: nothing else reads it, and the chat costs work per
+     * change.
      */
     val controlCenterSnapshot: StateFlow<ControlCenterSnapshot> = combine(
         combine(
@@ -676,19 +709,21 @@ open class ChatViewModel @JvmOverloads constructor(
             Triple(state, if (activity != null && (actionInFlight || stopping)) SessionActivity.RUNNING else activity, profile)
         },
         // Only a trigger: a conversation switch changes the session id but often nothing above.
-        conversationHistory.activeSessionId
-    ) { (state, shown, profile), _ ->
-        controlCenterSnapshotOf(state, shown, profile)
+        conversationHistory.activeSessionId,
+        controlCenterChat
+    ) { (state, shown, profile), _, chat ->
+        controlCenterSnapshotOf(state, shown, profile, chat)
     }.stateIn(
         viewModelScope,
-        SharingStarted.Eagerly,
-        controlCenterSnapshotOf(connectionState.value, null, agentProfile.value)
+        SharingStarted.WhileSubscribed(CONTROL_CENTER_STOP_TIMEOUT_MS),
+        controlCenterSnapshotOf(connectionState.value, null, agentProfile.value, ControlCenterChat())
     )
 
     private fun controlCenterSnapshotOf(
         state: ConnectionState,
         activity: SessionActivity?,
-        profile: AgentLiveProfile?
+        profile: AgentLiveProfile?,
+        chat: ControlCenterChat
     ): ControlCenterSnapshot {
         val address = (state as? ConnectionState.Connected)?.address ?: _targetAgentAddress
         return ControlCenterSnapshot.of(
@@ -696,7 +731,8 @@ open class ChatViewModel @JvmOverloads constructor(
             agentAddress = address,
             activity = activity,
             connection = state,
-            skills = profile?.skills.orEmpty()
+            skills = profile?.skills.orEmpty(),
+            chat = chat
         )
     }
 
@@ -2544,10 +2580,16 @@ open class ChatViewModel @JvmOverloads constructor(
                 return@launch
             }
             _voiceInput.update { it.copy(phase = VoiceInputPhase.TRANSCRIBING) }
-            val transcript = voiceTranscriptionService.transcribe(recorded.file).getOrNull()
+            val result = voiceTranscriptionService.transcribe(recorded.file)
+            val transcript = result.getOrNull()
             _voiceInput.value = VoiceInputState(
                 transcript = transcript.orEmpty(),
-                error = if (transcript.isNullOrBlank()) "Couldn't transcribe that. Try again." else null
+                error = when {
+                    // Trying again cannot help: the account server refuses this device's clock.
+                    result.exceptionOrNull() is AccountClockException -> TRANSCRIPTION_CLOCK_WRONG
+                    transcript.isNullOrBlank() -> "Couldn't transcribe that. Try again."
+                    else -> null
+                }
             )
         }
     }
@@ -2821,5 +2863,16 @@ open class ChatViewModel @JvmOverloads constructor(
          * this long means it was not runtime input.
          */
         internal const val RUNTIME_INPUT_REPLY_TIMEOUT_MS = 10_000L
+
+        /** Dictation's error when the account sign-in is refused over this device's clock (W16AAPPLE-91). */
+        internal const val TRANSCRIPTION_CLOCK_WRONG =
+            "Couldn't transcribe that: this device's clock is wrong. " +
+                "Check the date and time in Settings (set them to automatic), then try again."
+
+        /** At most this often the Control Center's chat is rebuilt while it changes. */
+        internal const val CONTROL_CENTER_CHAT_INTERVAL_MS = 200L
+
+        /** The Control Center snapshot keeps updating this long after the screen stops reading it, across a rotation. */
+        private const val CONTROL_CENTER_STOP_TIMEOUT_MS = 5_000L
     }
 }

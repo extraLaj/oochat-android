@@ -94,4 +94,15 @@ class HostClockTest {
 
         assertEquals(0L, clock.offsetMillis)
     }
+
+    @Test
+    fun `an HTTP correction keeps what it learned when a response has no Date`() {
+        // Account sign-in (W16AAPPLE-91): a proxy's 5xx must not undo a correction.
+        val clock = HostClock(deviceMillis = { device })
+        assertEquals(device + tenMinutes, clock.correctFrom(upgrade(dateMillis = device + tenMinutes)))
+
+        assertEquals(null, clock.correctFrom(upgrade(dateMillis = null)))
+
+        assertEquals(tenMinutes, clock.offsetMillis)
+    }
 }
