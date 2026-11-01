@@ -503,7 +503,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | Server `type` | Fields used by this client | Client behaviour |
 | --- | --- | --- |
 | `PING` | — | Emits `Ping`; `AgentConnection` sends `PONG`. |
-| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. |
+| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. Skills go through `AgentSkill.cleaned()`, the same clean-up the relay directory's skills get: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
 | `DASHBOARD_SNAPSHOT` | `html` | Emits `DashboardSnapshotReceived` for a non-blank dashboard within the size limit; oversized or blank content is ignored. |
 | `CONTROL_CENTER_APP` | `app.schema`, `app.sdk_version`, `app.revision`, `app.url`, `app.capabilities`, `app.review.status` | Emits `ControlCenterAppReceived`. The app is kept only when it is approved, speaks bridge version 1, is pinned to a `sha256:` revision and is served over `https` with no credentials, query or fragment; anything else, or `app: null`, reads as no app. See [Control Center](#control-center). |
 | `CONTROL_CENTER_STATE` | `state.status`, `state.error.code`, `state.error.message` | Emits `ControlCenterStateReceived`, which is logged: it is what explains an app that is missing. |
