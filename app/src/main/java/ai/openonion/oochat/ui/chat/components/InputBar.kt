@@ -143,12 +143,7 @@ fun InputBar(
     // new-turn and interject paths. Offering the send here only produced a
     // "prompt required" error every time. TextInputField's placeholder says
     // why while attachments are waiting.
-    // Not gated on the connection: offline, the message is queued. A gate
-    // still waiting for an invite code is the exception, since that code goes
-    // in the card above, not here. Paired with !isConnected, as in
-    // TextInputField's placeholder: the flag also follows an unanswered gate
-    // card, which must not lock a connected composer.
-    val fieldEnabled = hasAgent && !(awaitingOnboardCode && !isConnected)
+    val fieldEnabled = composerEnabled(hasAgent, awaitingOnboardCode, isConnected)
     val canSend = fieldEnabled && input.text.isNotBlank()
     // Dictation only writes into this field, so it needs no more than the field
     // itself does; it still waits out a dictation, because finishing one now
@@ -508,6 +503,19 @@ fun InputBar(
  * getData, so both shapes are read.
  */
 /** Attachments per message, images and files counted together — see InputBar's fitting(). */
+/**
+ * Whether the composer takes input. The one rule, shared with ChatScreen's
+ * dimming so the box can never look locked while it works, or the reverse.
+ *
+ * Not gated on the connection: offline, the message is queued (W16AAPPLE-102).
+ * A gate still waiting for an invite code is the exception, since that code
+ * goes in the card above, not here. Paired with !isConnected, as in
+ * TextInputField's placeholder: the flag also follows an unanswered gate card,
+ * which must not lock a connected composer.
+ */
+internal fun composerEnabled(hasAgent: Boolean, awaitingOnboardCode: Boolean, isConnected: Boolean): Boolean =
+    hasAgent && !(awaitingOnboardCode && !isConnected)
+
 private const val MAX_ATTACHMENTS = 3
 
 /**

@@ -302,8 +302,8 @@ class ConnectToAgentUseCase(
         repo.querySessionStatus(sessionId)
     }
 
-    override suspend fun disconnect() {
-        repository?.disconnect()
+    override suspend fun disconnect(keepOutbox: Boolean) {
+        repository?.disconnect(keepOutbox)
     }
 
     override fun isConnected(): Boolean {

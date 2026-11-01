@@ -2824,7 +2824,7 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     fun disconnect() {
-        viewModelScope.launch {
+        launchScoped {
             connectUseCase.disconnect()
             failOutboxedMessages()
         }

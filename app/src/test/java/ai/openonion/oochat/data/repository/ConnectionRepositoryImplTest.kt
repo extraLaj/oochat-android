@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
+import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.QueuedMessage
 import ai.openonion.oochat.network.WebSocketFactory
@@ -1491,6 +1492,34 @@ class ConnectionRepositoryImplTest {
         repository.sendMessage("typed offline", "0xAGENT", null, null)
 
         assertEquals(listOf(Triple("0xAGENT", "conv-1", "typed offline")), sink.enqueued)
+    }
+
+    @Test
+    fun `a message queued with no connection goes out on the next connection's CONNECTED`() = runTest(testDispatcher) {
+        // The fix rests on the queue key matching the session the next
+        // connect restores, so use the real outbox and watch the INPUT leave.
+        val outbox = InMemoryPendingMessageSink()
+        val repo = ConnectionRepositoryImpl(
+            keyManager = keyManager,
+            relayUrl = "ws://test.invalid",
+            pendingMessageSink = outbox,
+            agentConnectionFactory = { km, url ->
+                AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = outbox)
+            }
+        )
+        repo.switchConversation("conv-1")
+        repo.sendMessage("typed offline", "0xAGENT", null, null)
+
+        repo.connect("0xAGENT", "conv-1")
+        val socket = factory.lastWebSocket!!
+        assertTrue("nothing goes out before CONNECTED", socket.sentMessages.none { it.contains("typed offline") })
+        simulateConnected("conv-1")
+
+        assertTrue(
+            "the queued message must be sent as an INPUT: ${socket.sentMessages}",
+            socket.sentMessages.any { it.contains("\"type\":\"INPUT\"") && it.contains("typed offline") }
+        )
+        repo.disconnect()
     }
 
     @Test

@@ -10,6 +10,7 @@ import ai.openonion.oochat.ui.chat.components.InputBar
 import ai.openonion.oochat.ui.chat.components.LowBalanceBar
 import ai.openonion.oochat.ui.chat.components.PlanPanel
 import ai.openonion.oochat.ui.chat.components.VoiceInputState
+import ai.openonion.oochat.ui.chat.components.composerEnabled
 import ai.openonion.oochat.ui.chat.components.failedUserMessages
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.ConnectionBanner
@@ -420,7 +421,7 @@ fun ChatScreen(
                 // Dimmed only when it cannot be used. Offline it can, so it is
                 // drawn at full strength; the banner already says offline.
                 modifier = Modifier.graphicsLayer {
-                    alpha = if (targetAgentAddress != null && !(awaitingOnboardCode && !isConnected)) 1f else 0.45f
+                    alpha = if (composerEnabled(targetAgentAddress != null, awaitingOnboardCode, isConnected)) 1f else 0.45f
                 }
             )
             }

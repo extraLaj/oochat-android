@@ -277,7 +277,11 @@ class ChatViewModelTest {
             }
         }
 
-        override suspend fun disconnect() { disconnectCount++ }
+        val disconnectKeptOutbox = mutableListOf<Boolean>()
+        override suspend fun disconnect(keepOutbox: Boolean) {
+            disconnectCount++
+            disconnectKeptOutbox += keepOutbox
+        }
 
         var resetCount = 0
         override suspend fun reset() { resetCount++ }

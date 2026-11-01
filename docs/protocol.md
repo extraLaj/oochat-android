@@ -972,8 +972,11 @@ The composer stays usable while disconnected, so the outbox is reachable
 after one gave up) `ConnectionRepositoryImpl.sendMessage` queues the message for
 the conversation itself. Only a user disconnect (the banner's Stop) empties the
 outbox: replacing the connection (Reconnect) and `ConnectToAgentUseCase`'s
-first-connect timeout keep it, and the bubbles of a dropped outbox turn failed
-rather than staying "Waiting to send".
+first-connect timeout (and cancelling the Loading screen) keep it. When Stop
+does empty it, the bubbles this screen queued in this process turn failed rather
+than staying "Waiting to send". The outbox is per agent, though, so Stop also
+drops what other conversations with that agent, or a previous run, queued, and
+those bubbles do not change.
 
 **Known gaps.**
 
