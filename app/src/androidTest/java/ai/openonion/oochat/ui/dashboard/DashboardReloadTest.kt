@@ -44,7 +44,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
  * through it): espresso-core 3.5.1 cannot start on API 37, and this test is
  * most useful on the newest WebView.
  */
-class DashboardSwapTest {
+class DashboardReloadTest {
 
     private var document by mutableStateOf("")
 

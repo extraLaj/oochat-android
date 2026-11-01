@@ -29,7 +29,7 @@ import androidx.compose.ui.viewinterop.AndroidView
  * Chromium's paint holding keeps the old page's last frame up until the new
  * one can paint. A pair of WebViews swapped on ready signals was tried and
  * dropped — on a device it showed no fewer blank frames, and the hidden page
- * loaded slower and signalled late. `DashboardSwapTest` (instrumented) checks
+ * loaded slower and signalled late. `DashboardReloadTest` (instrumented) checks
  * every frame across a reload.
  *
  * `javaScriptEnabled = true` is required — the bridge is a script. Everything

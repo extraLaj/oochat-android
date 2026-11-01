@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.assertIsDisplayed
@@ -169,15 +170,22 @@ class DashboardWebViewTest {
     }
 
     @Test
-    fun `recomposing with the same snapshot does not reload it`() {
-        showWebView("<h1>v1</h1>")
+    fun `a theme change repaints the background without reloading the page`() {
+        var surface by mutableStateOf(Color(0xFF101F14))
+        composeRule.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(surface = surface)) {
+                DashboardWebView(document = "<h1>v1</h1>", onRunSkill = { _, _ -> }, onNavigationBlocked = {})
+            }
+        }
+        composeRule.waitForIdle()
         val before = shadowOf(webView()).lastLoadDataWithBaseURL
 
-        // A recomposition passes the same document again; the screen keeps
-        // one instance per snapshot, so identity is what marks a new one.
-        composeRule.runOnUiThread { document = document }
+        surface = Color(0xFFF4F1E8)
         composeRule.waitForIdle()
 
+        // The new colour shows the update ran; a reload there would throw away
+        // the user's scroll and filter text.
+        assertEquals(Color(0xFFF4F1E8).toArgb(), shadowOf(webView()).backgroundColor)
         assertSame(before, shadowOf(webView()).lastLoadDataWithBaseURL)
     }
 
@@ -247,6 +255,23 @@ class DashboardWebViewTest {
 
         thread { held.toList().forEach(Runnable::run) }.join()
         composeRule.waitUntil(5_000) { loadedOrNull()!!.contains("<h1>v2</h1>") }
+    }
+
+    @Test
+    fun `a cleared snapshot takes the page down in the same frame`() {
+        var html by mutableStateOf<String?>("<h1>v1</h1>")
+        composeRule.setContent { screen(html = html) }
+        composeRule.waitUntil(5_000) { loadedOrNull() != null }
+
+        // One frame only: the build state catches up a frame later, and until
+        // then it still holds the old page.
+        composeRule.mainClock.autoAdvance = false
+        html = null
+        Snapshot.sendApplyNotifications()
+        composeRule.mainClock.advanceTimeByFrame()
+
+        composeRule.onNodeWithText("No Home page yet").assertIsDisplayed()
+        assertNull("the old page is gone", loadedOrNull())
     }
 
     @Test
