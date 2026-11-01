@@ -164,6 +164,12 @@ class AgentConnection(
     // first socket is never mistaken for a reconnect's.
     @Volatile private var socketIsReconnect = false
 
+    // Whether this connect() cycle has passed an onboarding gate. From then on
+    // ConnectToAgentUseCase's timer has stopped, so every CONNECT in the cycle
+    // is waited on (awaitConnectedOrRetry) as a reconnect's is. Kept apart from
+    // socketIsReconnect, which also decides whether a refusal ends a reconnect.
+    @Volatile private var gatePassedThisCycle = false
+
     // Gives up on a reconnect socket whose CONNECT the Host never answers; see
     // [awaitConnectedOrRetry].
     @Volatile private var connectedWaitJob: Job? = null
@@ -429,6 +435,7 @@ class AgentConnection(
             isConnectionReady = false
             onboardingPending = false
             submitWasRejected = false
+            gatePassedThisCycle = false
             // New WS cycle starts clean: a previously-rejected gate has no
             // meaning on a fresh session, and the generation-counter check
             // in the listener closures will naturally reject any late
@@ -486,7 +493,7 @@ class AgentConnection(
         FileLogger.i(LogTags.AGENT_CONN, "CONNECT → $capturedAgentAddress sid=${connectMsg.sessionId ?: "<new>"}")
         awaitingConnected = true
         ws.send(msgStr)
-        if (socketIsReconnect) awaitConnectedOrRetry()
+        if (socketIsReconnect || gatePassedThisCycle) awaitConnectedOrRetry()
     }
 
     /**
@@ -498,9 +505,10 @@ class AgentConnection(
      * Only for reconnects: a first connect is already bounded by
      * ConnectToAgentUseCase's own timeout, and a gate (ONBOARD_REQUIRED) answers
      * in place of CONNECTED, which [trackOnboardingState] treats as an answer.
-     * The exception is the CONNECTED owed after ONBOARD_SUCCESS, which is
-     * bounded here on every socket: the use case stops its timer once the gate
-     * arrives (see [awaitConnectedAfterOnboarding]).
+     * The exception is a cycle that has passed a gate: the use case stops its
+     * timer once the gate arrives, so the CONNECTED owed after ONBOARD_SUCCESS
+     * and every later CONNECT in the cycle are bounded here, on any socket
+     * (see [awaitConnectedAfterOnboarding] and gatePassedThisCycle).
      */
     private fun awaitConnectedOrRetry() {
         val generation = socketGeneration.get()
@@ -1393,6 +1401,7 @@ class AgentConnection(
      */
     private fun awaitConnectedAfterOnboarding() {
         if (isConnectionReady) return
+        gatePassedThisCycle = true
         awaitingConnected = true
         awaitConnectedOrRetry()
     }

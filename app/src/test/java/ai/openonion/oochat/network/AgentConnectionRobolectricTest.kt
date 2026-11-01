@@ -3154,6 +3154,57 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
+    fun `after onboarding a Host silent on every socket ends the ladder instead of hanging`() = runTest {
+        // The retries after the gate are not reconnects (the cycle never
+        // reached the agent), but the use case's timer is long gone, so each
+        // one is waited on too. Without that the first retry socket sat on
+        // "Reconnecting..." for good.
+        val conn = connectionOnVirtualClock()
+        val seen = recordEvents(conn)
+        conn.connect("0xAGENT")
+        val first = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(first, fakeResponse())
+        factory.lastListener!!.onMessage(first, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(first, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        val retries = mutableListOf<FakeWebSocket>()
+        for (attempt in 1..AgentConnection.MAX_RECONNECT_ATTEMPTS) {
+            advanceTimeBy(AgentConnection.reconnectBackoffMs(attempt) + 1)
+            val retry = factory.lastWebSocket!!
+            assertNotSame("rung $attempt must open a new socket", retries.lastOrNull() ?: first, retry)
+            retries += retry
+            factory.lastListener!!.onOpen(retry, fakeResponse())
+            advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+            assertEquals("rung $attempt's unanswered socket must be closed", 1000, retry.closeCode)
+        }
+
+        assertFalse(conn.isConnected())
+        assertTrue("the ladder must end with a verdict: $seen", seen.last() is ConnectionEvent.Disconnected)
+        conn.teardown()
+    }
+
+    @Test
+    fun `a new connect after onboarding leaves its first CONNECT to the use case's timer`() = runTest {
+        // Passing a gate is per cycle: the next connect() is a first connect
+        // again, bounded by ConnectToAgentUseCase rather than closed at 15 s.
+        val conn = connectionOnVirtualClock()
+        conn.connect("0xAGENT")
+        val gated = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(gated, fakeResponse())
+        factory.lastListener!!.onMessage(gated, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(gated, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+
+        conn.connect("0xAGENT")
+        val fresh = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(fresh, fakeResponse())
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        assertNull("a first connect's CONNECT is not this class's to time out", fresh.closeCode)
+        conn.teardown()
+    }
+
+    @Test
     fun `ONBOARD_SUCCESS on a socket that is already connected waits for nothing`() = runTest {
         // The Host only gates a CONNECT, so after CONNECTED there is no
         // held-back one left to complete. Waiting for it would retire a
@@ -3176,7 +3227,7 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
-    fun `a late "already authenticated" ERROR after onboarding leaves the connection working`() = runTest {
+    fun `a late already-authenticated ERROR after onboarding leaves the connection working`() = runTest {
         // The app no longer causes this ERROR (W16AAPPLE-83), but one arriving
         // anyway must stay noise on a connection that works.
         val conn = connectionOnVirtualClock()

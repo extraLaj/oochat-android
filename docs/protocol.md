@@ -881,13 +881,15 @@ the ladder, and the repository read the `ERROR` as a business error on a live
 session: the screen sat on "Reconnecting…" for good. An `ERROR` after
 `CONNECTED` is still a non-fatal `ConnectionErrorOccurred`.
 
-The one wait the first socket shares is the `CONNECTED` owed after
-`ONBOARD_SUCCESS` (W16AAPPLE-83): the Host completes the `CONNECT` it held back,
-and `ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives.
-So on any socket, no `CONNECTED` within `CONNECTED_TIMEOUT_MS` of
-`ONBOARD_SUCCESS` closes the socket and climbs the ladder, instead of leaving the
-screen on "Connecting...". On a socket that is already connected there is
-nothing held back, so nothing is waited for.
+The exception is a cycle that has passed an onboarding gate (W16AAPPLE-83).
+`ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives, so
+from `ONBOARD_SUCCESS` on, every `CONNECT` in that cycle is waited on like a
+reconnect's: the `CONNECTED` the Host owes for the `CONNECT` it held back, and
+each retry after it. No `CONNECTED` within `CONNECTED_TIMEOUT_MS` closes the
+socket and climbs the ladder, which ends in `Disconnected`, instead of leaving
+the screen on "Connecting..." or "Reconnecting..." for good. A new `connect()`
+starts a fresh cycle, back on the use case's timer. On a socket that is already
+connected there is nothing held back, so nothing is waited for.
 
 **An offline agent (W16AAPPLE-79).** When the ladder runs out and the last try
 ended with the relay's offline verdict, the client says so once (the relay's
