@@ -98,7 +98,9 @@ The first dictation on a phone may pause a second or two on **Preparing…**
 while the app works out whether the phone's own speech recogniser can be used.
 If it cannot, the app records and has the audio transcribed instead — you get
 the same editable text, just only once you stop talking rather than as you
-speak. Either way the audio is not stored and not sent anywhere else.
+speak. Either way the audio is not stored and not sent anywhere else. A
+recording under a second, usually an accidental tap, is dropped with
+"Recording too short. Try again."
 
 > On an emulator, dictation is not worth judging: the microphone is the host
 > machine's and what the emulator reports about it does not match a phone.
