@@ -915,31 +915,16 @@ object ProtocolParser {
     }
 
     /**
-     * Wire skills to domain skills. Nameless entries are dropped — there is
-     * no command to complete without one — and a description that says
-     * nothing (blank, or the host's `"No description"` placeholder) becomes
-     * null so the palette shows the name alone rather than filler.
-     *
-     * Names are deduplicated because the palette keys its list on them, and a
-     * `LazyColumn` throws on a repeated key. Nothing on the wire promises they
-     * are unique: an agent that registers the same skill twice would take the
-     * app down the moment the user typed `/`.
+     * Wire skills to domain skills, cleaned by [AgentSkill.cleaned] exactly as
+     * the relay directory's are. [keepUsable] runs first only so a nameless
+     * entry is logged as dropped.
      */
     private fun List<SkillWire>?.toAgentSkills(): List<AgentSkill> =
-        this.orEmpty()
-            .keepUsable("skills") { it.name.isNotBlank() }
-            .distinctBy { it.name }
-            .map { wire ->
-                val description = wire.description?.trim()
-                AgentSkill(
-                    name = wire.name,
-                    description = description
-                        ?.takeIf { it.isNotEmpty() && !it.equals(NO_DESCRIPTION_PLACEHOLDER, ignoreCase = true) }
-                )
-            }
-
-    /** What the host emits for a skill whose file has no summary — see [toAgentSkills]. */
-    private const val NO_DESCRIPTION_PLACEHOLDER = "No description"
+        AgentSkill.cleaned(
+            this.orEmpty().keepUsable("skills") { it.name.isNotBlank() },
+            name = { it.name },
+            description = { it.description }
+        )
 
     /** A protocol name or version short and plain enough to echo — see [describeProtocol]. */
     private val PROTOCOL_TOKEN = Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,31}")
