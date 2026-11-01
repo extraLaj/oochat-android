@@ -506,7 +506,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `ask_user` | `id`, `text`, `options`, `multi_select` | Creates an answer card and enters a waiting state. |
 | `approval_needed` | `id`, `tool`, `arguments`, `description`, `batch_remaining` | Creates an approval card and enters a waiting state. `batch_remaining` previews the next queued tool calls in the current approval batch. |
 | `ONBOARD_REQUIRED` | `id`, `methods`, `payment_amount`, `payment_address` | Creates an onboarding card and enters a waiting state. |
-| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card. The client does not send CONNECT again: the Host completes the CONNECT it held back and sends CONNECTED itself, and a second CONNECT is refused with "already authenticated: open a new connection" (W16AAPPLE-83). The connection waits for that CONNECTED as for any CONNECT. |
+| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card. The client does not send CONNECT again: the Host completes the CONNECT it held back and sends CONNECTED itself, and a second CONNECT is refused with "already authenticated: open a new connection" (W16AAPPLE-83). The connection waits up to `CONNECTED_TIMEOUT_MS` for that CONNECTED, on the first socket too (see [When a reconnect fails](#when-a-reconnect-fails)). |
 | `intent` | `id`, `status`, `ack`, `is_build` | Updates a `ChatItem.IntentItem`. Status is `UNDERSTOOD` only when `status` is exactly `"understood"`, otherwise `ANALYZING`. |
 | `eval` | `id`, `status`, `passed`, `summary`, `expected`, `eval_path` | Updates a `ChatItem.EvalItem` holding the agent's self-grading result. Status is `DONE` only when `status` is exactly `"done"`, otherwise `EVALUATING`. |
 | `compact` | `id`, `status`, `context_before`, `context_after`, `context_percent`, `message`, `error` | Updates a `ChatItem.CompactItem` tracking context-window compaction. Status is `DONE` for `"done"`, `ERROR` for `"error"`, otherwise `COMPACTING` — the one status event with three terminal states rather than two. Rendered as a subtle divider in the chat timeline (see [Compaction in the timeline](#compaction-in-the-timeline)). |
@@ -879,9 +879,15 @@ ladder retry, `retryNow()`, or a conversation switch. The Host keeps a socket
 open after an `ERROR`, so before this (W16AAPPLE-82) no close arrived to climb
 the ladder, and the repository read the `ERROR` as a business error on a live
 session: the screen sat on "Reconnecting…" for good. An `ERROR` after
-`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`. So is the reply to
-the re-`CONNECT` after an invite code on the first socket (W16AAPPLE-83), which
-is not a reconnect.
+`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`.
+
+The one wait the first socket shares is the `CONNECTED` owed after
+`ONBOARD_SUCCESS` (W16AAPPLE-83): the Host completes the `CONNECT` it held back,
+and `ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives.
+So on any socket, no `CONNECTED` within `CONNECTED_TIMEOUT_MS` of
+`ONBOARD_SUCCESS` closes the socket and climbs the ladder, instead of leaving the
+screen on "Connecting...". On a socket that is already connected there is
+nothing held back, so nothing is waited for.
 
 **An offline agent (W16AAPPLE-79).** When the ladder runs out and the last try
 ended with the relay's offline verdict, the client says so once (the relay's

@@ -498,6 +498,9 @@ class AgentConnection(
      * Only for reconnects: a first connect is already bounded by
      * ConnectToAgentUseCase's own timeout, and a gate (ONBOARD_REQUIRED) answers
      * in place of CONNECTED, which [trackOnboardingState] treats as an answer.
+     * The exception is the CONNECTED owed after ONBOARD_SUCCESS, which is
+     * bounded here on every socket: the use case stops its timer once the gate
+     * arrives (see [awaitConnectedAfterOnboarding]).
      */
     private fun awaitConnectedOrRetry() {
         val generation = socketGeneration.get()
@@ -506,7 +509,7 @@ class AgentConnection(
             delay(CONNECTED_TIMEOUT_MS)
             synchronized(this@AgentConnection) {
                 if (!awaitingConnected || generation != socketGeneration.get()) return@launch
-                FileLogger.w(LogTags.AGENT_CONN, "No CONNECTED within ${CONNECTED_TIMEOUT_MS}ms — treating the reconnect as failed")
+                FileLogger.w(LogTags.AGENT_CONN, "No CONNECTED within ${CONNECTED_TIMEOUT_MS}ms - treating the attempt as failed")
                 retireSocket("No answer to CONNECT")
             }
             attemptReconnect()
@@ -1376,13 +1379,22 @@ class AgentConnection(
     /**
      * After ONBOARD_SUCCESS the Host completes the CONNECT it held back and
      * sends CONNECTED itself; a second CONNECT would be refused with "already
-     * authenticated: open a new connection" (websocket-protocol.md: "do not
-     * send CONNECT again", W16AAPPLE-83). So our original CONNECT is
-     * outstanding again, and waited on as if just sent.
+     * authenticated: open a new connection" (connectonion's
+     * docs/network/websocket-protocol.md: "do not send CONNECT again",
+     * W16AAPPLE-83). So our original CONNECT is outstanding again, and waited
+     * on as if just sent.
+     *
+     * Bounded on the first socket too: ConnectToAgentUseCase stops its timer
+     * once ONBOARD_REQUIRED arrives, so a CONNECTED that never comes would
+     * otherwise leave the user on "Connecting..." with no error.
+     *
+     * Nothing is owed on a socket that is already connected: the Host only
+     * gates a CONNECT, so there is no held-back one left to complete.
      */
     private fun awaitConnectedAfterOnboarding() {
+        if (isConnectionReady) return
         awaitingConnected = true
-        if (socketIsReconnect) awaitConnectedOrRetry()
+        awaitConnectedOrRetry()
     }
 
     /** Handle incoming WebSocket message using ProtocolParser. */
