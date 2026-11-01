@@ -133,6 +133,13 @@ microphone or location, read your clipboard, or open other sites. Going back to
 the chat while it is working leaves the work running. If it stops unexpectedly,
 the screen says so; tap **Reload** to start it again.
 
+On a tablet, or a foldable that is open, the page does not replace the chat: it
+sits beside it, so you can use both at once. The icon and the back arrow are not
+shown then, because the page is already open. Running a skill from the page sends
+its message and leaves the page where it is. Fold the device and the page goes
+back behind the icon, and whatever you had typed in the chat is still there. A
+phone, even turned on its side, keeps the full-screen page.
+
 ---
 
 ## 6. Deciding what the agent may do
