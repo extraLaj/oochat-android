@@ -19,7 +19,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun ControlCenterScreenWrapper(
     chatViewModelStoreOwner: ViewModelStoreOwner?,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    besideChat: Boolean = false
 ) {
     val application = LocalContext.current.applicationContext as Application
     val viewModel: ChatViewModel = viewModel(
@@ -39,6 +40,7 @@ fun ControlCenterScreenWrapper(
         actions = viewModel.controlCenterActions,
         onNavigateBack = onNavigateBack,
         agentName = profile?.name,
-        chatAwaitsUser = awaitsUser
+        chatAwaitsUser = awaitsUser,
+        besideChat = besideChat
     )
 }

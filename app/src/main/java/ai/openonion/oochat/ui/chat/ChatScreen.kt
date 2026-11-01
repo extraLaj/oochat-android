@@ -95,6 +95,8 @@ fun ChatScreen(
     onNavigateToAgentList: () -> Unit = {},
     onNavigateToDashboard: () -> Unit = {},
     onNavigateToControlCenter: () -> Unit = {},
+    // Home is shown beside this chat, so the top bar's button to open it would open what is there.
+    homeBeside: Boolean = false,
     // Drawer row tapped for an agent other than the one this ChatViewModel
     // is connected to — the caller (NavigationGraph) re-navigates to that
     // agent's own chat/{address} destination, tearing down this ChatViewModel
@@ -329,7 +331,7 @@ fun ChatScreen(
                 awaitingOnboardCode = awaitingOnboardCode,
                 modelName = agentProfile?.model,
                 sessionActivity = sessionActivity,
-                hasDashboard = dashboardHtml != null || opensControlCenter,
+                hasDashboard = !homeBeside && (dashboardHtml != null || opensControlCenter),
                 onOpenDashboard = if (opensControlCenter) onNavigateToControlCenter else onNavigateToDashboard
             )
 

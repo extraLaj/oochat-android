@@ -77,7 +77,8 @@ Some agents publish named skills. Type `/` to see them.
 <img src="screenshots/slash-command-palette.png" alt="Typing a slash in the composer lists the agent's published skills, each with its description" width="300">
 
 Each entry shows the description the agent gave it, so you do not have to guess
-what a command does or how it is spelled. **An empty palette is not a fault** —
+what a command does or how it is spelled. A skill the agent did not describe
+shows its name alone. **An empty palette is not a fault** —
 it means this agent publishes no skills, which many do not.
 
 ---
@@ -131,6 +132,13 @@ as a message from you, so you can always see it. It cannot use your camera,
 microphone or location, read your clipboard, or open other sites. Going back to
 the chat while it is working leaves the work running. If it stops unexpectedly,
 the screen says so; tap **Reload** to start it again.
+
+On a tablet, or a foldable that is open, the page does not replace the chat: it
+sits beside it, so you can use both at once. The icon and the back arrow are not
+shown then, because the page is already open. Running a skill from the page sends
+its message and leaves the page where it is. Fold the device and the page goes
+back behind the icon, and whatever you had typed in the chat is still there. A
+phone, even turned on its side, keeps the full-screen page.
 
 ---
 

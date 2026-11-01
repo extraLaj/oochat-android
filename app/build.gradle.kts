@@ -198,6 +198,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // Window size
+    implementation("androidx.compose.material3.adaptive:adaptive")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     // Navigation
@@ -436,6 +438,14 @@ val regressionSuite = mapOf(
     ),
     "relay failover" to listOf(
         "ui.chat.RelayFailoverTest",
+    ),
+    "Home beside the chat" to listOf(
+        "ui.adaptive.HomePlacementTest",
+        "ui.adaptive.HomePlacementWindowComposeTest",
+        "ui.adaptive.ChatWithHomeComposeTest",
+        "ui.adaptive.PaneComposeTest",
+        "ui.adaptive.HomeScreenRouteComposeTest",
+        "ui.adaptive.HomeBesideChatComposeTest",
     ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent

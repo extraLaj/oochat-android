@@ -166,7 +166,7 @@ They are `@Serializable` Kotlin data classes and are encoded with
 | `timestamp` | Unix time in seconds. The same value is used in `payload`. |
 | `to` | Target agent address for relay mode; absent for direct mode. |
 | `session_id` | Optional persisted server-session identifier. |
-| `last_msg_id` | Optional. The Host's id for the last agent-log frame this connection handled on `session_id`; sent on a `CONNECT` for that same session (a reconnect, a switch back, the re-`CONNECT` after an invite code) and ignored by the Host unless the session is still running. Unsigned, like `session_id`. See [Reconnect and replay](#reconnect-and-replay). |
+| `last_msg_id` | Optional. The Host's id for the last agent-log frame this connection handled on `session_id`; sent on a `CONNECT` for that same session (a reconnect, or a switch back) and ignored by the Host unless the session is still running. Unsigned, like `session_id`. See [Reconnect and replay](#reconnect-and-replay). |
 | `session` | Optional `SessionState` snapshot. |
 
 `AgentConnection.sendConnectMessage()` builds the payload and uses
@@ -206,8 +206,8 @@ The client treats that as final; see
 
 Covered by `OutgoingMessagesTest`, which checks the serialised `CONNECT`
 frame, and by `AgentConnectionRobolectricTest`, which checks the frame sent
-when the socket opens, the frame re-sent after onboarding, and that the
-descriptor is not part of the signed payload.
+when the socket opens and that the descriptor is not part of the signed
+payload.
 
 #### Incompatible protocol version
 
@@ -503,7 +503,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | Server `type` | Fields used by this client | Client behaviour |
 | --- | --- | --- |
 | `PING` | — | Emits `Ping`; `AgentConnection` sends `PONG`. |
-| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. |
+| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. Skills go through `AgentSkill.cleaned()`, the same clean-up the relay directory's skills get: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
 | `DASHBOARD_SNAPSHOT` | `html` | Emits `DashboardSnapshotReceived` for a non-blank dashboard within the size limit; oversized or blank content is ignored. |
 | `CONTROL_CENTER_APP` | `app.schema`, `app.sdk_version`, `app.revision`, `app.url`, `app.capabilities`, `app.review.status` | Emits `ControlCenterAppReceived`. The app is kept only when it is approved, speaks bridge version 1, is pinned to a `sha256:` revision and is served over `https` with no credentials, query or fragment; anything else, or `app: null`, reads as no app. See [Control Center](#control-center). |
 | `CONTROL_CENTER_STATE` | `state.status`, `state.error.code`, `state.error.message` | Emits `ControlCenterStateReceived`, which is logged: it is what explains an app that is missing. |
@@ -521,7 +521,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `ask_user` | `id`, `text`, `options`, `multi_select` | Creates an answer card and enters a waiting state. |
 | `approval_needed` | `id`, `tool`, `arguments`, `description`, `batch_remaining` | Creates an approval card and enters a waiting state. `batch_remaining` previews the next queued tool calls in the current approval batch. |
 | `ONBOARD_REQUIRED` | `id`, `methods`, `payment_amount`, `payment_address` | Creates an onboarding card and enters a waiting state. |
-| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card; the connection re-authenticates on the live socket. |
+| `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card. The client does not send CONNECT again: the Host completes the CONNECT it held back and sends CONNECTED itself, and a second CONNECT is refused with "already authenticated: open a new connection" (W16AAPPLE-83). The connection waits up to `CONNECTED_TIMEOUT_MS` for that CONNECTED, on the first socket too (see [When a reconnect fails](#when-a-reconnect-fails)). |
 | `intent` | `id`, `status`, `ack`, `is_build` | Updates a `ChatItem.IntentItem`. Status is `UNDERSTOOD` only when `status` is exactly `"understood"`, otherwise `ANALYZING`. |
 | `eval` | `id`, `status`, `passed`, `summary`, `expected`, `eval_path` | Updates a `ChatItem.EvalItem` holding the agent's self-grading result. Status is `DONE` only when `status` is exactly `"done"`, otherwise `EVALUATING`. |
 | `compact` | `id`, `status`, `context_before`, `context_after`, `context_percent`, `message`, `error` | Updates a `ChatItem.CompactItem` tracking context-window compaction. Status is `DONE` for `"done"`, `ERROR` for `"error"`, otherwise `COMPACTING` — the one status event with three terminal states rather than two. Rendered as a subtle divider in the chat timeline (see [Compaction in the timeline](#compaction-in-the-timeline)). |
@@ -894,9 +894,17 @@ ladder retry, `retryNow()`, or a conversation switch. The Host keeps a socket
 open after an `ERROR`, so before this (W16AAPPLE-82) no close arrived to climb
 the ladder, and the repository read the `ERROR` as a business error on a live
 session: the screen sat on "Reconnecting…" for good. An `ERROR` after
-`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`. So is the reply to
-the re-`CONNECT` after an invite code on the first socket (W16AAPPLE-83), which
-is not a reconnect.
+`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`.
+
+The exception is a cycle that has passed an onboarding gate (W16AAPPLE-83).
+`ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives, so
+from `ONBOARD_SUCCESS` on, every `CONNECT` in that cycle is waited on like a
+reconnect's: the `CONNECTED` the Host owes for the `CONNECT` it held back, and
+each retry after it. No `CONNECTED` within `CONNECTED_TIMEOUT_MS` closes the
+socket and climbs the ladder, which ends in `Disconnected`, instead of leaving
+the screen on "Connecting..." or "Reconnecting..." for good. A new `connect()`
+starts a fresh cycle, back on the use case's timer. On a socket that is already
+connected there is nothing held back, so nothing is waited for.
 
 **An offline agent (W16AAPPLE-79).** When the ladder runs out and the last try
 ended with the relay's offline verdict, the client says so once (the relay's

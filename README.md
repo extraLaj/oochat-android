@@ -23,7 +23,7 @@ answer; this exists for when the default is not enough.
 ### Slash-command palette
 
 Type `/` in the composer and the agent's published skills appear as a list, each
-with the description the agent gave it. The list comes from the agent itself — an
+with the description the agent gave it, if any. The list comes from the agent itself — an
 agent that publishes nothing shows an empty palette rather than a stale or
 invented one.
 
