@@ -967,6 +967,14 @@ sent, which also unpins them from the bottom of the list so the reply lands belo
 the question. A message held behind a running turn stays queued: it is waiting for
 the turn, not for the socket.
 
+The composer stays usable while disconnected, so the outbox is reachable
+(W16AAPPLE-102). With no connection object at all (before the first connect, or
+after one gave up) `ConnectionRepositoryImpl.sendMessage` queues the message for
+the conversation itself. Only a user disconnect (the banner's Stop) empties the
+outbox: replacing the connection (Reconnect) and `ConnectToAgentUseCase`'s
+first-connect timeout keep it, and the bubbles of a dropped outbox turn failed
+rather than staying "Waiting to send".
+
 **Known gaps.**
 
 - Tool calls, cards and footers of a turn that finished while the app was away are

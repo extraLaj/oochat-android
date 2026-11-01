@@ -5065,6 +5065,45 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `stopping the connection fails the messages it was holding instead of leaving them waiting`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-102: a user disconnect drops the outbox, so "Waiting to
+            // send" would be a promise nothing keeps. Failed offers Retry.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("typed offline")
+            testScheduler.runCurrent()
+            assertEquals("test setup", UserMessageState.QUEUED, userMessage("typed offline").state)
+
+            vm.disconnect()
+            testScheduler.runCurrent()
+
+            assertEquals(1, connectUseCase.disconnectCount)
+            assertEquals(UserMessageState.FAILED, userMessage("typed offline").state)
+            assertTrue("and saved as failed, so a restart agrees", savedAsFailed("typed offline"))
+        }
+
+    @Test
+    fun `stopping the connection leaves a message that already went out alone`() =
+        runTest(testDispatcher) {
+            // Only the outbox is dropped; a message already on the wire is not in it.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("sent live")
+            testScheduler.runCurrent()
+            val before = userMessage("sent live").state
+            assertTrue("test setup: $before", before != UserMessageState.QUEUED && before != UserMessageState.FAILED)
+
+            vm.disconnect()
+            testScheduler.runCurrent()
+
+            assertEquals(before, userMessage("sent live").state)
+        }
+
+    @Test
     fun `the reply to a message typed offline lands below it`() = runTest(testDispatcher) {
         val address = validHexAddress()
         vm.connectToAgent(address)

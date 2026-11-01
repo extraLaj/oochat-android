@@ -217,7 +217,11 @@ class ConnectToAgentUseCase(
                     repo.hasConnectedThisAttempt || repo.connectionState.value is ConnectionState.Connected
                 } ?: run {
                     FileLogger.e(LogTags.CONNECT_USE_CASE, "Connection timeout after ${connectionTimeoutMs}ms")
-                    repo.disconnect()
+                    // Giving up on this attempt is not the user stopping: what
+                    // they queued while it ran still goes out on the next
+                    // connect. Offline at startup, this timeout is what used
+                    // to empty the persisted outbox (W16AAPPLE-102).
+                    repo.disconnect(keepOutbox = true)
                     false
                 }
             }
