@@ -410,6 +410,14 @@ val regressionSuite = mapOf(
     "relay failover" to listOf(
         "ui.chat.RelayFailoverTest",
     ),
+    "Home beside the chat" to listOf(
+        "ui.adaptive.HomePlacementTest",
+        "ui.adaptive.HomePlacementWindowComposeTest",
+        "ui.adaptive.ChatWithHomeComposeTest",
+        "ui.adaptive.PaneComposeTest",
+        "ui.adaptive.HomeScreenRouteComposeTest",
+        "ui.adaptive.HomeBesideChatComposeTest",
+    ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent
 tasks.withType<Test>().configureEach {
