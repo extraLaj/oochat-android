@@ -154,6 +154,7 @@ class SessionSyncClientTest {
         assertEquals(listOf("s1", "s2"), complete.snapshot.sessions.map { it.sessionId })
         assertEquals(listOf("gone"), complete.snapshot.removedSessionIds)
         assertEquals("new-cursor", complete.snapshot.cursor)
+        assertFalse(complete.snapshot.isFullSnapshot)
         assertEquals(1000, factory.socket.closeCode)
     }
 
@@ -172,6 +173,21 @@ class SessionSyncClientTest {
         assertTrue(result.await() is SessionSyncFetchResult.Unsupported)
         assertEquals("no command after refused negotiation", 1, factory.socket.sent.size)
         assertEquals(1000, factory.socket.closeCode)
+    }
+
+    @Test
+    fun `ordinary chat CONNECTED after offering the extension is unsupported`() = runTest {
+        val result = async { client.fetch("0xagent") }
+        runCurrent()
+        factory.listener.onOpen(factory.socket, response())
+
+        factory.listener.onMessage(
+            factory.socket,
+            """{"type":"CONNECTED","status":"connected","protocol":{"name":"oip","version":"0.1","extensions":{"session-sync":"0.1"}}}"""
+        )
+
+        assertTrue(result.await() is SessionSyncFetchResult.Unsupported)
+        assertEquals("ordinary CONNECTED must not start sync", 1, factory.socket.sent.size)
     }
 
     @Test

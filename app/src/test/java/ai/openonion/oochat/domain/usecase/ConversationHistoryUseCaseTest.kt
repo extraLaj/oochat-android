@@ -227,7 +227,7 @@ class ConversationHistoryUseCaseTest {
     }
 
     @Test
-    fun `ensureActiveSession keeps a synced New conversation with no local messages`() = runTest(testDispatcher) {
+    fun `ensureActiveSession keeps but does not reopen a synced chat with no local messages`() = runTest(testDispatcher) {
         agentRepo.agents += testAgent()
         val synced = ChatSession(
             id = "remote-session",
@@ -245,7 +245,7 @@ class ConversationHistoryUseCaseTest {
         advanceUntilIdle()
 
         assertEquals(synced, sessionRepo.sessions[synced.id])
-        assertEquals(synced.id, useCase.activeSessionId.value)
+        assertNull(useCase.activeSessionId.value)
     }
 
     @Test

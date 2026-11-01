@@ -1,6 +1,7 @@
 package ai.openonion.oochat.data.repository
 
 import ai.openonion.oochat.data.local.db.dao.SessionDao
+import ai.openonion.oochat.data.local.db.dao.SessionSyncDao
 import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
 import ai.openonion.oochat.data.local.mapper.SessionMapper
 import ai.openonion.oochat.domain.model.ChatSession
@@ -14,7 +15,10 @@ import kotlinx.coroutines.flow.map
  * Follows single source of truth principle.
  */
 class SessionRepositoryImpl(
-    private val sessionDao: SessionDao
+    private val sessionDao: SessionDao,
+    private val sessionSyncDao: SessionSyncDao? = null,
+    private val identityAddress: suspend () -> String? = { null },
+    private val clock: () -> Long = System::currentTimeMillis
 ) : SessionRepository {
 
     override fun getAllSessions(): Flow<List<ChatSession>> {
@@ -51,6 +55,12 @@ class SessionRepositoryImpl(
     }
 
     override suspend fun deleteSession(sessionId: String) {
+        val identity = identityAddress()
+        if (sessionSyncDao != null && !identity.isNullOrBlank() &&
+            sessionSyncDao.deleteLocally(identity, sessionId, clock())
+        ) {
+            return
+        }
         sessionDao.deleteSessionById(sessionId)
     }
 

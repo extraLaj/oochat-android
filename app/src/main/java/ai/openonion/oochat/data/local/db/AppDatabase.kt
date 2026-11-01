@@ -11,6 +11,7 @@ import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
 import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
 import ai.openonion.oochat.data.local.db.entity.PendingMessageEntity
 import ai.openonion.oochat.data.local.db.entity.SessionStateEntity
+import ai.openonion.oochat.data.local.db.entity.SessionSyncDeletionEntity
 import ai.openonion.oochat.data.local.db.entity.SessionSyncStateEntity
 import android.content.Context
 import androidx.room.Database
@@ -34,9 +35,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatMessageEntity::class,
         SessionStateEntity::class,
         PendingMessageEntity::class,
-        SessionSyncStateEntity::class
+        SessionSyncStateEntity::class,
+        SessionSyncDeletionEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -56,8 +58,6 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "connectonion_db"
 
-        // Migrations are internal so tests can run the same upgrade code used
-        // by the real app.
         internal val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN voice_transcript_status TEXT")
@@ -265,12 +265,43 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Keeps Host index state separate from local conversation data.
+         * Removals and identity changes can now hide a row without deleting
+         * its transcript, and local renames/deletions survive later syncs.
+         */
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN sync_identity_address TEXT")
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN remote_removed INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN identity_hidden INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN title_is_local INTEGER NOT NULL DEFAULT 1")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `session_sync_deletions` (
+                        `identity_address` TEXT NOT NULL,
+                        `agent_id` TEXT NOT NULL,
+                        `session_id` TEXT NOT NULL,
+                        `deleted_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`identity_address`, `agent_id`, `session_id`),
+                        FOREIGN KEY(`agent_id`) REFERENCES `agent_profiles`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_session_sync_deletions_agent_id` " +
+                        "ON `session_sync_deletions` (`agent_id`)"
+                )
+            }
+        }
+
+        /**
          * Lists every supported upgrade for tests and database use.
          */
         internal val ALL_MIGRATIONS = arrayOf(
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
+            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
         )
 
         @Volatile

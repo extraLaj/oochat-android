@@ -13,7 +13,12 @@ import org.junit.Test
 class SyncRecentChatsUseCaseTest {
     private class FakeRepository : SessionSyncRepository {
         var cursor: String? = "cursor-1"
+        val activatedIdentities = mutableListOf<String>()
         val reconciled = mutableListOf<Triple<String, String, SessionSyncSnapshot>>()
+
+        override suspend fun activateIdentity(identityAddress: String) {
+            activatedIdentities += identityAddress
+        }
 
         override suspend fun cursorFor(identityAddress: String, agentId: String): String? = cursor
 
@@ -55,6 +60,7 @@ class SyncRecentChatsUseCaseTest {
         val result = useCase.sync("agent-1", "0xagent", null)
 
         assertSame(RecentChatsSyncResult.Synced, result)
+        assertEquals(listOf("0xidentity"), repository.activatedIdentities)
         assertEquals(listOf("cursor-1"), cursors)
         assertEquals(Triple("0xidentity", "agent-1", snapshot), repository.reconciled.single())
     }
@@ -90,9 +96,11 @@ class SyncRecentChatsUseCaseTest {
     }
 
     @Test
-    fun `failed fetch keeps local history and cursor unchanged`() = runTest {
+    fun `retryable failed fetch retries once and keeps local history unchanged`() = runTest {
         val repository = FakeRepository()
+        var calls = 0
         val useCase = useCase(repository) { _, _, _ ->
+            calls++
             SessionSyncFetchResult.Failed("offline", retryable = true)
         }
 
@@ -102,6 +110,7 @@ class SyncRecentChatsUseCaseTest {
         )
         assertEquals(emptyList<Any>(), repository.reconciled)
         assertEquals("cursor-1", repository.cursor)
+        assertEquals(2, calls)
     }
 
     @Test

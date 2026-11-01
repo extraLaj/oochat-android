@@ -274,7 +274,11 @@ class ConversationHistoryUseCase(
             return SessionResume.Unchanged
         }
 
-        val session = if (forceNew) null else real.firstOrNull()
+        // A Host-only index row has no local transcript to reopen. It remains
+        // selectable in the drawer, but launch resumes only local content.
+        val session = if (forceNew) null else real.firstOrNull {
+            it.messageCount > 0 || it.remoteRevision == null
+        }
         return if (session != null) {
             // Load the rows here, not just the id: the caller has to be able
             // to render this conversation before (or without) the server ever

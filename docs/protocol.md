@@ -809,7 +809,7 @@ premature close and malformed frames close the socket and fail the operation.
 `SessionSyncRepositoryImpl` then applies only newer revisions, explicit
 removals and the final identity-and-agent-scoped cursor in one Room transaction;
 existing message rows are preserved by targeted updates rather than parent-row
-replacement. Refresh/reconnect integration remains a later W16AAPPLE-70 layer.
+replacement. The app refreshes this index when the agent connection is established.
 
 ### Reconnect and replay
 

@@ -39,9 +39,17 @@ class SyncRecentChatsUseCase(
 
             val identity = identityAddress()
             require(identity.isNotBlank()) { "identityAddress must not be blank" }
+            repository.activateIdentity(identity)
             val cursor = repository.cursorFor(identity, agentId)
 
-            when (val first = fetch(agentAddress, directUrl, cursor)) {
+            var first = fetch(agentAddress, directUrl, cursor)
+            // Retry one transient failure immediately. The mutex and single
+            // retry keep reconnect storms bounded.
+            if (first is SessionSyncFetchResult.Failed && first.retryable) {
+                first = fetch(agentAddress, directUrl, cursor)
+            }
+
+            when (first) {
                 is SessionSyncFetchResult.Complete -> commit(identity, agentId, first)
                 is SessionSyncFetchResult.CursorExpired -> {
                     // A cursor only points into the Host's retained change

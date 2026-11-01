@@ -108,6 +108,10 @@ class Migration14To15Test {
         val session = database.sessionDao().getSessionById("session-1")
         assertEquals("Existing", session?.title)
         assertNull(session?.remoteRevision)
+        assertNull(session?.syncIdentityAddress)
+        assertEquals(false, session?.remoteRemoved)
+        assertEquals(false, session?.identityHidden)
+        assertEquals(true, session?.titleIsLocal)
         assertEquals("keep me", database.messageDao().getMessagesListBySession("session-1").single().content)
         database.close()
     }

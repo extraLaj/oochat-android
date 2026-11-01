@@ -35,7 +35,8 @@ import java.util.concurrent.TimeUnit
 data class SessionSyncSnapshot(
     val sessions: List<RemoteSessionSummary>,
     val removedSessionIds: List<String>,
-    val cursor: String
+    val cursor: String,
+    val isFullSnapshot: Boolean = false
 )
 
 /** Outcome of Session Sync fetch. */
@@ -180,7 +181,8 @@ class SessionSyncClient(
                                 SessionSyncSnapshot(
                                     sessions = sessions.toList(),
                                     removedSessionIds = removedSessionIds.toList(),
-                                    cursor = requireNotNull(reply.value.cursor)
+                                    cursor = requireNotNull(reply.value.cursor),
+                                    isFullSnapshot = cursor == null
                                 )
                             )
                         )

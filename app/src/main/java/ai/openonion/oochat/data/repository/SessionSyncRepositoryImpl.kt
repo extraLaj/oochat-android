@@ -15,6 +15,11 @@ class SessionSyncRepositoryImpl(
 ) : SessionSyncRepository {
     private val dao = database.sessionSyncDao()
 
+    override suspend fun activateIdentity(identityAddress: String) {
+        require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
+        dao.showOnlyIdentity(identityAddress)
+    }
+
     override suspend fun cursorFor(identityAddress: String, agentId: String): String? {
         // Never read a cursor without knowing exactly who and which agent it belongs to.
         require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
@@ -39,7 +44,17 @@ class SessionSyncRepositoryImpl(
 
         // All chat changes and the cursor succeed together or are all rolled back.
         database.withTransaction {
+            if (snapshot.isFullSnapshot) {
+                val retainedIds = prepared.map(PreparedSummary::sessionId)
+                if (retainedIds.isEmpty()) {
+                    dao.markAllMissingFromFullSnapshot(agentId, identityAddress)
+                } else {
+                    dao.markMissingFromFullSnapshot(agentId, identityAddress, retainedIds)
+                }
+            }
+
             prepared.forEach { remote ->
+                if (dao.wasDeleted(identityAddress, agentId, remote.sessionId)) return@forEach
                 val existing = dao.getSession(remote.sessionId)
                 if (existing == null) {
                     val inserted = dao.insertSession(
@@ -51,7 +66,9 @@ class SessionSyncRepositoryImpl(
                             updatedAt = remote.updatedAt,
                             messageCount = 0,
                             lastMessagePreview = remote.preview,
-                            remoteRevision = remote.revision
+                            remoteRevision = remote.revision,
+                            syncIdentityAddress = identityAddress,
+                            titleIsLocal = false
                         )
                     )
                     // A surprise duplicate means the database changed while
@@ -70,14 +87,15 @@ class SessionSyncRepositoryImpl(
                         title = remote.title,
                         updatedAt = remote.updatedAt,
                         preview = remote.preview,
-                        revision = remote.revision
+                        revision = remote.revision,
+                        identityAddress = identityAddress
                     )
                 }
             }
 
             removedIds.forEach { sessionId ->
-                // The DAO also checks agentId, so another agent's chat is safe.
-                dao.deleteSessionForAgent(sessionId, agentId)
+                // Hide Host removals without cascading into the local transcript.
+                dao.markRemoteRemoved(sessionId, agentId, identityAddress)
             }
 
             // Save the cursor last. It must never say a failed sync completed.

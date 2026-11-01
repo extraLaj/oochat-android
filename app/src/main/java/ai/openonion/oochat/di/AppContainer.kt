@@ -180,7 +180,13 @@ class DefaultAppContainer(context: Context) : AppContainer {
     }
 
     override val sessionRepository: SessionRepository by lazy {
-        SessionRepositoryImpl(database.sessionDao())
+        SessionRepositoryImpl(
+            sessionDao = database.sessionDao(),
+            sessionSyncDao = database.sessionSyncDao(),
+            identityAddress = {
+                withContext(Dispatchers.IO) { keyManager.loadOrGenerate().address }
+            }
+        )
     }
 
     override val messageRepository: MessageRepository by lazy {

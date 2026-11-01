@@ -13,7 +13,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * index.
  */
 
-/** Represents the request sent after the index connectio has been established.*/
+/** Represents the request sent after the index connection has been established. */
 @Serializable
 data class SessionSyncRequest(
     val type: String = TYPE,

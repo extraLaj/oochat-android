@@ -77,8 +77,9 @@ class SessionSyncRepositoryImplTest {
     private fun snapshot(
         sessions: List<RemoteSessionSummary> = emptyList(),
         removed: List<String> = emptyList(),
-        cursor: String = "cursor-1"
-    ) = SessionSyncSnapshot(sessions, removed, cursor)
+        cursor: String = "cursor-1",
+        isFull: Boolean = false
+    ) = SessionSyncSnapshot(sessions, removed, cursor, isFull)
 
     @Test
     fun `remote session is inserted and final cursor is scoped to identity and agent`() = runTest {
@@ -175,7 +176,7 @@ class SessionSyncRepositoryImplTest {
         )
 
         val stored = database.sessionDao().getSessionById("existing")
-        assertEquals("Remote title", stored?.title)
+        assertEquals("Local title", stored?.title)
         assertEquals(2L, stored?.remoteRevision)
         assertEquals(4, stored?.messageCount)
         assertEquals("keep me", database.messageDao().getMessagesListBySession("existing").single().content)
@@ -206,9 +207,14 @@ class SessionSyncRepositoryImplTest {
     }
 
     @Test
-    fun `removal is scoped to the synchronized agent`() = runTest {
-        database.sessionDao().insertSession(
-            ChatSessionEntity("remove-me", "agent-1", "one", 0L, 0L)
+    fun `remote removal hides a chat without deleting its local messages`() = runTest {
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("remove-me")))
+        )
+        database.messageDao().insertMessage(
+            ChatMessageEntity("kept-message", "remove-me", "USER", "keep me", 1L)
         )
         database.sessionDao().insertSession(
             ChatSessionEntity("other-agent", "agent-2", "two", 0L, 0L)
@@ -220,8 +226,92 @@ class SessionSyncRepositoryImplTest {
             snapshot(removed = listOf("remove-me", "other-agent"))
         )
 
-        assertNull(database.sessionDao().getSessionById("remove-me"))
+        assertTrue(database.sessionDao().getSessionById("remove-me")?.remoteRemoved == true)
+        assertEquals(emptyList<Any>(), database.sessionDao().getSessionsByAgent("agent-1").first())
+        assertEquals("keep me", database.messageDao().getMessagesListBySession("remove-me").single().content)
         assertEquals("agent-2", database.sessionDao().getSessionById("other-agent")?.agentId)
+    }
+
+    @Test
+    fun `local rename and preview survive a newer Host revision`() = runTest {
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("renamed", preview = "local preview")))
+        )
+        database.sessionDao().updateTitle("renamed", "My title", 5L)
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("renamed", revision = 2, title = "Host title", preview = null)))
+        )
+
+        val stored = database.sessionDao().getSessionById("renamed")
+        assertEquals("My title", stored?.title)
+        assertEquals("local preview", stored?.lastMessagePreview)
+        assertEquals(2L, stored?.remoteRevision)
+    }
+
+    @Test
+    fun `switching identity hides only the other identity's synced chats`() = runTest {
+        repository.reconcile(
+            "0xidentity-a",
+            "agent-1",
+            snapshot(sessions = listOf(summary("identity-a-chat")))
+        )
+
+        repository.activateIdentity("0xidentity-b")
+        assertEquals(emptyList<Any>(), database.sessionDao().getSessionsByAgent("agent-1").first())
+
+        repository.activateIdentity("0xidentity-a")
+        assertEquals(
+            listOf("identity-a-chat"),
+            database.sessionDao().getSessionsByAgent("agent-1").first().map { it.id }
+        )
+    }
+
+    @Test
+    fun `full sync hides remote chats it does not report and preserves their rows`() = runTest {
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("present"), summary("missing")))
+        )
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("present", revision = 2)), isFull = true)
+        )
+
+        assertEquals(listOf("present"), database.sessionDao().getSessionsByAgent("agent-1").first().map { it.id })
+        assertTrue(database.sessionDao().getSessionById("missing")?.remoteRemoved == true)
+    }
+
+    @Test
+    fun `locally deleted chat is not restored by a full sync`() = runTest {
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("deleted")))
+        )
+        val sessions = SessionRepositoryImpl(
+            database.sessionDao(),
+            database.sessionSyncDao(),
+            identityAddress = { "0xidentity" },
+            clock = { 10L }
+        )
+        sessions.deleteSession("deleted")
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("deleted", revision = 2)), isFull = true)
+        )
+
+        assertNull(database.sessionDao().getSessionById("deleted"))
+        assertEquals(emptyList<Any>(), sessions.getSessionsByAgent("agent-1").first())
     }
 
     @Test
