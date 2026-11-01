@@ -2824,7 +2824,27 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     fun disconnect() {
-        launchScoped { connectUseCase.disconnect() }
+        launchScoped {
+            connectUseCase.disconnect()
+            failOutboxedMessages()
+        }
+    }
+
+    /**
+     * The user stopped the connection, and the outbox went with it (see
+     * ConnectionRepository.disconnect). Its messages will not go out on the
+     * next connect, so their bubbles stop saying "Waiting to send" and fail
+     * instead, which offers Retry (W16AAPPLE-102). The counterpart of
+     * [settleOutboxedMessages].
+     */
+    private fun failOutboxedMessages() {
+        if (outboxedMessageIds.isEmpty()) return
+        val dropped = outboxedMessageIds.toSet()
+        outboxedMessageIds.clear()
+        val stillWaiting = _uiState.value.chatItems
+            .filter { it is ChatItem.User && it.id in dropped && it.state == UserMessageState.QUEUED }
+            .map { it.id }
+        stillWaiting.forEach { setUserMessageState(it, UserMessageState.FAILED) }
     }
 
     fun clearChat() {

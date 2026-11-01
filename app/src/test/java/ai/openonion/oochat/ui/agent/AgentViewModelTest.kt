@@ -155,7 +155,7 @@ class AgentViewModelTest {
         override suspend fun setMode(mode: ai.openonion.oochat.domain.model.ApprovalMode, turns: Int?) {}
         override fun retryNow() {}
         override suspend fun querySessionStatus() {}
-        override suspend fun disconnect() {}
+        override suspend fun disconnect(keepOutbox: Boolean) {}
         override fun isConnected() = false
         override suspend fun reset() {}
     }

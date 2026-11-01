@@ -66,7 +66,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = voice,
                         onStartVoiceRecording = { setVoice(VoiceInputState(phase = VoiceInputPhase.LISTENING)) },
                         onVoiceTranscriptConsumed = onVoiceTranscriptConsumed,
@@ -92,7 +91,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.LISTENING),
                         onCancelVoiceRecording = onCancelVoiceRecording,
                         onFinishVoiceInput = onFinishVoiceInput,
@@ -122,7 +120,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = true,
                         isAgentWorking = true,
                         onSend = { _, _, _ -> }
                     )
@@ -140,7 +137,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.TRANSCRIBING),
                         onSend = { _, _, _ -> }
                     )
@@ -190,7 +186,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.PREPARING),
                         onCancelVoiceRecording = onCancelVoiceRecording,
                         onFinishVoiceInput = onFinishVoiceInput,
@@ -236,7 +231,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.PREPARING),
                         onSend = { _, _, _ -> }
                     )
@@ -261,7 +255,7 @@ class InputBarDictationComposeTest {
             setVoice = { voice = it }
             ConnectOnionTheme {
                 Column {
-                    InputBar(isConnected = true, isSending = false, voiceInput = voice, onSend = { _, _, _ -> })
+                    InputBar(isConnected = true, voiceInput = voice, onSend = { _, _, _ -> })
                 }
             }
         }
@@ -307,7 +301,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.TRANSCRIBING),
                         onSend = { _, _, _ -> }
                     )
@@ -326,7 +319,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(
                             phase = VoiceInputPhase.LISTENING,
                             notice = "Using server transcription."
@@ -354,7 +346,6 @@ class InputBarDictationComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         voiceInput = VoiceInputState(phase = VoiceInputPhase.LISTENING),
                         onSend = { _, _, _ -> }
                     )

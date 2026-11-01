@@ -58,7 +58,6 @@ class SlashCommandPaletteComposeTest {
                 Column {
                     InputBar(
                         isConnected = isConnected(),
-                        isSending = false,
                         isAgentWorking = isAgentWorking,
                         skills = skills,
                         onSend = { text, _, _ -> onSend(text) }
@@ -210,7 +209,6 @@ class SlashCommandPaletteComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         isAgentWorking = working,
                         skills = skills,
                         onSend = { _, _, _ -> }

@@ -616,7 +616,11 @@ class ConnectionRepositoryImpl(
                 _plan.value = emptyList()
 
                 runCatchingCancellable {
-                    connection?.disconnect()
+                    // Replaced, not ended: teardown keeps the outbox, which the
+                    // new connection flushes on its CONNECTED. disconnect() would
+                    // drop it, losing every message typed offline the moment
+                    // the user taps Reconnect (W16AAPPLE-102).
+                    connection?.teardown()
                     eventCollectionJob?.cancel()
 
                     // Rows whose conversation never materialised or has since
@@ -660,7 +664,18 @@ class ConnectionRepositoryImpl(
             // Domain -> wire-protocol mapping happens here, not in domain/
             // usecase — see OutgoingFileAttachment's doc.
             val wireFiles = files?.map { FileAttachment(name = it.name, data = it.data) }
-            connection?.sendMessage(content, agentAddress, images, wireFiles)
+            val live = connection
+            if (live != null) {
+                live.sendMessage(content, agentAddress, images, wireFiles)
+            } else {
+                // No connection at all: before the first connect, or after a
+                // disconnect (the first-connect timeout included). The bubble
+                // already says "Waiting to send", so queue it for this
+                // conversation's next CONNECTED rather than drop it
+                // (W16AAPPLE-102). The conversation id is the session id.
+                FileLogger.w(LogTags.CONN_REPO, "No connection, queuing message")
+                pendingMessageSink.enqueue(agentAddress, currentConversationId, content, images, wireFiles)
+            }
         }
     }
 
@@ -805,7 +820,7 @@ class ConnectionRepositoryImpl(
         }
     }
 
-    override suspend fun disconnect() {
+    override suspend fun disconnect(keepOutbox: Boolean) {
         withContext(Dispatchers.IO) {
             connection?.currentSession?.let { saveSessionForCurrentConversation(it) }
 
@@ -817,7 +832,7 @@ class ConnectionRepositoryImpl(
             eventCollectionJob?.cancel()
             eventCollectionJob = null
 
-            connection?.disconnect()
+            if (keepOutbox) connection?.teardown() else connection?.disconnect()
             connection = null
             _connectionState.value = ConnectionState.Disconnected
         }

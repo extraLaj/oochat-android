@@ -365,7 +365,7 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override suspend fun setMode(mode: ApprovalMode, turns: Int?) = Unit
     override fun retryNow() = Unit
     override suspend fun querySessionStatus() = Unit
-    override suspend fun disconnect() { connected = false }
+    override suspend fun disconnect(keepOutbox: Boolean) { connected = false }
     override suspend fun reset() = Unit
 
     fun emit(event: ChatEvent) { events.tryEmit(event) }

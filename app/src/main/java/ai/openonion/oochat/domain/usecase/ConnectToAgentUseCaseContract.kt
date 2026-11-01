@@ -222,7 +222,12 @@ interface ConnectToAgentUseCaseContract {
      */
     suspend fun querySessionStatus()
 
-    suspend fun disconnect()
+    /**
+     * Drop the connection. [keepOutbox] keeps the messages queued for the
+     * agent; see ConnectionRepository.disconnect. Only a user stopping the
+     * connection should leave it false (W16AAPPLE-102).
+     */
+    suspend fun disconnect(keepOutbox: Boolean = false)
 
     /**
      * Whether a connection is currently open and ready for `sendMessage`.

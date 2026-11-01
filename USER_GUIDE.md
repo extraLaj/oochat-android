@@ -261,9 +261,12 @@ never saved.
 
 ## 11. When something goes wrong
 
-**"Waiting to send…" under a message.** You are offline. It is queued on the
-device and goes out by itself when the connection returns — including after the
-app is killed.
+**"Waiting to send…" under a message.** You are offline. You can still write
+and send while offline: the message is queued on the device and goes out when
+the connection returns, including after the app is killed. If the banner has
+given up reconnecting, tap **Reconnect**. Tapping **Stop** on the connecting
+banner discards queued messages; the ones on screen turn red so you can send
+them again.
 
 **"Not sent · Tap to try again" in red.** The message did not reach the agent.
 Tap it, or tap **Retry** in the bar above the message box, to send it again. It

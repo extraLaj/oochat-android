@@ -10,6 +10,7 @@ import ai.openonion.oochat.ui.chat.components.InputBar
 import ai.openonion.oochat.ui.chat.components.LowBalanceBar
 import ai.openonion.oochat.ui.chat.components.PlanPanel
 import ai.openonion.oochat.ui.chat.components.VoiceInputState
+import ai.openonion.oochat.ui.chat.components.composerEnabled
 import ai.openonion.oochat.ui.chat.components.failedUserMessages
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.ConnectionBanner
@@ -109,7 +110,6 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
     val hasLiveConnection by viewModel.hasLiveConnection.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
     val isAgentWorking by viewModel.isAgentWorking.collectAsState()
     val voiceInput by viewModel.voiceInput.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
@@ -399,6 +399,7 @@ fun ChatScreen(
             ChatInput(
                 awaitingOnboardCode = awaitingOnboardCode,
                 isConnected = isConnected,
+                hasAgent = targetAgentAddress != null,
                 approvalMode = approvalMode,
                 modePending = modePending,
                 sessionModes = sessionModes,
@@ -406,7 +407,6 @@ fun ChatScreen(
                 skills = agentProfile?.skills.orEmpty(),
                 onCycleApprovalMode = viewModel::cycleApprovalMode,
                 onSelectApprovalMode = viewModel::setApprovalMode,
-                isLoading = isLoading,
                 isAgentWorking = isAgentWorking,
                 onSend = { text, images, files ->
                     if (hapticFeedbackEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -420,7 +420,11 @@ fun ChatScreen(
                 onVoiceTranscriptConsumed = viewModel::consumeVoiceTranscript,
                 onQueryVoiceAmplitude = viewModel::currentVoiceAmplitude,
                 onStop = viewModel::interrupt,
-                modifier = Modifier.graphicsLayer { alpha = if (isConnected) 1f else 0.45f }
+                // Dimmed only when it cannot be used. Offline it can, so it is
+                // drawn at full strength; the banner already says offline.
+                modifier = Modifier.graphicsLayer {
+                    alpha = if (composerEnabled(targetAgentAddress != null, awaitingOnboardCode, isConnected)) 1f else 0.45f
+                }
             )
             }
             SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
@@ -489,7 +493,7 @@ private fun ChatNavDrawerContent(
 private fun ChatInput(
     isConnected: Boolean,
     awaitingOnboardCode: Boolean,
-    isLoading: Boolean,
+    hasAgent: Boolean,
     isAgentWorking: Boolean,
     approvalMode: ApprovalMode,
     modePending: Boolean,
@@ -515,6 +519,7 @@ private fun ChatInput(
         InputBar(
             isConnected = isConnected,
             awaitingOnboardCode = awaitingOnboardCode,
+            hasAgent = hasAgent,
             approvalMode = approvalMode,
             modePending = modePending,
             sessionModes = sessionModes,
@@ -522,7 +527,6 @@ private fun ChatInput(
             skills = skills,
             onCycleApprovalMode = onCycleApprovalMode,
             onSelectApprovalMode = onSelectApprovalMode,
-            isSending = isLoading,
             isAgentWorking = isAgentWorking,
             onSend = onSend,
             voiceInput = voiceInput,

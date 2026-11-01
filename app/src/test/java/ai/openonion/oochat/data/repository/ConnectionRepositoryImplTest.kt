@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
+import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.QueuedMessage
 import ai.openonion.oochat.network.WebSocketFactory
@@ -128,13 +129,14 @@ class ConnectionRepositoryImplTest {
     /** Lets a test assert whether the outbox was touched. */
     private class RecordingSink : PendingMessageSink {
         var clearCount = 0
+        val enqueued = mutableListOf<Triple<String, String?, String>>()
         override fun enqueue(
             agentAddress: String,
             sessionId: String?,
             prompt: String,
             images: List<String>?,
             files: List<FileAttachment>?
-        ) = Unit
+        ) { enqueued += Triple(agentAddress, sessionId, prompt) }
         override fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit) = Unit
         override fun clear(agentAddress: String) { clearCount++ }
     }
@@ -1479,5 +1481,77 @@ class ConnectionRepositoryImplTest {
         repository.connect("0xAGENT2")
 
         assertEquals(ServerSessionStatus.UNKNOWN, repository.hostSessionStatus.value)
+    }
+
+    // -- W16AAPPLE-102: the outbox survives everything but a user disconnect --
+
+    @Test
+    fun `a message sent before any connection exists is queued for its conversation, not dropped`() = runTest(testDispatcher) {
+        repository.switchConversation("conv-1")
+
+        repository.sendMessage("typed offline", "0xAGENT", null, null)
+
+        assertEquals(listOf(Triple("0xAGENT", "conv-1", "typed offline")), sink.enqueued)
+    }
+
+    @Test
+    fun `a message queued with no connection goes out on the next connection's CONNECTED`() = runTest(testDispatcher) {
+        // The fix rests on the queue key matching the session the next
+        // connect restores, so use the real outbox and watch the INPUT leave.
+        val outbox = InMemoryPendingMessageSink()
+        val repo = ConnectionRepositoryImpl(
+            keyManager = keyManager,
+            relayUrl = "ws://test.invalid",
+            pendingMessageSink = outbox,
+            agentConnectionFactory = { km, url ->
+                AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = outbox)
+            }
+        )
+        repo.switchConversation("conv-1")
+        repo.sendMessage("typed offline", "0xAGENT", null, null)
+
+        repo.connect("0xAGENT", "conv-1")
+        val socket = factory.lastWebSocket!!
+        assertTrue("nothing goes out before CONNECTED", socket.sentMessages.none { it.contains("typed offline") })
+        simulateConnected("conv-1")
+
+        assertTrue(
+            "the queued message must be sent as an INPUT: ${socket.sentMessages}",
+            socket.sentMessages.any { it.contains("\"type\":\"INPUT\"") && it.contains("typed offline") }
+        )
+        repo.disconnect()
+    }
+
+    @Test
+    fun `a message sent after the first connect timed out is queued, not dropped`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT", "conv-1")
+        repository.disconnect(keepOutbox = true)
+
+        repository.sendMessage("typed offline", "0xAGENT", null, null)
+
+        assertEquals(listOf(Triple("0xAGENT", "conv-1", "typed offline")), sink.enqueued)
+    }
+
+    @Test
+    fun `reconnecting replaces the connection without dropping the outbox`() = runTest(testDispatcher) {
+        // Reconnect after the ladder gave up goes through connect() again. The
+        // old connection used to be disconnect()ed, which emptied the outbox
+        // just before the new one could flush it.
+        repository.connect("0xAGENT", "conv-1")
+
+        repository.connect("0xAGENT", "conv-1")
+
+        assertEquals(0, sink.clearCount)
+    }
+
+    @Test
+    fun `only a disconnect that does not keep the outbox clears it`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT", "conv-1")
+        repository.disconnect(keepOutbox = true)
+        assertEquals("giving up on an attempt keeps what was queued", 0, sink.clearCount)
+
+        repository.connect("0xAGENT", "conv-1")
+        repository.disconnect()
+        assertEquals("the user stopping drops it, as before", 1, sink.clearCount)
     }
 }
