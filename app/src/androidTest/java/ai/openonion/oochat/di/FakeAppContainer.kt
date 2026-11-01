@@ -298,7 +298,7 @@ class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
     override fun retryNow() {}
     override suspend fun querySessionStatus() {}
 
-    override suspend fun disconnect() {}
+    override suspend fun disconnect(keepOutbox: Boolean) {}
     override fun isConnected() = false
     override suspend fun sendMessage(content: String, agentAddress: String, images: List<String>?, files: List<ai.openonion.oochat.domain.model.OutgoingFileAttachment>?) {}
     override suspend fun executeTool(request: ExecRequest): ExecOutcome = ExecOutcome.NotSent("Not used in instrumented tests")

@@ -106,8 +106,10 @@ class ConnectToAgentUseCaseTest {
             querySessionStatusCalls += sessionId
         }
 
-override suspend fun disconnect() {
+        val disconnectKeptOutbox = mutableListOf<Boolean>()
+        override suspend fun disconnect(keepOutbox: Boolean) {
             disconnectCount++
+            disconnectKeptOutbox += keepOutbox
             state.value = ConnectionState.Disconnected
         }
 
@@ -360,6 +362,31 @@ override suspend fun disconnect() {
         useCase.connect(validAddress)
 
         assertTrue(fakeRepository.disconnectCount >= 1)
+    }
+
+    @Test
+    fun `a timeout gives up on the attempt but keeps the messages queued while it ran`() = runTest(testDispatcher) {
+        // W16AAPPLE-102: offline at startup this timeout is the normal outcome,
+        // and the outbox is what has to survive it.
+        val useCase = newUseCase(connectionTimeoutMs = 200L)
+
+        useCase.connect(validAddress)
+
+        assertTrue(fakeRepository.disconnectKeptOutbox.isNotEmpty())
+        assertTrue(
+            "every timeout disconnect must keep the outbox: ${fakeRepository.disconnectKeptOutbox}",
+            fakeRepository.disconnectKeptOutbox.all { it }
+        )
+    }
+
+    @Test
+    fun `a user disconnect still drops the outbox`() = runTest(testDispatcher) {
+        val useCase = newUseCase(connectionTimeoutMs = 200L)
+        useCase.connect(validAddress)
+
+        useCase.disconnect()
+
+        assertEquals(false, fakeRepository.disconnectKeptOutbox.last())
     }
 
     // ── Forwarders / lifecycle ────────────────────────────────────────

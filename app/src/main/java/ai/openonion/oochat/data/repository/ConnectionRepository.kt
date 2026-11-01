@@ -251,7 +251,13 @@ interface ConnectionRepository {
      */
     suspend fun querySessionStatus(sessionId: String)
 
-    suspend fun disconnect()
+    /**
+     * Drop the connection. By default the outbox goes with it: the user chose
+     * to stop. [keepOutbox] is for giving up on an attempt the user did not
+     * end (ConnectToAgentUseCase's timeout), whose queued messages must still
+     * go out on the next connect (W16AAPPLE-102).
+     */
+    suspend fun disconnect(keepOutbox: Boolean = false)
 
     fun isConnected(): Boolean
 

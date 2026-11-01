@@ -35,8 +35,18 @@ internal class HostClock(private val deviceMillis: () -> Long = System::currentT
      * from some other connection.
      */
     fun observe(response: Response) {
-        val serverMillis = runCatching { response.headers.getDate("Date")?.time }.getOrNull()
+        offsetMillis = offsetFrom(serverMillisOf(response), deviceMillis())
+    }
+
+    /**
+     * Like [observe], but a response with no usable `Date` (a 5xx from a proxy, a captive portal)
+     * keeps the correction already learned: for a series of HTTP calls to one server, unlike a
+     * socket, an earlier reading still applies. Returns the server's time, or null without one.
+     */
+    fun correctFrom(response: Response): Long? {
+        val serverMillis = serverMillisOf(response) ?: return null
         offsetMillis = offsetFrom(serverMillis, deviceMillis())
+        return serverMillis
     }
 
     /** Unix time in seconds, as the server sees it — what every signed timestamp should carry. */
@@ -48,6 +58,9 @@ internal class HostClock(private val deviceMillis: () -> Long = System::currentT
 
         /** Offsets smaller than this are not worth a log line; `Date` only has whole seconds anyway. */
         private const val NOTEWORTHY_OFFSET_MS = 5_000L
+
+        private fun serverMillisOf(response: Response): Long? =
+            runCatching { response.headers.getDate("Date")?.time }.getOrNull()
 
         /**
          * The correction for a server whose clock read [serverMillis] when the device's read

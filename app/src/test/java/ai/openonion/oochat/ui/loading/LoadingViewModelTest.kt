@@ -93,7 +93,11 @@ class LoadingViewModelTest {
         var disconnectCount = 0
             override fun retryNow() {}
         override suspend fun querySessionStatus() {}
-override suspend fun disconnect() { disconnectCount++ }
+        val disconnectKeptOutbox = mutableListOf<Boolean>()
+        override suspend fun disconnect(keepOutbox: Boolean) {
+            disconnectCount++
+            disconnectKeptOutbox += keepOutbox
+        }
 
         var isConnectedResult = false
         override fun isConnected(): Boolean = isConnectedResult
@@ -397,6 +401,17 @@ override suspend fun disconnect() { disconnectCount++ }
         assertTrue(events.single() is LoadingEvent.Cancelled)
         assertEquals(1, connectUseCase.disconnectCount)
         collectJob.cancel()
+    }
+
+    @Test
+    fun `cancelling the loading screen keeps the messages queued for the agent`() = runTest(testDispatcher) {
+        // W16AAPPLE-102: relaunched offline with messages queued, a user who
+        // gives up on the slow connect must not lose them. Nothing would say
+        // so either: after a restart their bubbles come back looking sent.
+        viewModel.cancel()
+        advanceUntilIdle()
+
+        assertEquals(listOf(true), connectUseCase.disconnectKeptOutbox)
     }
 
     @Test

@@ -168,7 +168,24 @@ baselineProfile {
     saveInSrc = true
 }
 
+// The Android framework jar Robolectric runs every test on. Left to itself,
+// Robolectric downloads it from Maven Central while the tests run, into
+// ~/.m2, which CI does not keep: every pipeline fetched all 150 MB again, and
+// Maven Central refusing one of those (HTTP 429) failed 796 tests at once.
+// Resolved by Gradle instead, it lands in the Gradle cache CI already keeps,
+// and the test task runs Robolectric offline against it (see below).
+//
+// One jar per SDK the tests run on; every test pins sdk = [34]. The "-i6"
+// suffix is Robolectric's instrumentation version, so upgrading Robolectric
+// can change it: an offline run that cannot find its jar names the one it
+// wanted.
+val robolectricSdk: Configuration by configurations.creating {
+    isTransitive = false
+}
+
 dependencies {
+    robolectricSdk("org.robolectric:android-all-instrumented:14-robolectric-10818077-i6")
+
     // Core Android
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
@@ -181,6 +198,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // Window size
+    implementation("androidx.compose.material3.adaptive:adaptive")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     // Navigation
@@ -288,6 +307,18 @@ tasks.withType<Test>().configureEach {
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")
     }
+}
+
+// Robolectric reads its framework jar from here instead of downloading it; see
+// robolectricSdk above.
+val robolectricJars = tasks.register<Sync>("robolectricJars") {
+    from(robolectricSdk)
+    into(layout.buildDirectory.dir("robolectric-jars"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(robolectricJars)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricJars.get().destinationDir.absolutePath)
 }
 
 // 仅基于 debug 单测的覆盖率报告（不需要设备/仪器）。
@@ -407,6 +438,14 @@ val regressionSuite = mapOf(
     ),
     "relay failover" to listOf(
         "ui.chat.RelayFailoverTest",
+    ),
+    "Home beside the chat" to listOf(
+        "ui.adaptive.HomePlacementTest",
+        "ui.adaptive.HomePlacementWindowComposeTest",
+        "ui.adaptive.ChatWithHomeComposeTest",
+        "ui.adaptive.PaneComposeTest",
+        "ui.adaptive.HomeScreenRouteComposeTest",
+        "ui.adaptive.HomeBesideChatComposeTest",
     ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent
