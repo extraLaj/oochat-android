@@ -50,6 +50,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -568,50 +569,38 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
-    fun `ONBOARD_SUCCESS resends CONNECT on the same socket so the connection actually becomes ready`() {
-        // The deep-link scenario the fix addresses: live socket, no preceding CONNECTED, ONBOARD_REQUIRED, then ONBOARD_SUCCESS.
+    fun `after ONBOARD_SUCCESS the Host's own CONNECTED makes the connection ready, with no second CONNECT`() {
+        // W16AAPPLE-83: the Host completes the CONNECT it held back
+        // (websocket-protocol.md: "do not send CONNECT again"); a second one
+        // was answered "already authenticated: open a new connection".
         connection.connect("0xAGENT")
+        factory.lastListener?.onOpen(factory.lastWebSocket!!, fakeResponse())
         factory.lastListener?.onMessage(
             factory.lastWebSocket!!,
             """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}"""
         )
-        // Before submit, no CONNECTED has been delivered — isConnectionReady
-        // is false (matches production on the deep-link path).
         assertFalse(connection.isConnected())
 
         connection.respondToOnboard(method = "invite_code", inviteCode = "ABC123")
-
         factory.lastListener?.onMessage(
             factory.lastWebSocket!!,
             """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"Invite code verified."}"""
         )
 
+        assertEquals("the same socket carries on", 1, factory.socketCount)
         assertEquals(
-            "must reuse the existing socket, not open a new one — auto-reconnect is suppressed during onboarding",
+            "only the original CONNECT may be sent",
             1,
-            factory.socketCount
+            factory.lastWebSocket!!.sentMessages.count { it.contains("\"type\":\"CONNECT\"") }
         )
-        val resentConnect = factory.lastWebSocket!!.sentMessages.singleOrNull {
-            it.contains("\"type\":\"CONNECT\"")
-        }
-        assertTrue("a fresh CONNECT must be sent on the same socket once trust is promoted", resentConnect != null)
-        assertTrue("the resent CONNECT must carry a valid signature through the injected signer", resentConnect!!.contains("\"signature\":\"fake-signature\""))
+        assertFalse("not ready until the Host's CONNECTED", connection.isConnected())
 
-        // After ONBOARD_SUCCESS, reauthenticate() flips isConnectionReady
-        // back to false until the reply CONNECTED arrives — that's exactly
-        // what gates sendMessage() during the round-trip.
-        assertFalse(
-            "isConnectionReady must be false between ONBOARD_SUCCESS and the response CONNECTED",
-            connection.isConnected()
-        )
-
-        // The retried CONNECT actually completes the handshake this time.
         simulateConnected("sess-after-onboard")
         assertTrue(connection.isConnected())
     }
 
     @Test
-    fun `the resent CONNECT uses one timestamp for both payload and envelope`() {
+    fun `a CONNECT uses one timestamp for both payload and envelope`() {
         // Guards the seam introduced by extracting signPayload: sendConnectMessage
         // must read System.currentTimeMillis() / 1000 exactly once per CONNECT
         // and reuse the value for both the signed payload timestamp AND the
@@ -621,24 +610,14 @@ class AgentConnectionRobolectricTest {
         // against payload bytes, but the wire envelope timestamp a future
         // server change might surface could mismatch.
         connection.connect("0xAGENT")
-        simulateConnected()
-        factory.lastWebSocket!!.sentMessages.clear()
+        factory.lastListener?.onOpen(factory.lastWebSocket!!, fakeResponse())
 
-        factory.lastListener?.onMessage(
-            factory.lastWebSocket!!,
-            """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}"""
-        )
-        factory.lastListener?.onMessage(
-            factory.lastWebSocket!!,
-            """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}"""
-        )
-
-        val resentConnect = factory.lastWebSocket!!.sentMessages.singleOrNull {
+        val sentConnect = factory.lastWebSocket!!.sentMessages.singleOrNull {
             it.contains("\"type\":\"CONNECT\"")
-        } ?: error("a resent CONNECT must be sent")
-        val payloadTs = Regex("\"payload\":\\{\"timestamp\":(\\d+)").find(resentConnect)
+        } ?: error("a CONNECT must be sent when the socket opens")
+        val payloadTs = Regex("\"payload\":\\{\"timestamp\":(\\d+)").find(sentConnect)
             ?.groupValues?.get(1)?.toLongOrNull() ?: error("payload timestamp not found")
-        val envelopeTs = Regex("\"timestamp\":(\\d+),\"to\":").find(resentConnect)
+        val envelopeTs = Regex("\"timestamp\":(\\d+),\"to\":").find(sentConnect)
             ?.groupValues?.get(1)?.toLongOrNull() ?: error("envelope timestamp not found")
         assertEquals(
             "payload.timestamp and envelope.timestamp must come from the same clock read",
@@ -669,21 +648,6 @@ class AgentConnectionRobolectricTest {
     fun `the CONNECT sent when the socket opens declares the OIP protocol descriptor`() {
         connection.connect("0xAGENT")
         factory.lastListener?.onOpen(factory.lastWebSocket!!, fakeResponse())
-
-        assertDeclaresOip(sentConnect())
-    }
-
-    @Test
-    fun `the CONNECT resent after onboarding still declares the OIP protocol descriptor`() {
-        connection.connect("0xAGENT")
-        factory.lastListener?.onMessage(
-            factory.lastWebSocket!!,
-            """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}"""
-        )
-        factory.lastListener?.onMessage(
-            factory.lastWebSocket!!,
-            """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}"""
-        )
 
         assertDeclaresOip(sentConnect())
     }
@@ -726,13 +690,16 @@ class AgentConnectionRobolectricTest {
             signer = { _, canonical -> signed += canonical; "fake-signature" }
         )
         try {
+            // Two connects, two sockets, two CONNECTs to compare.
             conn.connect("0xAGENT")
-            factory.lastListener?.onOpen(factory.lastWebSocket!!, fakeResponse())
-            // ONBOARD_SUCCESS re-sends CONNECT on the same socket.
-            factory.lastListener?.onMessage(factory.lastWebSocket!!, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
-            factory.lastListener?.onMessage(factory.lastWebSocket!!, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+            val first = factory.lastWebSocket!!
+            factory.lastListener?.onOpen(first, fakeResponse())
+            conn.connect("0xAGENT")
+            val second = factory.lastWebSocket!!
+            factory.lastListener?.onOpen(second, fakeResponse())
+            assertNotSame(first, second)
 
-            val payloads = factory.lastWebSocket!!.sentMessages
+            val payloads = (first.sentMessages + second.sentMessages)
                 .filter { it.contains("\"type\":\"CONNECT\"") }
                 .map { Json.parseToJsonElement(it).jsonObject["payload"]!!.jsonObject }
             assertEquals(2, payloads.size)
@@ -2493,7 +2460,7 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
-    fun `a refusal of the CONNECT re-sent after onboarding is final too`() = runTest {
+    fun `a refusal in place of the CONNECTED that completes onboarding is final too`() = runTest {
         val conn = connectionOnVirtualClock()
         val seen = recordEvents(conn)
         conn.connect("0xAGENT")
@@ -3127,10 +3094,142 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
-    fun `the CONNECT re-sent after onboarding on the first socket is not treated as a reconnect`() = runTest {
-        // W16AAPPLE-83's sequence: the Host finishes the original CONNECT
-        // itself, then refuses the app's re-CONNECT. That ERROR is noise on a
-        // working connection, not a refused reconnect.
+    fun `after a correct invite code the connection completes with no error and no second CONNECT`() = runTest {
+        // W16AAPPLE-83's sequence on today's Host: ONBOARD_SUCCESS, then the
+        // CONNECTED that completes the original CONNECT.
+        val conn = connectionOnVirtualClock()
+        val seen = recordEvents(conn)
+        conn.connect("0xAGENT")
+        val ws = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(ws, fakeResponse())
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+        simulateConnected("sess-new")
+        advanceTimeBy(10 * 60_000L)
+
+        assertEquals(1, ws.sentMessages.count { it.contains("\"type\":\"CONNECT\"") })
+        assertNull(ws.closeCode)
+        assertTrue(conn.isConnected())
+        assertTrue(
+            "nothing may follow that reads as a failure: $seen",
+            seen.none { it is ConnectionEvent.ConnectionError || it is ConnectionEvent.ReconnectRefused }
+        )
+        conn.teardown()
+    }
+
+    @Test
+    fun `onboarding on a reconnect socket still gives up if the Host never completes it`() = runTest {
+        // The CONNECTED owed after ONBOARD_SUCCESS is waited on like any reconnect's.
+        val conn = connectionOnVirtualClock()
+        conn.connect("0xAGENT")
+        dropAfterConnected()
+        val rung = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(rung, fakeResponse())
+        factory.lastListener!!.onMessage(rung, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(rung, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        assertEquals("the unanswered socket must be closed", 1000, rung.closeCode)
+        conn.teardown()
+    }
+
+    @Test
+    fun `onboarding on the first socket gives up if the Host never completes it`() = runTest {
+        // ConnectToAgentUseCase stops its timer once the gate arrives, so this
+        // wait is the only thing between a silent Host and "Connecting..." forever.
+        val conn = connectionOnVirtualClock()
+        val seen = recordEvents(conn)
+        conn.connect("0xAGENT")
+        val ws = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(ws, fakeResponse())
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        assertEquals("the unanswered socket must be closed", 1000, ws.closeCode)
+        assertTrue("and the attempt retried: $seen", seen.any { it is ConnectionEvent.Reconnecting })
+        conn.teardown()
+    }
+
+    @Test
+    fun `after onboarding a Host silent on every socket ends the ladder instead of hanging`() = runTest {
+        // The retries after the gate are not reconnects (the cycle never
+        // reached the agent), but the use case's timer is long gone, so each
+        // one is waited on too. Without that the first retry socket sat on
+        // "Reconnecting..." for good.
+        val conn = connectionOnVirtualClock()
+        val seen = recordEvents(conn)
+        conn.connect("0xAGENT")
+        val first = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(first, fakeResponse())
+        factory.lastListener!!.onMessage(first, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(first, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        val retries = mutableListOf<FakeWebSocket>()
+        for (attempt in 1..AgentConnection.MAX_RECONNECT_ATTEMPTS) {
+            advanceTimeBy(AgentConnection.reconnectBackoffMs(attempt) + 1)
+            val retry = factory.lastWebSocket!!
+            assertNotSame("rung $attempt must open a new socket", retries.lastOrNull() ?: first, retry)
+            retries += retry
+            factory.lastListener!!.onOpen(retry, fakeResponse())
+            advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+            assertEquals("rung $attempt's unanswered socket must be closed", 1000, retry.closeCode)
+        }
+
+        assertFalse(conn.isConnected())
+        assertTrue("the ladder must end with a verdict: $seen", seen.last() is ConnectionEvent.Disconnected)
+        conn.teardown()
+    }
+
+    @Test
+    fun `a new connect after onboarding leaves its first CONNECT to the use case's timer`() = runTest {
+        // Passing a gate is per cycle: the next connect() is a first connect
+        // again, bounded by ConnectToAgentUseCase rather than closed at 15 s.
+        val conn = connectionOnVirtualClock()
+        conn.connect("0xAGENT")
+        val gated = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(gated, fakeResponse())
+        factory.lastListener!!.onMessage(gated, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        factory.lastListener!!.onMessage(gated, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+
+        conn.connect("0xAGENT")
+        val fresh = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(fresh, fakeResponse())
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS + 1)
+
+        assertNull("a first connect's CONNECT is not this class's to time out", fresh.closeCode)
+        conn.teardown()
+    }
+
+    @Test
+    fun `ONBOARD_SUCCESS on a socket that is already connected waits for nothing`() = runTest {
+        // The Host only gates a CONNECT, so after CONNECTED there is no
+        // held-back one left to complete. Waiting for it would retire a
+        // working socket and read the next unrelated ERROR as a refusal.
+        val conn = connectionOnVirtualClock()
+        val seen = recordEvents(conn)
+        conn.connect("0xAGENT")
+        val ws = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(ws, fakeResponse())
+        simulateConnected()
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_SUCCESS","id":"ob1","level":"contact","message":"ok"}""")
+
+        advanceTimeBy(AgentConnection.CONNECTED_TIMEOUT_MS * 2)
+
+        assertNull(ws.closeCode)
+        assertEquals(1, factory.socketCount)
+        assertTrue(conn.isConnected())
+        assertTrue(seen.none { it is ConnectionEvent.Reconnecting })
+        conn.teardown()
+    }
+
+    @Test
+    fun `a late already-authenticated ERROR after onboarding leaves the connection working`() = runTest {
+        // The app no longer causes this ERROR (W16AAPPLE-83), but one arriving
+        // anyway must stay noise on a connection that works.
         val conn = connectionOnVirtualClock()
         val seen = recordEvents(conn)
         conn.connect("0xAGENT")
@@ -3145,7 +3244,7 @@ class AgentConnectionRobolectricTest {
 
         assertNull(ws.closeCode)
         assertTrue(conn.isConnected())
-        assertTrue(seen.none { it is ConnectionEvent.ReconnectRefused })
+        assertTrue(seen.none { it is ConnectionEvent.ReconnectRefused || it is ConnectionEvent.Reconnecting })
         conn.teardown()
     }
 
