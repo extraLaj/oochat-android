@@ -210,10 +210,12 @@ class SessionSyncClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 hostClock.observe(response)
                 val timestamp = hostClock.nowSeconds()
-                val relayRecipient = if (directUrl == null) agentAddress else null
+                // The signed recipient is required in both transports. Only
+                // the unsigned top-level routing field is relay-specific.
+                val routeRecipient = if (directUrl == null) agentAddress else null
                 val payload = ConnectPayload(
                     timestamp = timestamp,
-                    to = relayRecipient,
+                    to = agentAddress,
                     nonce = nonceFactory(),
                     extensions = OipProtocol.SESSION_SYNC_OFFER,
                     sessionSyncOnly = 1
@@ -227,7 +229,7 @@ class SessionSyncClient(
                     from = keys.address,
                     signature = signature,
                     timestamp = timestamp,
-                    to = relayRecipient
+                    to = routeRecipient
                 )
                 if (!webSocket.send(json.encodeToString(connect))) {
                     complete(SessionSyncFetchResult.Failed("Could not send the Session Sync CONNECT"))

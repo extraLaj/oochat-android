@@ -1182,6 +1182,10 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     private suspend fun onConnectedTo(agentAddress: String, directUrl: String?) {
         saveAgentIfNeeded(agentAddress, directUrl)
+        // Identity filtering is local and must finish before choosing a chat.
+        // The network fetch stays detached below, but restoring first could
+        // reopen the previous identity's synced session under the new key.
+        recentChatsSync.activateIdentity()
         val forceNew = startFreshOnNextConnect
         startFreshOnNextConnect = false
         restoreLocalSession(agentAddress, forceNew)

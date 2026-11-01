@@ -66,6 +66,17 @@ class SyncRecentChatsUseCaseTest {
     }
 
     @Test
+    fun `preparing the same identity repeatedly only filters Room once`() = runTest {
+        val repository = FakeRepository()
+        val useCase = useCase(repository) { _, _, _ -> SessionSyncFetchResult.Complete(snapshot) }
+
+        useCase.activateIdentity()
+        useCase.activateIdentity()
+
+        assertEquals(listOf("0xidentity"), repository.activatedIdentities)
+    }
+
+    @Test
     fun `expired cursor retries once without a cursor`() = runTest {
         val repository = FakeRepository()
         val cursors = mutableListOf<String?>()

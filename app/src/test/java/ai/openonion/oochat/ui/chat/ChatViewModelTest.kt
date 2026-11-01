@@ -338,7 +338,12 @@ class ChatViewModelTest {
     private class FakeRecentChatsSync : RecentChatsSync {
         data class Call(val agentId: String, val agentAddress: String, val directUrl: String?)
         val calls = mutableListOf<Call>()
+        var identityActivations = 0
         var result: RecentChatsSyncResult = RecentChatsSyncResult.Synced
+
+        override suspend fun activateIdentity() {
+            identityActivations++
+        }
 
         override suspend fun sync(
             agentId: String,
@@ -3933,6 +3938,7 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         val call = recentChatsSync.calls.single()
+        assertTrue(recentChatsSync.identityActivations >= 1)
         assertEquals(address, call.agentAddress)
         assertEquals(agentRepo.createdAgents.single().id, call.agentId)
     }

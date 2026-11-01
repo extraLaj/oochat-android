@@ -176,6 +176,19 @@ class SessionSyncClientTest {
     }
 
     @Test
+    fun `direct index CONNECT signs the Host recipient without a relay route`() = runTest {
+        val result = async { client.fetch("0xagent", directUrl = "https://agent.example") }
+        runCurrent()
+        factory.listener.onOpen(factory.socket, response())
+
+        val connect = json(0)
+        assertEquals("0xagent", connect["payload"]!!.jsonObject["to"]!!.jsonPrimitive.content)
+        assertFalse("direct CONNECT has no top-level relay recipient", "to" in connect)
+
+        result.cancel()
+    }
+
+    @Test
     fun `ordinary chat CONNECTED after offering the extension is unsupported`() = runTest {
         val result = async { client.fetch("0xagent") }
         runCurrent()

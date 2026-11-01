@@ -16,6 +16,9 @@ sealed interface RecentChatsSyncResult {
 /** Small seam used by the UI and its tests. */
 fun interface RecentChatsSync {
     suspend fun sync(agentId: String, agentAddress: String, directUrl: String?): RecentChatsSyncResult
+
+    /** Hides another identity's synced rows before conversation restoration reads them. */
+    suspend fun activateIdentity() = Unit
 }
 
 /** Fetches and safely commits the current identity's Recent Chat index. */
@@ -27,6 +30,14 @@ class SyncRecentChatsUseCase(
     // A reconnect and the screen joining that same connection can arrive
     // together. Serialize them so two snapshots cannot race their cursors.
     private val syncMutex = Mutex()
+    private val identityMutex = Mutex()
+    private var activeIdentity: String? = null
+
+    override suspend fun activateIdentity() {
+        val identity = identityAddress()
+        require(identity.isNotBlank()) { "identityAddress must not be blank" }
+        activateIdentity(identity)
+    }
 
     override suspend fun sync(
         agentId: String,
@@ -39,7 +50,7 @@ class SyncRecentChatsUseCase(
 
             val identity = identityAddress()
             require(identity.isNotBlank()) { "identityAddress must not be blank" }
-            repository.activateIdentity(identity)
+            activateIdentity(identity)
             val cursor = repository.cursorFor(identity, agentId)
 
             var first = fetch(agentAddress, directUrl, cursor)
@@ -73,6 +84,12 @@ class SyncRecentChatsUseCase(
         } catch (failure: Exception) {
             RecentChatsSyncResult.Failed(failure.message ?: "Recent Chat sync failed")
         }
+    }
+
+    private suspend fun activateIdentity(identity: String) = identityMutex.withLock {
+        if (activeIdentity == identity) return@withLock
+        repository.activateIdentity(identity)
+        activeIdentity = identity
     }
 
     private suspend fun commit(
