@@ -76,7 +76,7 @@ fun DashboardScreen(
     agentName: String? = null,
     chatAwaitsUser: Boolean = false,
     modifier: Modifier = Modifier,
-    buildDispatcher: CoroutineDispatcher = Dispatchers.Default
+    buildDispatcher: CoroutineDispatcher = DashboardBuildDispatcher
 ) {
     // A fallback for pages that declare no background of their own; one that
     // does still wins, since its rule comes later in the document. Resolved
@@ -117,6 +117,12 @@ fun DashboardScreen(
         modifier = modifier
     )
 }
+
+/**
+ * Where [DashboardScreen] wraps a snapshot unless told otherwise. Never the
+ * main thread: a snapshot can be 2 MiB.
+ */
+internal val DashboardBuildDispatcher: CoroutineDispatcher = Dispatchers.Default
 
 /**
  * The presentational half of [DashboardScreen] — every bit of state hoisted
