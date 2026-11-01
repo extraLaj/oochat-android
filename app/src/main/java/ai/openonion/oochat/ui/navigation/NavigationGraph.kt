@@ -441,7 +441,7 @@ fun NavigationGraph(
         // borrows its ChatViewModel from is always still on the stack — see
         // DashboardScreenWrapper for why that matters.
         composable(Routes.DASHBOARD) {
-            HomeScreenRoute(onLeave = { navController.popBackStack() }) {
+            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.DASHBOARD, inclusive = true) }) {
                 DashboardScreenWrapper(
                     chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
                         runCatching { navController.getBackStackEntry(route) }.getOrNull()
@@ -455,7 +455,7 @@ fun NavigationGraph(
 
         // The agent's Home when it has a Control Center app. Reached the same way as DASHBOARD.
         composable(Routes.CONTROL_CENTER) {
-            HomeScreenRoute(onLeave = { navController.popBackStack() }) {
+            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) }) {
                 ControlCenterScreenWrapper(
                     chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
                         runCatching { navController.getBackStackEntry(route) }.getOrNull()
