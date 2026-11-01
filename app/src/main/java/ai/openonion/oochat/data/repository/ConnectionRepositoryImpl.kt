@@ -873,9 +873,9 @@ class ConnectionRepositoryImpl(
                 address = address,
                 model = existing?.model ?: published.model,
                 tools = existing?.tools?.takeIf { it.isNotEmpty() } ?: published.tools,
-                skills = published.skills
-                    .filter { it.name.isNotBlank() }
-                    .map { AgentSkill(it.name, it.description?.trim()?.takeIf(String::isNotEmpty)) },
+                // Cleaned as an AGENT_PROFILE frame's are: the directory does
+                // not promise unique names or useful descriptions either.
+                skills = AgentSkill.cleaned(published.skills, name = { it.name }, description = { it.description }),
                 balanceUsd = existing?.balanceUsd
             )
             FileLogger.i(

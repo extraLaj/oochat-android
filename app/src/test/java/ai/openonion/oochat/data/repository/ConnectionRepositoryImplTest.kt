@@ -14,7 +14,6 @@ import ai.openonion.oochat.domain.model.PlanStatus
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.PendingMessageSink
@@ -962,11 +961,10 @@ class ConnectionRepositoryImplTest {
     }
 
     @Test
-    fun `known issue - the directory path keeps duplicate skill names and placeholder descriptions`() = runTest(testDispatcher) {
-        // An AGENT_PROFILE frame is cleaned by ProtocolParser.toAgentSkills
-        // (one entry per name, "No description" -> none). The directory path -
-        // the one that actually fills the palette - skips both, and the
-        // palette keys its rows on the name.
+    fun `directory skills are de-duplicated and cleaned the way AGENT_PROFILE skills are`() = runTest(testDispatcher) {
+        // W16AAPPLE-65. The directory path is the one that actually fills the
+        // palette, which keys its rows on the name, so a repeated name there
+        // reached the UI. Both paths now go through AgentSkill.cleaned.
         val server = directory(
             """{"profile":{"skills":[{"name":"explain","description":"No description"},
               |{"name":"explain","description":"Explain a snippet of code"}]}}""".trimMargin()
@@ -977,10 +975,8 @@ class ConnectionRepositoryImplTest {
         awaitUntil(retry = { simulateConnected() }) { repo.agentProfile.value?.skills?.isNotEmpty() == true }
         val skills = repo.agentProfile.value!!.skills
 
-        knownIssue("directory skills are not de-duplicated or normalised the way AGENT_PROFILE skills are") {
-            assertEquals("one entry per name", listOf("explain"), skills.map { it.name })
-            assertTrue("placeholder description kept: $skills", skills.none { it.description == "No description" })
-        }
+        assertEquals("one entry per name", listOf("explain"), skills.map { it.name })
+        assertTrue("placeholder description kept: $skills", skills.none { it.description == "No description" })
     }
 
     @Test
