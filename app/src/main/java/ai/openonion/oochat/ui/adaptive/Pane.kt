@@ -12,5 +12,5 @@ import androidx.compose.ui.Modifier
  */
 @Composable
 internal fun Pane(modifier: Modifier, content: @Composable () -> Unit) {
-    Box(modifier) { content() }git a
+    Box(modifier) { content() }
 }
