@@ -167,7 +167,7 @@ agent offers:
 |---|---|
 | **Read only** | Ask before anything that changes files or runs commands. |
 | **Auto** | Run routine edits and commands; ask before risky ones. The default. |
-| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The chip shows how many are left, and drops back to Auto when they run out. |
+| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The app asks you to confirm before turning it on. The chip shows how many are left, and drops back to Auto when they run out. |
 
 On these agents the mode can't be changed while the agent is working; the chip
 waits until the turn finishes.

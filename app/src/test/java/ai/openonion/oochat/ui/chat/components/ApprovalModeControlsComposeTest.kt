@@ -109,7 +109,55 @@ class ApprovalModeControlsComposeTest {
         composeRule.onNodeWithText("Turns").assertDoesNotExist()
 
         composeRule.onNodeWithText("Start full access").performScrollTo().performClick()
+        assertEquals("full access was sent without a confirmation", null, picked)
+
+        composeRule.onNodeWithText("Enable bounded full access?").assertExists()
+        composeRule.onNodeWithText("Enable").performScrollTo().performClick()
         assertEquals(ApprovalMode.FULL_ACCESS to null, picked)
+    }
+
+    // ── Full access confirmation (W16AAPPLE-42) ─────────────────────────
+
+    @Test
+    fun `cancelling the confirmation sends nothing and offers full access again`() {
+        var picked: ApprovalMode? = null
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ApprovalModeSheet(
+                    current = ApprovalMode.AUTO,
+                    onSelect = { mode, _ -> picked = mode },
+                    onDismiss = {},
+                    modes = hostModes
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Start full access").performScrollTo().performClick()
+        composeRule.onNodeWithText("Cancel").performScrollTo().performClick()
+
+        assertEquals(null, picked)
+        composeRule.onNodeWithText("Enable bounded full access?").assertDoesNotExist()
+        composeRule.onNodeWithText("Start full access").assertExists()
+    }
+
+    @Test
+    fun `picking another mode while asked sends that mode, not full access`() {
+        var picked: ApprovalMode? = null
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ApprovalModeSheet(
+                    current = ApprovalMode.AUTO,
+                    onSelect = { mode, _ -> picked = mode },
+                    onDismiss = {},
+                    modes = hostModes
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Start full access").performScrollTo().performClick()
+        composeRule.onNodeWithText("Read only").performScrollTo().performClick()
+
+        assertEquals(ApprovalMode.READ_ONLY, picked)
     }
 
     @Test
@@ -149,13 +197,16 @@ class ApprovalModeControlsComposeTest {
 
     @Test
     fun `the legacy sheet still offers ultra work with its turn field`() {
+        var picked: Pair<ApprovalMode, Int?>? = null
         composeRule.setContent {
             ConnectOnionTheme {
-                ApprovalModeSheet(current = ApprovalMode.SAFE, onSelect = { _, _ -> }, onDismiss = {})
+                ApprovalModeSheet(current = ApprovalMode.SAFE, onSelect = { mode, turns -> picked = mode to turns }, onDismiss = {})
             }
         }
 
         composeRule.onNodeWithText("Ultra work").assertExists()
-        composeRule.onNodeWithText("Start ultra work").assertExists()
+        // Its turn budget is its explicit step; the full access question is not added to it.
+        composeRule.onNodeWithText("Start ultra work").performScrollTo().performClick()
+        assertEquals(ApprovalMode.ULW to 100, picked)
     }
 }

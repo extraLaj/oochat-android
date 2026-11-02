@@ -1104,7 +1104,12 @@ The chip moves at once and shows as pending (dimmed, with a sync glyph) until
 the answer. Tapping it cycles `SessionModes.cycle`, which is the catalogue
 without the unattended modes, so no number of taps reaches `ulw` or
 `full-access`. Those are entered from the sheet only, and the chip offers exit
-while one is active, back to `SessionModes.default` (`safe`, or `auto`). On a
+while one is active, back to `SessionModes.default` (`safe`, or `auto`).
+Entering `full-access` also needs an explicit confirmation ("Enable bounded full
+access?", as in the reference client's `mode-indicator.tsx`): the sheet sends no
+`mode_change` until the user taps Enable. Every pick in the sheet goes through
+`HostCeilingState`, the Host ceiling's own state machine; leaving full access
+needs no confirmation (W16AAPPLE-42). On a
 1.7+ Host the chip is disabled while a turn is running, since the Host would
 answer `Session is busy`.
 
