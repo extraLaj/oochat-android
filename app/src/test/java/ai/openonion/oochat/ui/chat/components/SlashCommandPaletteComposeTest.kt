@@ -1,7 +1,6 @@
 package ai.openonion.oochat.ui.chat.components
 
 import ai.openonion.oochat.domain.model.AgentSkill
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.getValue
@@ -59,7 +58,6 @@ class SlashCommandPaletteComposeTest {
                 Column {
                     InputBar(
                         isConnected = isConnected(),
-                        isSending = false,
                         isAgentWorking = isAgentWorking,
                         skills = skills,
                         onSend = { text, _, _ -> onSend(text) }
@@ -211,7 +209,6 @@ class SlashCommandPaletteComposeTest {
                 Column {
                     InputBar(
                         isConnected = true,
-                        isSending = false,
                         isAgentWorking = working,
                         skills = skills,
                         onSend = { _, _, _ -> }
@@ -269,15 +266,18 @@ class SlashCommandPaletteComposeTest {
     }
 
     @Test
-    fun `known issue - two skills with the same name take the composer down when the palette opens`() {
-        // Reachable in production: the directory path passes duplicate names
-        // through (see ConnectionRepositoryImplTest), and the palette's
-        // LazyColumn keys its rows on the name.
+    fun `two skills with the same name show as one row instead of crashing the composer`() {
+        // W16AAPPLE-66. Reachable in production: the directory path passes
+        // duplicate names through (W16AAPPLE-65), and the palette's LazyColumn
+        // keys its rows on the name, so a repeat threw on opening.
         bar(skills = listOf(AgentSkill("explain", "First"), AgentSkill("explain", "Second")))
 
-        knownIssue("duplicate skill names crash the palette's LazyColumn (row key = name)") {
-            type("/")
-            composeRule.onNodeWithText("/explain").assertIsDisplayed()
-        }
+        type("/")
+
+        // onNodeWithText fails on two matches, so this also proves one row.
+        composeRule.onNodeWithText("/explain").assertIsDisplayed()
+        // The first wins, as in ProtocolParser.toAgentSkills.
+        composeRule.onNodeWithText("First").assertIsDisplayed()
+        composeRule.onNodeWithText("Second").assertDoesNotExist()
     }
 }

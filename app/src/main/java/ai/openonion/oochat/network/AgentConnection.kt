@@ -160,9 +160,15 @@ class AgentConnection(
 
     // Whether the current socket was opened after this cycle had already
     // reached the agent: a reconnect, or a conversation switch. Captured when
-    // the socket opens, so the gate's own re-CONNECT on the first socket
-    // (reauthenticate) is never mistaken for one.
+    // the socket opens, so the CONNECTED that completes onboarding on the
+    // first socket is never mistaken for a reconnect's.
     @Volatile private var socketIsReconnect = false
+
+    // Whether this connect() cycle has passed an onboarding gate. From then on
+    // ConnectToAgentUseCase's timer has stopped, so every CONNECT in the cycle
+    // is waited on (awaitConnectedOrRetry) as a reconnect's is. Kept apart from
+    // socketIsReconnect, which also decides whether a refusal ends a reconnect.
+    @Volatile private var gatePassedThisCycle = false
 
     // Gives up on a reconnect socket whose CONNECT the Host never answers; see
     // [awaitConnectedOrRetry].
@@ -326,11 +332,11 @@ class AgentConnection(
      * `session_id` and the server mint a fresh session, exactly as
      * [recoverFromStaleSession] does.
      *
-     * Re-CONNECTs on the live socket instead of reopening it: the server
-     * accepts a second CONNECT on an existing connection and re-points it at
-     * the named session, which is the whole of a switch. [reauthenticate]
-     * already depends on that. With no socket yet this only stages the
-     * session for the next CONNECT.
+     * Reopens the socket ([reopenSocket]) rather than re-CONNECTing on it:
+     * the Host refuses a second CONNECT on an authenticated socket that names
+     * another session ("already authenticated: open a new connection",
+     * ws_router/connect.py). With no socket yet this only stages the session
+     * for the next CONNECT.
      */
     fun switchSession(session: SessionState?) {
         _currentSession = session
@@ -438,6 +444,7 @@ class AgentConnection(
             isConnectionReady = false
             onboardingPending = false
             submitWasRejected = false
+            gatePassedThisCycle = false
             // New WS cycle starts clean: a previously-rejected gate has no
             // meaning on a fresh session, and the generation-counter check
             // in the listener closures will naturally reject any late
@@ -495,7 +502,7 @@ class AgentConnection(
         FileLogger.i(LogTags.AGENT_CONN, "CONNECT → $capturedAgentAddress sid=${connectMsg.sessionId ?: "<new>"}")
         awaitingConnected = true
         ws.send(msgStr)
-        if (socketIsReconnect) awaitConnectedOrRetry()
+        if (socketIsReconnect || gatePassedThisCycle) awaitConnectedOrRetry()
     }
 
     /**
@@ -507,6 +514,10 @@ class AgentConnection(
      * Only for reconnects: a first connect is already bounded by
      * ConnectToAgentUseCase's own timeout, and a gate (ONBOARD_REQUIRED) answers
      * in place of CONNECTED, which [trackOnboardingState] treats as an answer.
+     * The exception is a cycle that has passed a gate: the use case stops its
+     * timer once the gate arrives, so the CONNECTED owed after ONBOARD_SUCCESS
+     * and every later CONNECT in the cycle are bounded here, on any socket
+     * (see [awaitConnectedAfterOnboarding] and gatePassedThisCycle).
      */
     private fun awaitConnectedOrRetry() {
         val generation = socketGeneration.get()
@@ -515,7 +526,7 @@ class AgentConnection(
             delay(CONNECTED_TIMEOUT_MS)
             synchronized(this@AgentConnection) {
                 if (!awaitingConnected || generation != socketGeneration.get()) return@launch
-                FileLogger.w(LogTags.AGENT_CONN, "No CONNECTED within ${CONNECTED_TIMEOUT_MS}ms — treating the reconnect as failed")
+                FileLogger.w(LogTags.AGENT_CONN, "No CONNECTED within ${CONNECTED_TIMEOUT_MS}ms - treating the attempt as failed")
                 retireSocket("No answer to CONNECT")
             }
             attemptReconnect()
@@ -1320,7 +1331,7 @@ class AgentConnection(
                     return
                 }
                 framesReceived.incrementAndGet()
-                handleMessage(text, addressForThisSocket)
+                handleMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -1376,9 +1387,8 @@ class AgentConnection(
      * OnboardRequired/OnboardSuccess, and records the most recent
      * OnboardRequired's id so a later ERROR frame can synthesize an
      * OnboardingFailed card that shares it (in-place swap in the reducer).
-     * Network IO that may need to happen in response to OnboardSuccess is
-     * handled by the caller (see [handleMessage]'s `OnboardSuccess` branch
-     * — it calls [reauthenticate]), not here, so the method's name
+     * Waiting for the CONNECTED that follows OnboardSuccess is the caller's
+     * (see [awaitConnectedAfterOnboarding]), not here, so the method's name
      * continues to describe what it does.
      */
     private fun trackOnboardingState(item: ChatItem) {
@@ -1416,40 +1426,29 @@ class AgentConnection(
     }
 
     /**
-     * Resend CONNECT on the given socket to convert a freshly-promoted
-     * trust state into an authenticated session. The server's
-     * handle_onboard_submit only promotes trust — it never sends CONNECTED
-     * itself (that only happens inside handle_connect) — so without this
-     * retry the socket's `isConnectionReady` would never flip to `true`
-     * (see ws_admin.py:54-90 and ws_router/connect.py:26-31).
+     * After ONBOARD_SUCCESS the Host completes the CONNECT it held back and
+     * sends CONNECTED itself; a second CONNECT would be refused with "already
+     * authenticated: open a new connection" (connectonion's
+     * docs/network/websocket-protocol.md: "do not send CONNECT again",
+     * W16AAPPLE-83). So our original CONNECT is outstanding again, and waited
+     * on as if just sent.
      *
-     * Flipping [isConnectionReady] to `false` here, before the new CONNECT
-     * reaches the server and the reply CONNECTED lands, is what gates
-     * [sendMessage] (line 167) so a user-input INPUT can't race the
-     * in-flight re-authentication. [handleMessage]'s Connected branch
-     * (line ~448) flips it back to `true` when the reply arrives.
+     * Bounded on the first socket too: ConnectToAgentUseCase stops its timer
+     * once ONBOARD_REQUIRED arrives, so a CONNECTED that never comes would
+     * otherwise leave the user on "Connecting..." with no error.
      *
-     * @param capturedAgentAddress the agent the socket was opened for
-     *   (captured into the listener closure at [openWebSocket] time), not
-     *   the current value of the instance field — a stale event on an
-     *   old, to-be-orphaned socket must not sign a CONNECT that targets
-     *   a different agent.
+     * Nothing is owed on a socket that is already connected: the Host only
+     * gates a CONNECT, so there is no held-back one left to complete.
      */
-    private fun reauthenticate(ws: WebSocket, capturedAgentAddress: String) {
-        isConnectionReady = false
-        sendConnectMessage(ws, capturedAgentAddress)
+    private fun awaitConnectedAfterOnboarding() {
+        if (isConnectionReady) return
+        gatePassedThisCycle = true
+        awaitingConnected = true
+        awaitConnectedOrRetry()
     }
 
-    /**
-     * Handle incoming WebSocket message using ProtocolParser.
-     *
-     * @param capturedAgentAddress the agent the live socket was opened for,
-     *   plumbed down from the [WebSocketListener] closure at
-     *   [openWebSocket] time. Used by [reauthenticate]'s OnboardSuccess
-     *   branch so a stale callback from an orphan listener can't sign a
-     *   CONNECT against a freshly-switched `agentAddress` instance field.
-     */
-    private fun handleMessage(text: String, capturedAgentAddress: String) {
+    /** Handle incoming WebSocket message using ProtocolParser. */
+    private fun handleMessage(text: String) {
         try {
             FileLogger.d(LogTags.AGENT_CONN, "RX ← ${LogSanitizer.jsonTypeSummary(text)}")
             // Copied under the lock: Collections.synchronizedSet does not guard
@@ -1539,21 +1538,15 @@ class AgentConnection(
             for (extra in result.extraEvents) {
                 when (extra) {
                     is ConnectionEvent.ChatItemReceived -> {
-                        val openSocket = webSocket
                         val aligned = extra.copy(item = alignGateCardId(extra.item))
                         trackOnboardingState(aligned.item)
-                        if (aligned.item is ChatItem.OnboardSuccess && openSocket != null) {
-                            reauthenticate(openSocket, capturedAgentAddress)
-                        }
+                        if (aligned.item is ChatItem.OnboardSuccess) awaitConnectedAfterOnboarding()
                         _events.tryEmit(aligned)
                     }
                     is ConnectionEvent.ChatItemUpdated -> {
-                        val openSocket = webSocket
                         val aligned = extra.copy(item = alignGateCardId(extra.item))
                         trackOnboardingState(aligned.item)
-                        if (aligned.item is ChatItem.OnboardSuccess && openSocket != null) {
-                            reauthenticate(openSocket, capturedAgentAddress)
-                        }
+                        if (aligned.item is ChatItem.OnboardSuccess) awaitConnectedAfterOnboarding()
                         _events.tryEmit(aligned)
                     }
                     else -> {}
@@ -1694,25 +1687,16 @@ class AgentConnection(
                 }
                 is ConnectionEvent.ChatItemReceived -> {
                     FileLogger.d(LogTags.AGENT_CONN, "ChatItemReceived: ${event.item::class.simpleName}")
-                    val openSocket = webSocket
                     val aligned = event.copy(item = alignGateCardId(event.item))
                     trackOnboardingState(aligned.item)
-                    if (aligned.item is ChatItem.OnboardSuccess && openSocket != null) {
-                        // see reauthenticate's doc — promote-trust does not
-                        // itself send CONNECTED, so we re-auth on the same
-                        // socket to lift isConnectionReady.
-                        reauthenticate(openSocket, capturedAgentAddress)
-                    }
+                    if (aligned.item is ChatItem.OnboardSuccess) awaitConnectedAfterOnboarding()
                     _events.tryEmit(aligned)
                 }
                 is ConnectionEvent.ChatItemUpdated -> {
                     FileLogger.d(LogTags.AGENT_CONN, "ChatItemUpdated: ${event.item::class.simpleName}")
-                    val openSocket = webSocket
                     val aligned = event.copy(item = alignGateCardId(event.item))
                     trackOnboardingState(aligned.item)
-                    if (aligned.item is ChatItem.OnboardSuccess && openSocket != null) {
-                        reauthenticate(openSocket, capturedAgentAddress)
-                    }
+                    if (aligned.item is ChatItem.OnboardSuccess) awaitConnectedAfterOnboarding()
                     _events.tryEmit(aligned)
                 }
                 is ConnectionEvent.AgentProfileReceived -> {

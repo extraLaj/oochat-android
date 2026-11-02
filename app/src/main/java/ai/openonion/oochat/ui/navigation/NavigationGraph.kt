@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.navigation
 
 import ai.openonion.oochat.network.AgentDiscoveryService
+import ai.openonion.oochat.ui.adaptive.HomeScreenRoute
 import ai.openonion.oochat.ui.agent.AgentDiscoveryScreenWrapper
 import ai.openonion.oochat.ui.agent.AgentEditScreenWrapper
 import ai.openonion.oochat.ui.agent.AgentListScreenWrapper
@@ -194,33 +195,37 @@ fun NavigationGraph(
             var linkApproved by rememberSaveable(linkedAddress) { mutableStateOf(false) }
             var linkAnswered by rememberSaveable(linkedAddress) { mutableStateOf(false) }
 
-            ChatScreen(
-                // Until the user accepts, this screen behaves exactly as a
-                // normal launch: it connects to their own configured agent.
-                connectToAgentId = if (linkApproved) linkedAddress else "",
-                onboardPending = onboardPending,
-                // Opening the app resumes the previous conversation if it
-                // still exists (ensureActiveSession falls back to a fresh one
-                // when it doesn't). Starting fresh is now only ever an
-                // explicit user action — the drawer's "New conversation".
-                startNewSessionOnConnect = false,
-                onNavigateToSettings = {
-                    navController.navigate(Routes.SETTINGS)
-                },
-                onNavigateToLogs = {
-                    navController.navigate(Routes.LOGS)
-                },
-                onNavigateToAgentList = {
-                    navController.navigate(Routes.AGENT_LIST)
-                },
-                onNavigateToDashboard = {
-                    navController.navigate(Routes.DASHBOARD)
-                },
-                onNavigateToControlCenter = {
-                    navController.navigate(Routes.CONTROL_CENTER)
-                },
-                onNavigateToAgentChat = navigateToAgentChat
-            )
+            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeBeside ->
+                ChatScreen(
+                    // Until the user accepts, this screen behaves exactly as a
+                    // normal launch: it connects to their own configured agent.
+                    connectToAgentId = if (linkApproved) linkedAddress else "",
+                    onboardPending = onboardPending,
+                    // Opening the app resumes the previous conversation if it
+                    // still exists (ensureActiveSession falls back to a fresh one
+                    // when it doesn't). Starting fresh is now only ever an
+                    // explicit user action — the drawer's "New conversation".
+                    startNewSessionOnConnect = false,
+                    onNavigateToSettings = {
+                        navController.navigate(Routes.SETTINGS)
+                    },
+                    onNavigateToLogs = {
+                        navController.navigate(Routes.LOGS)
+                    },
+                    onNavigateToAgentList = {
+                        navController.navigate(Routes.AGENT_LIST)
+                    },
+                    onNavigateToDashboard = {
+                        navController.navigate(Routes.DASHBOARD)
+                    },
+                    onNavigateToControlCenter = {
+                        navController.navigate(Routes.CONTROL_CENTER)
+                    },
+                    onNavigateToAgentChat = navigateToAgentChat,
+                    viewModel = chatViewModel,
+                    homeBeside = homeBeside
+                )
+            }
 
             if (linkedAddress.isNotEmpty() && !linkAnswered) {
                 DeepLinkConnectSheet(
@@ -282,27 +287,31 @@ fun NavigationGraph(
             val agentId = backStackEntry.arguments?.getString("agentId") ?: ""
             val sessionId = backStackEntry.arguments?.getString("sessionId")
             val startNew = backStackEntry.arguments?.getBoolean("startNew") ?: false
-            ChatScreen(
-                connectToAgentId = agentId,
-                sessionIdToRestore = sessionId,
-                startNewSessionOnConnect = startNew,
-                onNavigateToSettings = {
-                    navController.navigate(Routes.SETTINGS)
-                },
-                onNavigateToLogs = {
-                    navController.navigate(Routes.LOGS)
-                },
-                onNavigateToAgentList = {
-                    navController.navigate(Routes.AGENT_LIST)
-                },
-                onNavigateToDashboard = {
-                    navController.navigate(Routes.DASHBOARD)
-                },
-                onNavigateToControlCenter = {
-                    navController.navigate(Routes.CONTROL_CENTER)
-                },
-                onNavigateToAgentChat = navigateToAgentChat
-            )
+            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeBeside ->
+                ChatScreen(
+                    connectToAgentId = agentId,
+                    sessionIdToRestore = sessionId,
+                    startNewSessionOnConnect = startNew,
+                    onNavigateToSettings = {
+                        navController.navigate(Routes.SETTINGS)
+                    },
+                    onNavigateToLogs = {
+                        navController.navigate(Routes.LOGS)
+                    },
+                    onNavigateToAgentList = {
+                        navController.navigate(Routes.AGENT_LIST)
+                    },
+                    onNavigateToDashboard = {
+                        navController.navigate(Routes.DASHBOARD)
+                    },
+                    onNavigateToControlCenter = {
+                        navController.navigate(Routes.CONTROL_CENTER)
+                    },
+                    onNavigateToAgentChat = navigateToAgentChat,
+                    viewModel = chatViewModel,
+                    homeBeside = homeBeside
+                )
+            }
         }
 
         composable(Routes.AGENT_LIST) {
@@ -432,26 +441,30 @@ fun NavigationGraph(
         // borrows its ChatViewModel from is always still on the stack — see
         // DashboardScreenWrapper for why that matters.
         composable(Routes.DASHBOARD) {
-            DashboardScreenWrapper(
-                chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
-                    runCatching { navController.getBackStackEntry(route) }.getOrNull()
-                },
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
-            )
+            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.DASHBOARD, inclusive = true) }) {
+                DashboardScreenWrapper(
+                    chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
+                        runCatching { navController.getBackStackEntry(route) }.getOrNull()
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
 
         // The agent's Home when it has a Control Center app. Reached the same way as DASHBOARD.
         composable(Routes.CONTROL_CENTER) {
-            ControlCenterScreenWrapper(
-                chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
-                    runCatching { navController.getBackStackEntry(route) }.getOrNull()
-                },
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
-            )
+            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) }) {
+                ControlCenterScreenWrapper(
+                    chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
+                        runCatching { navController.getBackStackEntry(route) }.getOrNull()
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
     }
 }

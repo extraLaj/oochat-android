@@ -77,7 +77,8 @@ Some agents publish named skills. Type `/` to see them.
 <img src="screenshots/slash-command-palette.png" alt="Typing a slash in the composer lists the agent's published skills, each with its description" width="300">
 
 Each entry shows the description the agent gave it, so you do not have to guess
-what a command does or how it is spelled. **An empty palette is not a fault** —
+what a command does or how it is spelled. A skill the agent did not describe
+shows its name alone. **An empty palette is not a fault** —
 it means this agent publishes no skills, which many do not.
 
 ---
@@ -97,7 +98,9 @@ The first dictation on a phone may pause a second or two on **Preparing…**
 while the app works out whether the phone's own speech recogniser can be used.
 If it cannot, the app records and has the audio transcribed instead — you get
 the same editable text, just only once you stop talking rather than as you
-speak. Either way the audio is not stored and not sent anywhere else.
+speak. Either way the audio is not stored and not sent anywhere else. A
+recording under a second, usually an accidental tap, is dropped with
+"Recording too short. Try again."
 
 > On an emulator, dictation is not worth judging: the microphone is the host
 > machine's and what the emulator reports about it does not match a phone.
@@ -132,6 +135,13 @@ microphone or location, read your clipboard, or open other sites. Going back to
 the chat while it is working leaves the work running. If it stops unexpectedly,
 the screen says so; tap **Reload** to start it again.
 
+On a tablet, or a foldable that is open, the page does not replace the chat: it
+sits beside it, so you can use both at once. The icon and the back arrow are not
+shown then, because the page is already open. Running a skill from the page sends
+its message and leaves the page where it is. Fold the device and the page goes
+back behind the icon, and whatever you had typed in the chat is still there. A
+phone, even turned on its side, keeps the full-screen page.
+
 ---
 
 ## 6. Deciding what the agent may do
@@ -157,7 +167,7 @@ agent offers:
 |---|---|
 | **Read only** | Ask before anything that changes files or runs commands. |
 | **Auto** | Run routine edits and commands; ask before risky ones. The default. |
-| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The chip shows how many are left, and drops back to Auto when they run out. |
+| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The app asks you to confirm before turning it on. The chip shows how many are left, and drops back to Auto when they run out. |
 
 On these agents the mode can't be changed while the agent is working; the chip
 waits until the turn finishes.
@@ -253,9 +263,12 @@ never saved.
 
 ## 11. When something goes wrong
 
-**"Waiting to send…" under a message.** You are offline. It is queued on the
-device and goes out by itself when the connection returns — including after the
-app is killed.
+**"Waiting to send…" under a message.** You are offline. You can still write
+and send while offline: the message is queued on the device and goes out when
+the connection returns, including after the app is killed. If the banner has
+given up reconnecting, tap **Reconnect**. Tapping **Stop** on the connecting
+banner discards queued messages; the ones on screen turn red so you can send
+them again.
 
 **"Not sent · Tap to try again" in red.** The message did not reach the agent.
 Tap it, or tap **Retry** in the bar above the message box, to send it again. It

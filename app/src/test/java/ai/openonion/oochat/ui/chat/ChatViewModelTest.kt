@@ -6,9 +6,11 @@ import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.IgnoredIdsStorage
 import ai.openonion.oochat.data.local.ImageAttachmentStore
 import ai.openonion.oochat.data.local.RecordedVoice
+import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.StoredImage
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
+import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.data.repository.AgentRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
 import ai.openonion.oochat.data.repository.MessageRepository
@@ -53,6 +55,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConnection
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.util.stringField
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,6 +73,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -274,7 +278,11 @@ class ChatViewModelTest {
             }
         }
 
-        override suspend fun disconnect() { disconnectCount++ }
+        val disconnectKeptOutbox = mutableListOf<Boolean>()
+        override suspend fun disconnect(keepOutbox: Boolean) {
+            disconnectCount++
+            disconnectKeptOutbox += keepOutbox
+        }
 
         var resetCount = 0
         override suspend fun reset() { resetCount++ }
@@ -418,10 +426,12 @@ class ChatViewModelTest {
         /** Runs inside startRecording(), so a test can see the state the mic opened in. */
         var onStartRecording: () -> Unit = {}
         /** Set by a test to control what the next stopRecording() returns. */
-        var nextRecording: RecordedVoice? = RecordedVoice(
-            localPath = "file:///fake/voice.m4a",
-            durationSeconds = 3f,
-            file = File.createTempFile("fake-voice", ".m4a")
+        var nextRecording: RecordingResult = RecordingResult.Recorded(
+            RecordedVoice(
+                localPath = "file:///fake/voice.m4a",
+                durationSeconds = 3f,
+                file = File.createTempFile("fake-voice", ".m4a")
+            )
         )
         /** Set by a test to make the recorder fail to open, as a busy or denied mic does. */
         var startSucceeds = true
@@ -430,7 +440,7 @@ class ChatViewModelTest {
             onStartRecording()
             return startSucceeds
         }
-        override suspend fun stopRecording(): RecordedVoice? {
+        override suspend fun stopRecording(): RecordingResult {
             stopCalls++
             return nextRecording
         }
@@ -472,10 +482,12 @@ class ChatViewModelTest {
     private class FakeVoiceTranscriptionService : VoiceTranscriptionService {
         /** Set by a test: null simulates a failed/empty transcription. */
         var nextTranscript: String? = "hello from voice"
+        /** What a failed transcription fails with, when [nextTranscript] is null. */
+        var nextFailure: Exception = Exception("transcription failed")
         var transcribeCalls = 0
         override suspend fun transcribe(audioFile: File): Result<String> {
             transcribeCalls++
-            return nextTranscript?.let { Result.success(it) } ?: Result.failure(Exception("transcription failed"))
+            return nextTranscript?.let { Result.success(it) } ?: Result.failure(nextFailure)
         }
     }
 
@@ -667,6 +679,7 @@ class ChatViewModelTest {
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
+            controlCenterDispatcher = testDispatcher,
         )
     }
 
@@ -1802,6 +1815,19 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `a transcription refused over the device clock says to fix the clock, not to try again`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-91: trying again cannot help while the account server refuses the clock.
+            voiceTranscriptionService.nextTranscript = null
+            voiceTranscriptionService.nextFailure = AccountClockException()
+
+            dictateOnFallbackPath()
+
+            assertEquals(ChatViewModel.TRANSCRIPTION_CLOCK_WRONG, vm.voiceInput.value.error)
+            assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
     fun `a blank server transcription is reported as a failure, not as an empty success`() =
         runTest(testDispatcher) {
             voiceTranscriptionService.nextTranscript = "   "
@@ -1813,18 +1839,45 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `a recording too short to keep is not uploaded and sends nothing`() =
+    fun `a recording too short to keep says so, and is not uploaded or sent`() =
         runTest(testDispatcher) {
-            voiceRecorderStore.nextRecording = null
+            // W16AAPPLE-103: an accidental tap used to vanish with no word.
+            voiceRecorderStore.nextRecording = RecordingResult.TooShort
 
             dictateOnFallbackPath()
 
-            // Whether the user should also be told is an open question; what is
-            // settled is that nothing is transcribed, sent, or left running.
+            assertEquals(ChatViewModel.RECORDING_TOO_SHORT, vm.voiceInput.value.error)
             assertEquals(VoiceInputPhase.IDLE, vm.voiceInput.value.phase)
             assertEquals("", vm.voiceInput.value.transcript)
             assertEquals(0, voiceTranscriptionService.transcribeCalls)
             assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
+    fun `a recording that produced nothing usable is dropped quietly`() =
+        runTest(testDispatcher) {
+            // Not the user's to fix, unlike a too-short one, so no message.
+            voiceRecorderStore.nextRecording = RecordingResult.Unusable
+
+            dictateOnFallbackPath()
+
+            assertNull(vm.voiceInput.value.error)
+            assertEquals(VoiceInputPhase.IDLE, vm.voiceInput.value.phase)
+            assertEquals(0, voiceTranscriptionService.transcribeCalls)
+            assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
+    fun `starting a new dictation clears the too-short message`() =
+        runTest(testDispatcher) {
+            voiceRecorderStore.nextRecording = RecordingResult.TooShort
+            dictateOnFallbackPath()
+            assertEquals("test setup", ChatViewModel.RECORDING_TOO_SHORT, vm.voiceInput.value.error)
+
+            vm.startVoiceRecording()
+            testScheduler.runCurrent()
+
+            assertNull(vm.voiceInput.value.error)
         }
 
     @Test
@@ -3059,6 +3112,7 @@ class ChatViewModelTest {
         requiresNotificationPermission = true,
         hasNotificationPermission = { notificationPermissionGranted },
         isAppInForeground = { appInForeground },
+        controlCenterDispatcher = testDispatcher,
     )
 
     private fun ChatViewModel.errorItems() =
@@ -3907,6 +3961,7 @@ class ChatViewModelTest {
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
+            controlCenterDispatcher = testDispatcher,
         )
         testScheduler.runCurrent()
 
@@ -5044,6 +5099,45 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `stopping the connection fails the messages it was holding instead of leaving them waiting`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-102: a user disconnect drops the outbox, so "Waiting to
+            // send" would be a promise nothing keeps. Failed offers Retry.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("typed offline")
+            testScheduler.runCurrent()
+            assertEquals("test setup", UserMessageState.QUEUED, userMessage("typed offline").state)
+
+            vm.disconnect()
+            testScheduler.runCurrent()
+
+            assertEquals(1, connectUseCase.disconnectCount)
+            assertEquals(UserMessageState.FAILED, userMessage("typed offline").state)
+            assertTrue("and saved as failed, so a restart agrees", savedAsFailed("typed offline"))
+        }
+
+    @Test
+    fun `stopping the connection leaves a message that already went out alone`() =
+        runTest(testDispatcher) {
+            // Only the outbox is dropped; a message already on the wire is not in it.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("sent live")
+            testScheduler.runCurrent()
+            val before = userMessage("sent live").state
+            assertTrue("test setup: $before", before != UserMessageState.QUEUED && before != UserMessageState.FAILED)
+
+            vm.disconnect()
+            testScheduler.runCurrent()
+
+            assertEquals(before, userMessage("sent live").state)
+        }
+
+    @Test
     fun `the reply to a message typed offline lands below it`() = runTest(testDispatcher) {
         val address = validHexAddress()
         vm.connectToAgent(address)
@@ -5696,7 +5790,14 @@ class ChatViewModelTest {
 
     // --- Control Center actions (W16AAPPLE-29) ---
 
+    /** Reads the snapshot as the Control Center screen does; it only updates while read. */
+    private fun TestScope.watchControlCenter() {
+        backgroundScope.launch { vm.controlCenterSnapshot.collect {} }
+        testScheduler.runCurrent()
+    }
+
     private fun TestScope.connectedForControlCenter(): String {
+        watchControlCenter()
         val address = validHexAddress()
         vm.connectToAgent(address)
         testScheduler.runCurrent()
@@ -6053,6 +6154,135 @@ class ChatViewModelTest {
         val session = messageRepo.snapshot().single { it.content == "hi" }.sessionId
         assertEquals(ControlCenterAgentStatus.IDLE, vm.controlCenterSnapshot.value.status)
         assertEquals(session, vm.controlCenterSnapshot.value.sessionId)
+    }
+
+    // --- Control Center chat sync (W16AAPPLE-30) ---
+
+    /**
+     * The snapshot's chat items as (type, content-or-status) pairs, enough to tell them apart,
+     * once a change made since the last rebuild has had time to come through.
+     */
+    private fun TestScope.controlCenterChat(): List<Pair<String?, String?>> {
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+        return vm.controlCenterSnapshot.value.chatItems.map { it.stringField("type") to (it.stringField("content") ?: it.stringField("status")) }
+    }
+
+    @Test
+    fun `the Control Center chat is only built while the Control Center is open`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+        assertEquals("nothing reads it, so nothing is built", emptyList<JsonObject>(), vm.controlCenterSnapshot.value.chatItems)
+
+        watchControlCenter()
+
+        assertEquals(listOf("user" to "hi"), controlCenterChat())
+    }
+
+    @Test
+    fun `a streaming reply rebuilds the Control Center chat at most once per interval, ending on the latest`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        val seen = mutableListOf<List<JsonObject>>()
+        backgroundScope.launch { vm.controlCenterSnapshot.collect { seen += it.chatItems } }
+        testScheduler.runCurrent()
+        seen.clear()
+
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        assertEquals("the first change goes at once", 1, seen.size)
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+        seen.clear()
+        repeat(20) { n ->
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", result = "part $n")))
+            testScheduler.advanceTimeBy(10)
+            testScheduler.runCurrent()
+        }
+        testScheduler.advanceTimeBy(ChatViewModel.CONTROL_CENTER_CHAT_INTERVAL_MS)
+        testScheduler.runCurrent()
+
+        assertTrue("20 changes in 200 ms gave ${seen.size} rebuilds", seen.size in 1..2)
+        assertEquals("part 19", seen.last().last().stringField("result"))
+    }
+
+    @Test
+    fun `each change in the chat reaches the Control Center snapshot`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        assertEquals(emptyList<Pair<String?, String?>>(), controlCenterChat())
+
+        vm.sendMessage("hi")
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi", "tool_call" to "running"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", status = ToolStatus.DONE, result = "ok")))
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "hi", "tool_call" to "done"), controlCenterChat())
+
+        connectUseCase.emit(ChatEvent.OutputReceived("hello", null))
+        testScheduler.runCurrent()
+        assertEquals("agent" to "hello", controlCenterChat().last())
+        assertFalse(vm.controlCenterSnapshot.value.truncated)
+    }
+
+    @Test
+    fun `after a conversation switch the Control Center snapshot holds that conversation's chat`() = runTest(testDispatcher) {
+        connectedForControlCenter()
+        vm.sendMessage("in A")
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.OutputReceived("answer A", null))
+        testScheduler.runCurrent()
+        val a = vm.activeSessionId.value!!
+        vm.startNewSession()
+        testScheduler.runCurrent()
+        assertEquals("a new conversation starts empty", emptyList<Pair<String?, String?>>(), controlCenterChat())
+
+        vm.sendMessage("in B")
+        testScheduler.runCurrent()
+        assertEquals(listOf("user" to "in B"), controlCenterChat())
+
+        vm.switchToSession(a)
+        testScheduler.runCurrent()
+
+        assertEquals(a, vm.controlCenterSnapshot.value.sessionId)
+        assertEquals(listOf("user" to "in A", "agent" to "answer A"), controlCenterChat().filter { it.first != "thinking" })
+    }
+
+    @Test
+    fun `through a reconnect the Control Center snapshot keeps the chat and then takes what was replayed`() = runTest(testDispatcher) {
+        val address = connectedForControlCenter()
+        vm.sendMessage("first")
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "t1", name = "search")))
+        testScheduler.runCurrent()
+
+        connectUseCase.forceState(ConnectionState.Reconnecting)
+        testScheduler.runCurrent()
+        assertEquals(ControlCenterConnection.RECONNECTING, vm.controlCenterSnapshot.value.connectionState)
+        assertEquals(listOf("user" to "first", "tool_call" to "running"), controlCenterChat())
+
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        // The host replays what was missed.
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "t1", name = "search", status = ToolStatus.DONE)))
+        connectUseCase.emit(ChatEvent.OutputReceived("after", null))
+        testScheduler.runCurrent()
+
+        assertEquals(ControlCenterConnection.CONNECTED, vm.controlCenterSnapshot.value.connectionState)
+        assertEquals(
+            listOf("user" to "first", "tool_call" to "done", "agent" to "after"),
+            controlCenterChat().filter { it.first != "thinking" }
+        )
     }
 
     // ── Helpers ────────────────────────────────────────────────────────

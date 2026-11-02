@@ -21,14 +21,15 @@ belongs in one of those classes, or its class belongs in that list.
 | Direct (/ws) and relay (/ws/input) | `AgentConnectionRobolectricTest`, `AgentConnectionTest`, `ProtocolParserTest`, `ConnectionConfigTest`, `ConstantsTest`, `EncryptedPreferencesConnectionConfigRepositoryTest`, `LoadingViewModelTest` | The URL actually dialled in each mode; `to` present on relay frames and absent on direct ones, signed and unsigned; which saved configs count as relay |
 | Ed25519 identity | `IdentityVectorsTest`, `KeyManagerMnemonicTest`, `KeyManagerPersistenceTest`, `KeyManagerTest`, `SettingsViewModelTest` | Phrase -> seed -> address and key -> signature, against outside test data; mint, restore, import, reset and backup; every BIP39 phrase length, spacing, and hex keys whose halves do not match (W16AAPPLE-62, -63, -64) |
 | Onboarding gate | `OnboardCardsComposeTest`, `ChatEventReducerTest`, `OutgoingMessagesTest`, `ConnectionRepositoryImplTest`, `ConnectToAgentUseCaseTest`, `OnboardingViewModelTest` | No reconnect behind the user while the gate is open (failure and close); the exact `ONBOARD_SUBMIT` frame; submitting while disconnected |
-| Slash-command palette | `SlashCommandMatcherTest`, `SlashCommandPaletteComposeTest` (plus `ConnectionRepositoryImplTest`) | Skills filled from the relay directory, looked up by the agent's address; a picked command is sent as plain text; hidden when disconnected |
-| Dictation | `DictationMergeTest`, `InputBarDictationComposeTest`, `ChatViewModelTest`, `SpeechRecognizerIntentTest`, `SpeechRecognitionLevelTest`, `VoiceTranscriptionInstructionTest`, `VoiceTranscriptionServiceTest`, `VoiceRecorderStoreTest` | Nothing is ever sent on its own, including when the fallback path fails; one token refresh after a 401 |
+| Slash-command palette | `SlashCommandMatcherTest`, `SlashCommandPaletteComposeTest`, `InputBarOfflineComposeTest` (plus `ConnectionRepositoryImplTest`) | Skills filled from the relay directory, looked up by the agent's address; directory and `AGENT_PROFILE` skills cleaned the same way, one per name with "No description" dropped (W16AAPPLE-65); a picked command is sent as plain text; still offered while disconnected, since the message is queued (W16AAPPLE-102), and hidden only with no agent to send to |
+| Dictation | `DictationMergeTest`, `InputBarDictationComposeTest`, `ChatViewModelTest`, `SpeechRecognizerIntentTest`, `SpeechRecognitionLevelTest`, `VoiceTranscriptionInstructionTest`, `VoiceTranscriptionServiceTest`, `VoiceRecorderStoreTest` | Nothing is ever sent on its own, including when the fallback path fails; a recording under a second says "Recording too short" instead of vanishing, while an unusable one is dropped quietly (W16AAPPLE-103); one token refresh after a 401 |
 | Low-balance bar | `LowBalanceBarComposeTest` (plus `ConnectionRepositoryImplTest`) | Threshold, wording at zero and below, the tap opening the purchase page, the balance reaching the live profile |
 | Session resume | `ProcessDeathResumeTest` | Killed mid-stream: the relaunch CONNECTs on the same `session_id` with no `last_msg_id` and the replayed turn lands once in Room and on screen; a dropped socket names the last event it handled; a turn that finished while the app was dead arrives once, and a tool call it left running stops spinning |
 | CONNECTED status | `ProtocolParserTest`, `AgentConnectionRobolectricTest`, `ConnectionRepositoryImplTest`, `ChatViewModelTest`, `ProcessDeathResumeTest` | `status` (new, connected, running) and `server_newer` read off the frame and carried to the screen, which acts on each once: running holds the composer and un-fails a dropped turn, connected settles cards left spinning, new fails a lost turn and leaves a brand-new conversation alone, a failed turn stays failed; a message typed offline is marked sent when the connection returns; the Host's newer transcript merges once, without touching a message not yet sent (W16AAPPLE-22) |
 | Wrong clock and failed reconnects | `HostClockTest`, `AgentConnectionRobolectricTest`, `ConnectionRepositoryImplTest`, `ServerErrorTextTest`, `ChatViewModelTest` | Signatures carry the server's time from the upgrade's `Date` (CONNECT, commands, invite codes), the device clock with no header or past the 30-minute bound, a fresh reading per socket, and a clock put right is followed; `signature expired` is shown as advice to check the date and time; a reconnect answered with ERROR ends in Error with Reconnect, an unanswered one climbs the ladder after 15 s, and the relay's offline verdict is a rung; an offline agent is tried every minute after the ladder while the app is on screen; a recreated chat screen does not re-add an old error (W16AAPPLE-90, -82, -79, -74) |
 | Relay failover | `RelayFailoverTest` | The relay dropping, restarting, refusing upgrades or answering `Agent not connected` mid-turn: the app redials `/ws/input` on the backoff ladder, resumes with `session_id` and `last_msg_id`, a frame missed while it was down is replayed once, and the rest of the turn lands once in Room and on screen |
 | Network drop | `NetworkDropTest` | The phone's network cut mid-turn, with the socket failing at once or going silent until OkHttp's ping times out: dials fail while offline on the backoff ladder, the app dials as soon as the network is back, resumes with `session_id` and `last_msg_id`, and what it missed (including frames sent into the silent socket) is replayed once and lands once in Room and on screen |
+| Home beside the chat | `HomePlacementTest`, `HomePlacementWindowComposeTest`, `ChatWithHomeComposeTest`, `PaneComposeTest`, `HomeScreenRouteComposeTest`, `HomeBesideChatComposeTest` | The agent's Home goes beside the chat from 600dp wide and 480dp tall, on either side of each bound, and never when the agent has none; the chat keeps its typed text and state while Home appears and disappears (a foldable unfolded and folded); each pane gets half the row even when what it holds ignores the modifier it is given; a Home screen of its own leaves for the chat when the window becomes wide, including while it is open; beside the chat a Home page has no back arrow and no waiting bar (W16AAPPLE-31) |
 
 ## Where the test data comes from
 
@@ -58,8 +59,6 @@ purpose. At that point, remove the wrapper, and the test guards the fix.
 | Direct/relay | A direct `wss://host` URL becomes `ws://wss://host/ws`, so the app dials a host called `wss` | `AgentConnectionRobolectricTest` |
 | Direct/relay | A direct URL ending in `/` is dialled at `//ws` (the Add Agent form does not trim it) | `AgentConnectionRobolectricTest` |
 | Direct/relay | The saved `connectionMode` is never read. A relay-mode agent on a self-hosted relay is dialled at `<relay>/ws` | `ChatViewModelTest` |
-| Slash palette | Skills from the directory are not de-duplicated, and "No description" is not dropped | `ConnectionRepositoryImplTest` |
-| Slash palette | Two skills with the same name crash the composer when `/` is typed | `SlashCommandPaletteComposeTest` |
 | Low balance | The amount follows the phone's locale: `$0,42` on a German phone | `LowBalanceBarComposeTest` |
 
 ## Not covered, and why
@@ -80,6 +79,22 @@ purpose. At that point, remove the wrapper, and the test guards the fix.
   therefore modelled in `ProcessDeathResumeTest`: the first launch's objects
   are abandoned without a flush and the relaunch is rebuilt on the same Room
   file, rather than the app being killed on an emulator.
+- **Home beside the chat on a real device.** `ChatWithHomeRoute` and the wiring in
+  `NavigationGraph` need a real `ChatViewModel`, which cannot be built in a
+  Robolectric test (a native library fails to load), so what they put on screen is
+  checked by hand on a tablet or foldable emulator (Pixel Tablet, or Pixel Fold
+  unfolded), with an agent that has a Dashboard or a Control Center:
+  - Landscape on the tablet: the chat is on the left and Home on the right, and the
+    chat's top bar has no Home button.
+  - A skill run from Home sends its message and Home stays where it is.
+  - Rotate to portrait and back, or fold and unfold the foldable: what was typed in
+    the chat and how far it was scrolled are still there, and Home comes and goes.
+  - Unfold while Home is open on its own screen: it goes and the chat remains, with
+    Home beside it.
+  - On the phone emulator nothing changes: the Home button opens Home on its own
+    screen, with its back arrow.
+  - The chat's navigation drawer opens inside its half, and Home's page reloads when
+    its pane comes back.
 - **The live relay.** `RelayFailoverTest` fakes it at the `WebSocketFactory`
   seam instead of reaching `oo.openonion.ai` from CI. The restart tests use the
   standard close codes 1012 and 1001.
