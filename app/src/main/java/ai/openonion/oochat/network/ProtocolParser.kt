@@ -915,9 +915,8 @@ object ProtocolParser {
     }
 
     /**
-     * Wire skills to domain skills, cleaned by [AgentSkill.cleaned] exactly as
-     * the relay directory's are. [keepUsable] runs first only so a nameless
-     * entry is logged as dropped.
+     * Wire skills to domain skills, cleaned by [AgentSkill.cleaned].
+     * [keepUsable] runs first only so a nameless entry is logged as dropped.
      */
     private fun List<SkillWire>?.toAgentSkills(): List<AgentSkill> =
         AgentSkill.cleaned(

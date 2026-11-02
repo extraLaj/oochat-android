@@ -79,7 +79,10 @@ Some agents publish named skills. Type `/` to see them.
 Each entry shows the description the agent gave it, so you do not have to guess
 what a command does or how it is spelled. A skill the agent did not describe
 shows its name alone. **An empty palette is not a fault** —
-it means this agent publishes no skills, which many do not.
+it means this agent publishes no skills, which many do not, or that it has not
+let you in yet. Skills only appear once you are in, for example after entering
+an invite code. The agent's Edit screen lists them under **What this agent can
+do**.
 
 ---
 
@@ -98,7 +101,9 @@ The first dictation on a phone may pause a second or two on **Preparing…**
 while the app works out whether the phone's own speech recogniser can be used.
 If it cannot, the app records and has the audio transcribed instead — you get
 the same editable text, just only once you stop talking rather than as you
-speak. Either way the audio is not stored and not sent anywhere else.
+speak. Either way the audio is not stored and not sent anywhere else. A
+recording under a second, usually an accidental tap, is dropped with
+"Recording too short. Try again."
 
 > On an emulator, dictation is not worth judging: the microphone is the host
 > machine's and what the emulator reports about it does not match a phone.
@@ -165,7 +170,7 @@ agent offers:
 |---|---|
 | **Read only** | Ask before anything that changes files or runs commands. |
 | **Auto** | Run routine edits and commands; ask before risky ones. The default. |
-| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The chip shows how many are left, and drops back to Auto when they run out. |
+| **Full access** | Fully autonomous, for a number of turns the agent's host sets. The app asks you to confirm before turning it on. The chip shows how many are left, and drops back to Auto when they run out. |
 
 On these agents the mode can't be changed while the agent is working; the chip
 waits until the turn finishes.

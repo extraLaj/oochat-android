@@ -4,6 +4,7 @@ import ai.openonion.oochat.ConnectOnionApplication
 import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
 import ai.openonion.oochat.data.local.IgnoredIdsManager
+import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.di.appContainer
@@ -821,9 +822,9 @@ open class ChatViewModel @JvmOverloads constructor(
         // The network came back. Same reasoning as [onReturnedToForeground]:
         // the reason the socket failed has just gone away, so the rest of a
         // backoff computed for a flaky network is dead time the user spends
-        // watching a stale banner. retryNow() is a no-op unless a reconnect is
-        // already pending, so this can't start one on a healthy connection —
-        // the same guard the web client puts on its own `online` listener.
+        // watching a stale banner. With no reconnect pending, retryNow() checks
+        // the socket instead, since a network change is exactly when one dies
+        // without a close frame; a socket that answers is kept.
         viewModelScope.launch {
             var wasOnline = true
             networkMonitor.isOnline.collect { online ->
@@ -2623,10 +2624,18 @@ open class ChatViewModel @JvmOverloads constructor(
         // belongs off the UI callback that triggered it — the store keeps it on
         // IO, and this is the coroutine that lets it.
         dictationJob = viewModelScope.launch {
-            val recorded = voiceRecorderStore.stopRecording()
-            if (recorded == null) {
-                _voiceInput.value = VoiceInputState()
-                return@launch
+            val recorded = when (val result = voiceRecorderStore.stopRecording()) {
+                is RecordingResult.Recorded -> result.voice
+                // Usually an accidental tap. Said, not swallowed (W16AAPPLE-103),
+                // like the recognizer path's "Didn't catch that".
+                RecordingResult.TooShort -> {
+                    _voiceInput.value = VoiceInputState(error = RECORDING_TOO_SHORT)
+                    return@launch
+                }
+                RecordingResult.Unusable -> {
+                    _voiceInput.value = VoiceInputState()
+                    return@launch
+                }
             }
             _voiceInput.update { it.copy(phase = VoiceInputPhase.TRANSCRIBING) }
             val result = voiceTranscriptionService.transcribe(recorded.file)
@@ -2932,6 +2941,9 @@ open class ChatViewModel @JvmOverloads constructor(
          * this long means it was not runtime input.
          */
         internal const val RUNTIME_INPUT_REPLY_TIMEOUT_MS = 10_000L
+
+        /** Dictation's error for a recording under the one-second minimum (W16AAPPLE-103). */
+        internal const val RECORDING_TOO_SHORT = "Recording too short. Try again."
 
         /** Dictation's error when the account sign-in is refused over this device's clock (W16AAPPLE-91). */
         internal const val TRANSCRIPTION_CLOCK_WRONG =

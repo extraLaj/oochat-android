@@ -6,6 +6,7 @@ import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.IgnoredIdsStorage
 import ai.openonion.oochat.data.local.ImageAttachmentStore
 import ai.openonion.oochat.data.local.RecordedVoice
+import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.StoredImage
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
@@ -451,10 +452,12 @@ class ChatViewModelTest {
         /** Runs inside startRecording(), so a test can see the state the mic opened in. */
         var onStartRecording: () -> Unit = {}
         /** Set by a test to control what the next stopRecording() returns. */
-        var nextRecording: RecordedVoice? = RecordedVoice(
-            localPath = "file:///fake/voice.m4a",
-            durationSeconds = 3f,
-            file = File.createTempFile("fake-voice", ".m4a")
+        var nextRecording: RecordingResult = RecordingResult.Recorded(
+            RecordedVoice(
+                localPath = "file:///fake/voice.m4a",
+                durationSeconds = 3f,
+                file = File.createTempFile("fake-voice", ".m4a")
+            )
         )
         /** Set by a test to make the recorder fail to open, as a busy or denied mic does. */
         var startSucceeds = true
@@ -463,7 +466,7 @@ class ChatViewModelTest {
             onStartRecording()
             return startSucceeds
         }
-        override suspend fun stopRecording(): RecordedVoice? {
+        override suspend fun stopRecording(): RecordingResult {
             stopCalls++
             return nextRecording
         }
@@ -1865,18 +1868,45 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `a recording too short to keep is not uploaded and sends nothing`() =
+    fun `a recording too short to keep says so, and is not uploaded or sent`() =
         runTest(testDispatcher) {
-            voiceRecorderStore.nextRecording = null
+            // W16AAPPLE-103: an accidental tap used to vanish with no word.
+            voiceRecorderStore.nextRecording = RecordingResult.TooShort
 
             dictateOnFallbackPath()
 
-            // Whether the user should also be told is an open question; what is
-            // settled is that nothing is transcribed, sent, or left running.
+            assertEquals(ChatViewModel.RECORDING_TOO_SHORT, vm.voiceInput.value.error)
             assertEquals(VoiceInputPhase.IDLE, vm.voiceInput.value.phase)
             assertEquals("", vm.voiceInput.value.transcript)
             assertEquals(0, voiceTranscriptionService.transcribeCalls)
             assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
+    fun `a recording that produced nothing usable is dropped quietly`() =
+        runTest(testDispatcher) {
+            // Not the user's to fix, unlike a too-short one, so no message.
+            voiceRecorderStore.nextRecording = RecordingResult.Unusable
+
+            dictateOnFallbackPath()
+
+            assertNull(vm.voiceInput.value.error)
+            assertEquals(VoiceInputPhase.IDLE, vm.voiceInput.value.phase)
+            assertEquals(0, voiceTranscriptionService.transcribeCalls)
+            assertTrue(connectUseCase.sentMessages.isEmpty())
+        }
+
+    @Test
+    fun `starting a new dictation clears the too-short message`() =
+        runTest(testDispatcher) {
+            voiceRecorderStore.nextRecording = RecordingResult.TooShort
+            dictateOnFallbackPath()
+            assertEquals("test setup", ChatViewModel.RECORDING_TOO_SHORT, vm.voiceInput.value.error)
+
+            vm.startVoiceRecording()
+            testScheduler.runCurrent()
+
+            assertNull(vm.voiceInput.value.error)
         }
 
     @Test

@@ -506,7 +506,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | Server `type` | Fields used by this client | Client behaviour |
 | --- | --- | --- |
 | `PING` | — | Emits `Ping`; `AgentConnection` sends `PONG`. |
-| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. Skills go through `AgentSkill.cleaned()`, the same clean-up the relay directory's skills get: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
+| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. The Host sends this only once CONNECT has passed its trust gate, and it is the app's only source of skills: the relay's public profile (`/api/agents/<address>`) lists skills to anyone with the address, so it is never read (W16AAPPLE-71). Skills go through `AgentSkill.cleaned()`: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
 | `DASHBOARD_SNAPSHOT` | `html` | Emits `DashboardSnapshotReceived` for a non-blank dashboard within the size limit; oversized or blank content is ignored. |
 | `CONTROL_CENTER_APP` | `app.schema`, `app.sdk_version`, `app.revision`, `app.url`, `app.capabilities`, `app.review.status` | Emits `ControlCenterAppReceived`. The app is kept only when it is approved, speaks bridge version 1, is pinned to a `sha256:` revision and is served over `https` with no credentials, query or fragment; anything else, or `app: null`, reads as no app. See [Control Center](#control-center). |
 | `CONTROL_CENTER_STATE` | `state.status`, `state.error.code`, `state.error.message` | Emits `ControlCenterStateReceived`, which is logged: it is what explains an app that is missing. |
@@ -961,6 +961,14 @@ skipped, and `retryNow()`, which the chat screen calls when it comes back,
 goes at once with a fresh ladder. A plain network failure still stops at the
 cap with `Disconnected`, as before.
 
+**Returning to the app (W16AAPPLE-46).** On a return to the app or to the network,
+with no reconnect pending, `retryNow()` checks the socket instead: it sends
+`SESSION_STATUS` for the session on screen and, if no frame arrives within
+`FOREGROUND_PROBE_TIMEOUT_MS` (5 s), reopens it on the same connection, so the
+`CONNECT` carries `last_msg_id` and only what was missed is replayed. The reply is
+not shown: the Host answers `not_found` for a session that has not run a turn since
+it started. Covered by `ForegroundReturnTest`.
+
 Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82 and -79
 sections, on a virtual clock) and `ConnectionRepositoryImplTest` (a refused
 reconnect ends in `Error` although the attempt had connected).
@@ -1148,7 +1156,12 @@ The chip moves at once and shows as pending (dimmed, with a sync glyph) until
 the answer. Tapping it cycles `SessionModes.cycle`, which is the catalogue
 without the unattended modes, so no number of taps reaches `ulw` or
 `full-access`. Those are entered from the sheet only, and the chip offers exit
-while one is active, back to `SessionModes.default` (`safe`, or `auto`). On a
+while one is active, back to `SessionModes.default` (`safe`, or `auto`).
+Entering `full-access` also needs an explicit confirmation ("Enable bounded full
+access?", as in the reference client's `mode-indicator.tsx`): the sheet sends no
+`mode_change` until the user taps Enable. Every pick in the sheet goes through
+`HostCeilingState`, the Host ceiling's own state machine; leaving full access
+needs no confirmation (W16AAPPLE-42). On a
 1.7+ Host the chip is disabled while a turn is running, since the Host would
 answer `Session is busy`.
 

@@ -240,7 +240,8 @@ interface ConnectionRepository {
 
     /**
      * Retry a pending reconnect immediately instead of waiting out its
-     * backoff — see AgentConnection.retryNow. No-op when nothing is pending.
+     * backoff, or with none pending check that the socket still answers and
+     * reconnect if it does not — see AgentConnection.retryNow.
      */
     fun retryNow()
 

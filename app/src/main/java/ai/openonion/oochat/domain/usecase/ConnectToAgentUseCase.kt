@@ -64,8 +64,7 @@ class ConnectToAgentUseCase(
             relayUrl,
             sessionStore,
             pendingMessageSink,
-            isAppVisible = isAppVisible,
-            agentDiscovery = agentDiscovery
+            isAppVisible = isAppVisible
         )
     }
 ) : ConnectToAgentUseCaseContract {
