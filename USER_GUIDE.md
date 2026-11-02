@@ -79,7 +79,10 @@ Some agents publish named skills. Type `/` to see them.
 Each entry shows the description the agent gave it, so you do not have to guess
 what a command does or how it is spelled. A skill the agent did not describe
 shows its name alone. **An empty palette is not a fault** —
-it means this agent publishes no skills, which many do not.
+it means this agent publishes no skills, which many do not, or that it has not
+let you in yet. Skills only appear once you are in, for example after entering
+an invite code. The agent's Edit screen lists them under **What this agent can
+do**.
 
 ---
 

@@ -23,9 +23,10 @@ answer; this exists for when the default is not enough.
 ### Slash-command palette
 
 Type `/` in the composer and the agent's published skills appear as a list, each
-with the description the agent gave it, if any. The list comes from the agent itself — an
-agent that publishes nothing shows an empty palette rather than a stale or
-invented one.
+with the description the agent gave it, if any. The list comes from the agent itself, and only
+once its Host has let you in, so an agent's skills are never shown to someone
+without access. An agent that publishes nothing shows an empty palette rather
+than a stale or invented one.
 
 <img src="screenshots/slash-command-palette.png" alt="Typing a slash in the composer lists the agent's published skills with their descriptions" width="320">
 
