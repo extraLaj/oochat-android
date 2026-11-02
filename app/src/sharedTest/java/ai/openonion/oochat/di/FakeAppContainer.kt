@@ -297,9 +297,9 @@ class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
     override fun isConnected() = false
     override suspend fun sendMessage(content: String, agentAddress: String, images: List<String>?, files: List<ai.openonion.oochat.domain.model.OutgoingFileAttachment>?) {}
     override suspend fun executeTool(request: ExecRequest): ExecOutcome = ExecOutcome.NotSent("Not used in these tests")
-    override suspend fun respond(answer: String) {}
+    override suspend fun respond(answer: String, requestId: String?) {}
     override suspend fun interrupt() {}
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {}
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {}
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {}
     override suspend fun respondToPlanReview(message: String) {}
     override suspend fun respondToUlwTurnsReached(action: String, turns: Int?, mode: String?) {}

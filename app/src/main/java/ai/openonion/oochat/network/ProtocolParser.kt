@@ -376,6 +376,7 @@ object ProtocolParser {
                 event = ConnectionEvent.ChatItemReceived(
                     ChatItem.AskUser(
                         id = event.id ?: generateId(),
+                        requestId = event.id,
                         // The server's actual field is "question" (see
                         // ask_user.py's event payload) — "text" is not sent
                         // for this event type, only kept as a fallback so an
@@ -392,6 +393,7 @@ object ProtocolParser {
                 event = ConnectionEvent.ChatItemReceived(
                     ChatItem.ApprovalNeeded(
                         id = event.id ?: generateId(),
+                        requestId = event.id,
                         tool = event.tool ?: "",
                         arguments = event.arguments.toDisplayMap() ?: emptyMap(),
                         description = event.description,
@@ -606,6 +608,10 @@ object ProtocolParser {
                             message = event.message
                         )
                     )
+
+                // Another device answered first. Nothing was applied, and the socket is fine.
+                STALE_ANSWER ->
+                    ParseResult(event = ConnectionEvent.AnswerRefused(requestId = event.requestId))
 
                 else ->
                     ParseResult(
@@ -823,6 +829,9 @@ object ProtocolParser {
 
     /** `code` of the ERROR frame a host sends when a running turn refuses runtime input. */
     const val RUNTIME_INPUT_REJECTED = "RUNTIME_INPUT_REJECTED"
+
+    /** `code` of the ERROR a host sends when it refuses an answer (ws_router/session.py). */
+    const val STALE_ANSWER = "STALE_ANSWER"
 
     /** [ChatItem.Thinking.kind] for reasoning text whose frame names no kind. */
     const val REASONING_KIND = "reasoning"
@@ -1105,6 +1114,9 @@ sealed class ConnectionEvent {
      * [RuntimeInputAcknowledged].
      */
     data class RuntimeInputRejected(val sessionId: String?, val retryable: Boolean, val message: String?) : ConnectionEvent()
+
+    /** The Host refused an answer to [requestId] (STALE_ANSWER). */
+    data class AnswerRefused(val requestId: String?) : ConnectionEvent()
     data class ConnectionError(
         val message: String,
         /** Machine-readable ERROR code, when the Host supplied one. */

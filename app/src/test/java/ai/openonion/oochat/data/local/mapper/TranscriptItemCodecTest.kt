@@ -105,10 +105,22 @@ class TranscriptItemCodecTest {
     }
 
     @Test
+    fun `an approval answered on another device survives a round trip`() {
+        val item = ChatItem.ApprovalNeeded(
+            id = "a2",
+            tool = "bash",
+            arguments = mapOf("command" to "npm install"),
+            decision = ApprovalDecision(approved = true, scope = "once", mode = null, refused = true)
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
     fun `an approval row from before feedback existed decodes with feedback null`() {
         val raw = """{"kind":"approval","id":"a2","tool":"bash","arguments":{"command":"rm README.md"},"approved":false,"scope":"once","mode":"reject_hard"}"""
         val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ApprovalNeeded
         assertNull(decoded.decision?.feedback)
+        assertEquals(false, decoded.decision?.refused)
         assertEquals(false, decoded.decision?.approved)
         assertEquals("reject_hard", decoded.decision?.mode)
     }

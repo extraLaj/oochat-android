@@ -798,8 +798,8 @@ class AgentConnection(
         if (flushed > 0) FileLogger.i(LogTags.AGENT_CONN, "Flushed $flushed pending messages")
     }
 
-    fun respond(answer: String) {
-        sendSigned(AskUserResponse(answer = answer))
+    fun respond(answer: String, requestId: String? = null) {
+        sendSigned(AskUserResponse(answer = answer, requestId = requestId))
     }
 
     /**
@@ -814,8 +814,14 @@ class AgentConnection(
         sendSigned(InterruptMessage())
     }
 
-    fun respondToApproval(approved: Boolean, scope: String = "once", mode: String? = null, feedback: String? = null) {
-        sendSigned(ApprovalResponse(approved = approved, scope = scope, mode = mode, feedback = feedback))
+    fun respondToApproval(
+        approved: Boolean,
+        scope: String = "once",
+        mode: String? = null,
+        feedback: String? = null,
+        requestId: String? = null
+    ) {
+        sendSigned(ApprovalResponse(approved = approved, scope = scope, mode = mode, feedback = feedback, requestId = requestId))
     }
 
     /** Reply to a [ChatItem.PlanReviewItem][ai.openonion.oochat.domain.model.ChatItem.PlanReviewItem] checkpoint. */
@@ -1752,6 +1758,11 @@ class AgentConnection(
                 }
                 is ConnectionEvent.RuntimeInputAcknowledged -> {
                     FileLogger.i(LogTags.AGENT_CONN, "RUNTIME_INPUT_ACK ✓")
+                    _events.tryEmit(event)
+                }
+                is ConnectionEvent.AnswerRefused -> {
+                    // Not a ConnectionError, for the same reason as below.
+                    FileLogger.w(LogTags.AGENT_CONN, "STALE_ANSWER for ${event.requestId}")
                     _events.tryEmit(event)
                 }
                 is ConnectionEvent.RuntimeInputRejected -> {

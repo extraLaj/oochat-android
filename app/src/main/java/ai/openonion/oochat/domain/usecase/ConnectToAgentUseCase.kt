@@ -261,16 +261,16 @@ class ConnectToAgentUseCase(
         getOrCreateRepository().releaseSessionStatus()
     }
 
-    override suspend fun respond(answer: String) {
-        getOrCreateRepository().respond(answer)
+    override suspend fun respond(answer: String, requestId: String?) {
+        getOrCreateRepository().respond(answer, requestId)
     }
 
     override suspend fun interrupt() {
         getOrCreateRepository().interrupt()
     }
 
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
-        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback)
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
+        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback, requestId)
     }
 
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {

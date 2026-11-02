@@ -147,9 +147,9 @@ interface ConnectToAgentUseCaseContract {
     suspend fun executeTool(request: ExecRequest): ExecOutcome
 
     /**
-     * Reply to an `ask_user` event.
+     * Reply to an `ask_user` event; [requestId] is that event's id.
      */
-    suspend fun respond(answer: String)
+    suspend fun respond(answer: String, requestId: String? = null)
 
     /**
      * Ask the agent to gracefully stop its current run — it finishes the
@@ -168,8 +168,15 @@ interface ConnectToAgentUseCaseContract {
      *   "reject_explain" (ask the agent to explain before proceeding)
      * @param feedback free-text reason the LLM sees when [approved] is
      *   false, e.g. "use yarn instead". Ignored when [approved] is true.
+     * @param requestId the `approval_needed` event's id
      */
-    suspend fun respondToApproval(approved: Boolean, scope: String = "once", mode: String? = null, feedback: String? = null)
+    suspend fun respondToApproval(
+        approved: Boolean,
+        scope: String = "once",
+        mode: String? = null,
+        feedback: String? = null,
+        requestId: String? = null
+    )
 
     /**
      * Reply to an `ONBOARD_REQUIRED` event with an invite code or payment.

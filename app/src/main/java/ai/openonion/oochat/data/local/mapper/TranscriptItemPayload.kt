@@ -136,7 +136,8 @@ sealed class TranscriptItemPayload {
         val approved: Boolean,
         val scope: String,
         val mode: String? = null,
-        val feedback: String? = null
+        val feedback: String? = null,
+        val refused: Boolean = false
     ) : TranscriptItemPayload()
 
     @Serializable
@@ -292,7 +293,8 @@ object TranscriptItemCodec {
                 approved = d.approved,
                 scope = d.scope,
                 mode = d.mode,
-                feedback = d.feedback
+                feedback = d.feedback,
+                refused = d.refused
             )
         }
         is ChatItem.FilesReceivedItem -> TranscriptItemPayload.FilesReceived(
@@ -396,7 +398,7 @@ object TranscriptItemCodec {
             tool = payload.tool,
             arguments = payload.arguments,
             description = payload.description,
-            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback)
+            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback, payload.refused)
         )
         is TranscriptItemPayload.FilesReceived -> ChatItem.FilesReceivedItem(
             id = payload.id,

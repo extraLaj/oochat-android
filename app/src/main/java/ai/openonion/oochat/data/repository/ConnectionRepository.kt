@@ -181,8 +181,9 @@ interface ConnectionRepository {
      * Respond to ask_user event.
      *
      * @param answer User's answer
+     * @param requestId The ask_user event's id
      */
-    suspend fun respond(answer: String)
+    suspend fun respond(answer: String, requestId: String? = null)
 
     /**
      * Ask the agent to gracefully stop its current run — it finishes the
@@ -200,8 +201,15 @@ interface ConnectionRepository {
      *   "reject_hard", or "reject_explain". Ignored when [approved] is true.
      * @param feedback Free-text reason shown to the LLM when [approved] is
      *   false. Ignored when [approved] is true.
+     * @param requestId The approval_needed event's id
      */
-    suspend fun respondToApproval(approved: Boolean, scope: String = "once", mode: String? = null, feedback: String? = null)
+    suspend fun respondToApproval(
+        approved: Boolean,
+        scope: String = "once",
+        mode: String? = null,
+        feedback: String? = null,
+        requestId: String? = null
+    )
 
     /**
      * Respond to ONBOARD_REQUIRED event with either an invite code

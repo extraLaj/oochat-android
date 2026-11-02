@@ -1001,6 +1001,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // was not runtime input at all: it reached an agent that
                         // had just gone idle and started a turn of its own.
                         is ChatEvent.OutputReceived -> answerPendingRuntimeInput(RuntimeInputReply.TURN_ENDED)
+                        is ChatEvent.AnswerRefused -> markAnswerRefused(event.requestId)
                         // A generic ERROR frame is deliberately not handled: it
                         // says nothing about whether the host took our message,
                         // and the host's own refusal arrives as its own event.
@@ -2649,7 +2650,9 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     fun respond(answer: String) {
-        launchScoped { connectUseCase.respond(answer) }
+        // The card answered is the newest question: the Host waits on one at a time.
+        val question = _uiState.value.chatItems.lastOrNull { it is ChatItem.AskUser } as ChatItem.AskUser?
+        launchScoped { connectUseCase.respond(answer, question?.requestId) }
     }
 
     /**
@@ -2770,12 +2773,31 @@ open class ChatViewModel @JvmOverloads constructor(
             state.copy(chatItems = state.chatItems.map { if (it.id == itemId) decided else it })
         }
         launchScoped {
-            connectUseCase.respondToApproval(approved, scope, mode, feedback)
+            connectUseCase.respondToApproval(approved, scope, mode, feedback, gate.requestId)
             // Persisted only now that it's answered: an open gate replayed from
             // history would offer buttons for a question the server has closed,
             // but the record of what was approved belongs in the transcript.
             conversationHistory.persistMessage(decided)
         }
+    }
+
+    /**
+     * The Host refused this device's answer because another device answered
+     * first. The approval card says so instead of keeping a decision that was
+     * never applied. Nothing is re-sent. Without an id, the newest answered card is meant.
+     */
+    private fun markAnswerRefused(requestId: String?) {
+        val approvals = _uiState.value.chatItems.filterIsInstance<ChatItem.ApprovalNeeded>()
+        val gate = (
+            if (requestId != null) approvals.lastOrNull { it.requestId == requestId }
+            else approvals.lastOrNull { it.decision != null }
+            ) ?: return
+        val decision = gate.decision ?: return
+        val refused = gate.copy(decision = decision.copy(refused = true))
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == gate.id) refused else it })
+        }
+        launchScoped { conversationHistory.persistMessage(refused) }
     }
 
     /**

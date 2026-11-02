@@ -137,7 +137,8 @@ class ApprovalCardComposeTest {
             ApprovalDecision(true, "session", null, null) to "Session authorized: bash",
             ApprovalDecision(false, "once", "reject_soft", "use yarn") to "Rejected: bash",
             ApprovalDecision(false, "once", "reject_hard", null) to "Execution stopped",
-            ApprovalDecision(false, "once", "reject_explain", null) to "Rejected: bash"
+            ApprovalDecision(false, "once", "reject_explain", null) to "Rejected: bash",
+            ApprovalDecision(true, "once", null, null, refused = true) to "Answered on another device: bash"
         )
         var current by mutableStateOf(gate.copy(decision = decisions.first().first))
         composeRule.setContent {

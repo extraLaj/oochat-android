@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -105,10 +106,11 @@ internal fun AskUserCard(
 /**
  * No riskLevel field exists on the wire protocol, so the Figma badge/coloring is dropped. Buttons instead port oo-chat-web's approval-buttons.tsx: two allow tiers, three reject modes matching APPROVAL_RESPONSE.scope/mode.
  */
-private enum class ApprovalOutcome { APPROVED, APPROVED_SESSION, SKIPPED, STOPPED }
+private enum class ApprovalOutcome { APPROVED, APPROVED_SESSION, SKIPPED, STOPPED, ANSWERED_ELSEWHERE }
 
 /** The wire-level answer, mapped to the confirmation copy shown in its place. */
 private fun ApprovalDecision.toOutcome(): ApprovalOutcome = when {
+    refused -> ApprovalOutcome.ANSWERED_ELSEWHERE
     approved && scope == "session" -> ApprovalOutcome.APPROVED_SESSION
     approved -> ApprovalOutcome.APPROVED
     mode == "reject_hard" -> ApprovalOutcome.STOPPED
@@ -441,6 +443,11 @@ private fun ApprovalConfirmationBar(tool: String, outcome: ApprovalOutcome, args
             Icons.Default.Block,
             MaterialTheme.colorScheme.error,
             "Execution stopped"
+        )
+        ApprovalOutcome.ANSWERED_ELSEWHERE -> Triple(
+            Icons.Default.Devices,
+            MaterialTheme.colorScheme.outline,
+            "Answered on another device: $tool"
         )
     }
     // The receipt this leaves behind is otherwise indistinguishable from

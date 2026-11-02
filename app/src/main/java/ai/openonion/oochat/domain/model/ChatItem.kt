@@ -126,7 +126,9 @@ sealed class ChatItem {
         override val id: String,
         val text: String,
         val options: List<String>,
-        val multiSelect: Boolean
+        val multiSelect: Boolean,
+        /** The Host's id for this question, sent back as `request_id`. Null when the event had none. */
+        val requestId: String? = null
     ) : ChatItem()
 
     data class ApprovalNeeded(
@@ -136,7 +138,9 @@ sealed class ChatItem {
         val description: String? = null,
         val batchRemaining: List<BatchToolPreview>? = null,
         /** Null while the gate is still open. Set once, by respondToApproval. */
-        val decision: ApprovalDecision? = null
+        val decision: ApprovalDecision? = null,
+        /** The Host's id for this request, sent back as `request_id`. Null when the event had none. */
+        val requestId: String? = null
     ) : ChatItem()
 
     data class OnboardRequired(
@@ -304,7 +308,9 @@ data class ApprovalDecision(
     val scope: String,
     val mode: String?,
     // Free-text reason given on a rejection — see APPROVAL_RESPONSE.feedback.
-    val feedback: String? = null
+    val feedback: String? = null,
+    // The Host refused this answer (STALE_ANSWER): another device answered first.
+    val refused: Boolean = false
 )
 
 /**

@@ -157,6 +157,8 @@ data class ServerEvent(
     // rejection sends a number (-32010, connect.py), other ERRORs a string
     // ("provider_station_only", session.py), most none at all.
     @Serializable(with = LenientStringSerializer::class) val code: String = "",
+    // STALE_ANSWER's: the request the refused answer named.
+    @SerialName("request_id") val requestId: String? = null,
     // The Host's own OIP descriptor, on CONNECTED and on the version
     // rejection ERROR. A JsonElement, not a ProtocolDescriptor: it carries
     // fields this client doesn't model (websocket_path, extensions), and a

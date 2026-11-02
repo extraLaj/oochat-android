@@ -224,7 +224,7 @@ class ChatViewModelTest {
         var onSend: (() -> Unit)? = null
 
         var lastRespond: String? = null
-        override suspend fun respond(answer: String) { lastRespond = answer }
+        override suspend fun respond(answer: String, requestId: String?) { lastRespond = answer }
 
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
@@ -233,7 +233,7 @@ class ChatViewModelTest {
         var lastApprovalScope: String? = null
         var lastApprovalMode: String? = null
         var lastApprovalFeedback: String? = null
-        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
+        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
             lastApproval = approved
             lastApprovalScope = scope
             lastApprovalMode = mode
