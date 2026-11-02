@@ -399,8 +399,8 @@ abstract class RelayResumeTestBase {
 
     protected suspend fun App.rows(sessionId: String) = messages.getMessagesListBySession(sessionId)
 
-    /** The agent is reached through the relay, a question is sent, and the turn is streaming a tool call. */
-    protected suspend fun connectedMidTurn(): Pair<App, String> {
+    /** The agent is reached through the relay, and nothing has been sent yet. */
+    protected suspend fun connectedIdle(): App {
         val app = App().also { this.app = it }
         app.agents.createAgent(
             AgentProfile(
@@ -412,6 +412,12 @@ abstract class RelayResumeTestBase {
         pumpUntil("the app to connect through the relay") {
             relay.connects.size == 1 && app.connection.isConnected() && app.connectCalls.finished.get() == 1
         }
+        return app
+    }
+
+    /** The agent is reached through the relay, a question is sent, and the turn is streaming a tool call. */
+    protected suspend fun connectedMidTurn(): Pair<App, String> {
+        val app = connectedIdle()
 
         app.vm.sendMessage(question)
         pumpUntil("INPUT to reach the Host") { relay.inputs.size == 1 }

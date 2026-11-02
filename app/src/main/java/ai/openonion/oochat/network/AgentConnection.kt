@@ -239,6 +239,12 @@ class AgentConnection(
     /** The check [probeAfterForeground] is waiting on, if any. */
     @Volatile private var probeJob: Job? = null
 
+    /**
+     * When the probe's SESSION_STATUS went out, while its reply is still due. That reply only
+     * proves the socket works, so it is consumed here rather than shown: see [probeAfterForeground].
+     */
+    @Volatile private var probeSentAtNanos: Long? = null
+
     // True once this connect() cycle has already tried the "stale
     // session" recovery — see [recoverFromStaleSession]'s doc. Bounds
     // the recovery to once per cycle so a server that keeps rejecting
@@ -409,6 +415,10 @@ class AgentConnection(
         connectedWaitJob?.cancel()
         connectedWaitJob = null
         settlePendingExecs("The agent connection was replaced")
+        // A probe of this socket can no longer be answered, and its reply must not swallow one on the next.
+        probeJob?.cancel()
+        probeJob = null
+        probeSentAtNanos = null
         socketGeneration.incrementAndGet()
         webSocket?.close(1000, reason)
         webSocket = null
@@ -973,16 +983,15 @@ class AgentConnection(
     }
 
     /**
-     * The app is back in the foreground: retry the pending reconnect now instead of waiting out
-     * its backoff, or, with none pending, check that the socket still works.
+     * The app is back in the foreground, or the network is back: retry the pending reconnect now
+     * instead of waiting out its backoff, or, with none pending, check that the socket still works.
      *
-     * Returning to the foreground is new information: the socket was almost
-     * certainly aborted *because* the app was backgrounded, so the reason it
-     * failed has just gone away. A delay computed for a flaky network is the
+     * Either is new information: the socket was almost certainly lost
+     * *because* of what has just stopped applying. A delay computed for a flaky network is the
      * wrong thing to sit through at the one moment the user is watching.
      *
-     * A socket that died in the background without a close frame (the process was frozen, or the
-     * network changed) still reads as connected, and nothing would notice until OkHttp's ping
+     * A socket that died meanwhile without a close frame (the process was frozen, or the network
+     * changed under it) still reads as connected, and nothing would notice until OkHttp's ping
      * failed; see [probeAfterForeground].
      */
     fun retryNow() {
@@ -1017,11 +1026,14 @@ class AgentConnection(
     }
 
     /**
-     * Ask the Host for this session's status, which it answers on any live connection, and
-     * reconnect if nothing at all arrives within [FOREGROUND_PROBE_TIMEOUT_MS]. The reconnect is
-     * on this connection, so it resumes from [replayCursor] and only what was missed is replayed.
-     * The Host clients re-sync on focus for the same reason (`websocket-protocol.md`). The reply
-     * itself is a fresh status for the status line.
+     * Send SESSION_STATUS, which the Host answers on any live connection, and reconnect if nothing
+     * at all arrives within [FOREGROUND_PROBE_TIMEOUT_MS]. The reconnect is on this connection, so
+     * it resumes from [replayCursor] and only what was missed is replayed.
+     *
+     * The reply is consumed, not shown: it only proves a frame arrived. The Host answers from the
+     * sessions it holds in memory (ws_router/session.py), where a session only appears once it
+     * runs a turn, so for a chat that has not run one since the Host started the answer is
+     * `not_found` while CONNECTED had said otherwise.
      *
      * Without a session there is nothing to replay and nothing to ask about, so no check.
      */
@@ -1030,11 +1042,12 @@ class AgentConnection(
         val generation = socketGeneration.get()
         val framesBefore = framesReceived.get()
         probeJob?.cancel()
+        probeSentAtNanos = System.nanoTime()
         querySessionStatus(sessionId)
         probeJob = reconnectScope.launch {
             delay(FOREGROUND_PROBE_TIMEOUT_MS)
             if (generation != socketGeneration.get() || framesReceived.get() != framesBefore) return@launch
-            FileLogger.w(LogTags.AGENT_CONN, "No reply ${FOREGROUND_PROBE_TIMEOUT_MS}ms after returning to the foreground; reconnecting")
+            FileLogger.w(LogTags.AGENT_CONN, "No reply ${FOREGROUND_PROBE_TIMEOUT_MS}ms after the probe; reconnecting")
             reopenSocket("Silent after the background")
         }
     }
@@ -1718,8 +1731,15 @@ class AgentConnection(
                     _events.tryEmit(event)
                 }
                 is ConnectionEvent.SessionStatusReceived -> {
-                    FileLogger.i(LogTags.AGENT_CONN, "SESSION_STATUS ← ${event.status}")
-                    _events.tryEmit(event)
+                    val probeSentAt = probeSentAtNanos
+                    if (probeSentAt != null) {
+                        probeSentAtNanos = null
+                        val roundTripMs = (System.nanoTime() - probeSentAt) / 1_000_000
+                        FileLogger.i(LogTags.AGENT_CONN, "Probe answered in ${roundTripMs}ms (SESSION_STATUS ${event.status}, not shown)")
+                    } else {
+                        FileLogger.i(LogTags.AGENT_CONN, "SESSION_STATUS ← ${event.status}")
+                        _events.tryEmit(event)
+                    }
                 }
                 is ConnectionEvent.ModeBudgetChanged -> {
                     FileLogger.i(LogTags.AGENT_CONN, "mode_budget_changed ← ${event.mode.wire} (${event.turnsLeft} turns left)")

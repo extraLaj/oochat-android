@@ -116,11 +116,18 @@ open class FakeOipHost : WebSocketFactory {
                 turnEvents.clear()
                 running = true
             }
-            // Answered on any live connection, as session.py does.
+            // Answered on any live connection, as session.py does, and only from the sessions held in
+            // memory: one that has run no turn since the Host started is not_found there, whatever
+            // CONNECTED said about it.
             "SESSION_STATUS" -> {
                 statusQueries += frame
                 val sid = frame["session"]?.jsonObject?.get("session_id")?.jsonPrimitive?.content
-                deliver(socket, """{"type":"SESSION_STATUS","session_id":"$sid","status":"${if (running) "running" else "connected"}"}""")
+                val status = when {
+                    running -> "running"
+                    finishedSession != null -> "connected"
+                    else -> "not_found"
+                }
+                deliver(socket, """{"type":"SESSION_STATUS","session_id":"$sid","status":"$status"}""")
             }
         }
     }

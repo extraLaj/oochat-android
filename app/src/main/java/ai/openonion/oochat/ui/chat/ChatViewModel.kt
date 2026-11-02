@@ -813,9 +813,9 @@ open class ChatViewModel @JvmOverloads constructor(
         // The network came back. Same reasoning as [onReturnedToForeground]:
         // the reason the socket failed has just gone away, so the rest of a
         // backoff computed for a flaky network is dead time the user spends
-        // watching a stale banner. retryNow() is a no-op unless a reconnect is
-        // already pending, so this can't start one on a healthy connection —
-        // the same guard the web client puts on its own `online` listener.
+        // watching a stale banner. With no reconnect pending, retryNow() checks
+        // the socket instead, since a network change is exactly when one dies
+        // without a close frame; a socket that answers is kept.
         viewModelScope.launch {
             var wasOnline = true
             networkMonitor.isOnline.collect { online ->

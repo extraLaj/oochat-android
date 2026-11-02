@@ -2884,6 +2884,79 @@ class AgentConnectionRobolectricTest {
     // ── W16AAPPLE-90: signing with the server's time ───────────────────
 
     /** A 101 whose `Date` reads [serverMillis], as the Host (uvicorn) and the relay both send. */
+    // --- W16AAPPLE-46: checking the socket on a return to the app ---
+
+    /** A connection on the virtual clock that has reached CONNECTED on [sessionId]. */
+    private fun TestScope.connectedOnVirtualClock(sessionId: String = "sess-A"): AgentConnection {
+        val conn = connectionOnVirtualClock()
+        conn.setSession(SessionState(sessionId = sessionId))
+        conn.connect("0xAGENT")
+        factory.lastListener!!.onOpen(factory.lastWebSocket!!, fakeResponse())
+        simulateConnected(sessionId)
+        runCurrent()
+        return conn
+    }
+
+    private fun FakeWebSocket.statusQueries(): Int = sentMessages.count { "\"SESSION_STATUS\"" in it }
+
+    @Test
+    fun `the check's reply only proves the socket works, and a later status is still shown`() = runTest {
+        val conn = connectedOnVirtualClock()
+        val events = recordEvents(conn)
+        val ws = factory.lastWebSocket!!
+
+        conn.retryNow()
+        assertEquals("the return sends the check", 1, ws.statusQueries())
+        // What the Host says of a session that has run no turn since it started.
+        factory.lastListener!!.onMessage(ws, """{"type":"SESSION_STATUS","session_id":"sess-A","status":"not_found"}""")
+        runCurrent()
+        assertTrue("the check's reply is not news", events.none { it is ConnectionEvent.SessionStatusReceived })
+
+        factory.lastListener!!.onMessage(ws, """{"type":"SESSION_STATUS","session_id":"sess-A","status":"connected"}""")
+        runCurrent()
+        assertEquals(listOf("connected"), events.filterIsInstance<ConnectionEvent.SessionStatusReceived>().map { it.status })
+
+        advanceTimeBy(AgentConnection.FOREGROUND_PROBE_TIMEOUT_MS + 1_000)
+        runCurrent()
+        assertEquals("an answered check reconnects nothing", 1, factory.socketCount)
+        conn.teardown()
+    }
+
+    @Test
+    fun `a check whose socket is replaced before it times out does not reconnect again`() = runTest {
+        val conn = connectedOnVirtualClock()
+        conn.retryNow()
+
+        conn.switchSession(SessionState(sessionId = "sess-B"))
+        runCurrent()
+        assertEquals("test setup: the switch opened a socket", 2, factory.socketCount)
+
+        // Past the check's wait, but short of the switch's own CONNECTED timeout.
+        advanceTimeBy(AgentConnection.FOREGROUND_PROBE_TIMEOUT_MS + 1_000)
+        runCurrent()
+        assertEquals("the check was for the socket the switch replaced", 2, factory.socketCount)
+        conn.teardown()
+    }
+
+    @Test
+    fun `a return while onboarding is pending sends no check`() = runTest {
+        val conn = connectionOnVirtualClock()
+        conn.setSession(SessionState(sessionId = "sess-A"))
+        conn.connect("0xAGENT")
+        val ws = factory.lastWebSocket!!
+        factory.lastListener!!.onOpen(ws, fakeResponse())
+        factory.lastListener!!.onMessage(ws, """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}""")
+        runCurrent()
+
+        conn.retryNow()
+        advanceTimeBy(AgentConnection.FOREGROUND_PROBE_TIMEOUT_MS + 1_000)
+        runCurrent()
+
+        assertEquals("not connected, so nothing to check", 0, ws.statusQueries())
+        assertEquals("and the gate's socket is left alone", 1, factory.socketCount)
+        conn.teardown()
+    }
+
     private fun upgradeWithDate(serverMillis: Long): Response =
         fakeResponse().newBuilder()
             .header("Date", DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.ofEpochMilli(serverMillis).atOffset(ZoneOffset.UTC)))
