@@ -80,6 +80,9 @@ class SettingsViewModelTest {
 
         override fun exportBackup(): KeyManager.BackupExport =
             KeyManager.BackupExport.Phrase("exported phrase words")
+
+        var legacyDerivation = false
+        override fun hasLegacyDerivation(): Boolean = legacyDerivation
     }
 
     private class FakeAccountRepository : AccountRepository {
@@ -408,6 +411,25 @@ class SettingsViewModelTest {
 
         assertTrue(export is KeyManager.BackupExport.Phrase)
         assertEquals("exported phrase words", (export as KeyManager.BackupExport.Phrase).mnemonic)
+    }
+
+    @Test
+    fun `a phrase that no longer derives the identity is flagged until the identity changes`() {
+        identityManager.legacyDerivation = true
+        val vm = createVm(autoLoadAccountOnInit = false)
+
+        assertTrue(vm.uiState.value.legacyDerivation)
+
+        // Restoring from the phrase moves onto the derivation it now gives.
+        identityManager.legacyDerivation = false
+        vm.importIdentity("legal winner thank year wave sausage worth useful legal winner thank yellow")
+
+        assertFalse(vm.uiState.value.legacyDerivation)
+    }
+
+    @Test
+    fun `a current identity is not flagged`() {
+        assertFalse(createVm(autoLoadAccountOnInit = false).uiState.value.legacyDerivation)
     }
 
     // ── Notification-permission three-way coordination ─────────────────

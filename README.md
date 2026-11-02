@@ -66,8 +66,9 @@ A notification arrives when a reply lands and the app is in the background.
 
 - Multiple sessions per agent, in a drawer, renameable
 - Agent discovery and invite-code onboarding
-- **BIP39 recovery phrase** — generated the same way as the web client, so a
-  phrase created in one restores the identical identity in the other
+- **BIP39 recovery phrase**, derived with SLIP-0010 the way the connectonion
+  SDK does, so a phrase gives the same identity on the phone as in the `co` CLI
+  (see [Identity](docs/architecture.md#identity))
 - Ed25519 signing via lazysodium; credentials in EncryptedSharedPreferences
   (AES256-GCM)
 - Room-backed history: agents, sessions, messages, session state

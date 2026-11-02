@@ -64,7 +64,7 @@ import kotlinx.coroutines.delay
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BackupSeedSheet(export: ai.openonion.oochat.crypto.KeyManager.BackupExport, onDismiss: () -> Unit) {
+internal fun BackupSeedSheet(export: KeyManager.BackupExport, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     var revealed by remember { mutableStateOf(false) }
     val copyState = rememberCopyState()
@@ -109,8 +109,26 @@ internal fun BackupSeedSheet(export: ai.openonion.oochat.crypto.KeyManager.Backu
                 return@Column
             }
 
-            when (export) {
-                is ai.openonion.oochat.crypto.KeyManager.BackupExport.Phrase -> {
+            val legacyKeyHex = (export as? KeyManager.BackupExport.Phrase)?.legacyPrivateKeyHex
+            when {
+                // The phrase predates SLIP-0010 and restores a different
+                // identity now, so the key is the backup that counts.
+                legacyKeyHex != null -> {
+                    LegacyHexBackup(
+                        privateKeyHex = legacyKeyHex,
+                        copied = copyState.copied,
+                        onCopy = {
+                            clipboard.setText(AnnotatedString(legacyKeyHex))
+                            copyState.markCopied()
+                            clipboardSecret = legacyKeyHex
+                        },
+                        title = "Back Up Your Private Key",
+                        explanation = "This identity was created before recovery phrases switched to the ConnectOnion CLI's derivation. " +
+                            "Its recovery phrase now restores a different, empty identity — only the private key below restores this one. " +
+                            "Import it with \"Import Recovery Key\"."
+                    )
+                }
+                export is KeyManager.BackupExport.Phrase -> {
                     SeedWarningCard()
                     Spacer(modifier = Modifier.height(MaterialTheme.spacing.lg))
 
@@ -160,7 +178,7 @@ internal fun BackupSeedSheet(export: ai.openonion.oochat.crypto.KeyManager.Backu
                         }
                     }
                 }
-                is ai.openonion.oochat.crypto.KeyManager.BackupExport.LegacyHexKey -> {
+                export is KeyManager.BackupExport.LegacyHexKey -> {
                     LegacyHexBackup(
                         privateKeyHex = export.privateKeyHex,
                         copied = copyState.copied,
@@ -300,17 +318,26 @@ private fun MnemonicWordGrid(words: List<String>) {
     }
 }
 
-/** Fallback for identities that predate mnemonics: raw hex key + copy. */
+/**
+ * Raw hex key + copy: for identities that predate mnemonics, and (with its own
+ * [title] and [explanation]) for those whose phrase predates SLIP-0010.
+ */
 @Composable
-private fun LegacyHexBackup(privateKeyHex: String, copied: Boolean, onCopy: () -> Unit) {
+private fun LegacyHexBackup(
+    privateKeyHex: String,
+    copied: Boolean,
+    onCopy: () -> Unit,
+    title: String = "Legacy Identity",
+    explanation: String = "This identity was created before recovery phrases were supported, so there's no 12-word phrase for it — only the raw private key below."
+) {
     Text(
-        "Legacy Identity",
+        title,
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold
     )
     Spacer(modifier = Modifier.height(MaterialTheme.spacing.sm))
     Text(
-        "This identity was created before recovery phrases were supported, so there's no 12-word phrase for it — only the raw private key below.",
+        explanation,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )

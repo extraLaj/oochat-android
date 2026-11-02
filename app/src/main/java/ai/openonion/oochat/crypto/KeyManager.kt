@@ -76,7 +76,12 @@ class KeyManager internal constructor(
      * back to the legacy hex private key instead.
      */
     sealed class BackupExport {
-        data class Phrase(val mnemonic: String) : BackupExport()
+        /**
+         * [legacyPrivateKeyHex] is set when the phrase no longer derives this
+         * identity ([hasLegacyDerivation]): the key itself is then the only
+         * backup that restores it, so the sheet has to offer it too.
+         */
+        data class Phrase(val mnemonic: String, val legacyPrivateKeyHex: String? = null) : BackupExport()
         data class LegacyHexKey(val privateKeyHex: String) : BackupExport()
     }
 
@@ -132,6 +137,7 @@ class KeyManager internal constructor(
      * Save keys to encrypted SharedPreferences.
      */
     fun save(keys: AddressData) {
+        legacyDerivation = null
         prefs.edit()
             .putString(KEY_ADDRESS, keys.address)
             .putString(KEY_PUBLIC, keys.publicKey.toHex())
@@ -153,9 +159,9 @@ class KeyManager internal constructor(
 
     /**
      * Derive an Ed25519 keypair from a 32-byte seed — the standard,
-     * libsodium/tweetnacl-compatible Ed25519 seed expansion (RFC 8032), so a
-     * keypair derived here from a given seed is byte-identical to one
-     * derived from the same seed by the web client's tweetnacl.
+     * libsodium/PyNaCl-compatible Ed25519 seed expansion (RFC 8032), so a
+     * keypair derived here from a given seed is byte-identical to the SDK's
+     * `SigningKey(seed)`.
      */
     private fun keysFromSeed(seed: ByteArray): AddressData {
         val (publicKey, secretKey) = ed25519.keypairFromSeed(seed)
@@ -169,19 +175,27 @@ class KeyManager internal constructor(
     }
 
     /**
+     * The identity a phrase gives: its BIP39 seed (empty passphrase), then
+     * the Ed25519 key at the SDK's SLIP-0013 account path — the connectonion
+     * SDK's `address._account_key()` (W16AAPPLE-97), so `co auth recover`
+     * with the same words lands on the same address.
+     *
+     * Identities minted before this took the first 32 bytes of the seed
+     * instead. Those are kept as they are (see [hasLegacyDerivation]); only
+     * new and restored phrases derive this way.
+     */
+    private fun keysFromPhrase(mnemonicCode: Mnemonics.MnemonicCode): AddressData =
+        keysFromSeed(Slip10.accountKey(mnemonicCode.toSeed()))
+
+    /**
      * Generate a brand-new identity backed by a fresh 12-word BIP39
-     * mnemonic. Matches the web client's `generateWithMnemonic()`
-     * (`bip39.generateMnemonic()` → `mnemonicToSeedSync(mnemonic).slice(0,
-     * 32)` → `nacl.sign.keyPair.fromSeed(seed)`) exactly: same wordlist,
-     * same PBKDF2-HMAC-SHA512 seed derivation, same Ed25519 seed expansion —
-     * so the resulting address/keys are identical to what the web client
-     * would derive from the same phrase.
+     * mnemonic, derived as [keysFromPhrase] describes — the SDK's
+     * `address.generate()`.
      */
     fun generateWithMnemonic(): MnemonicKeys {
         val mnemonicCode = Mnemonics.MnemonicCode(Mnemonics.WordCount.COUNT_12)
         val mnemonic = String(mnemonicCode.chars)
-        val seed = mnemonicCode.toSeed().copyOfRange(0, 32)
-        return MnemonicKeys(keysFromSeed(seed), mnemonic)
+        return MnemonicKeys(keysFromPhrase(mnemonicCode), mnemonic)
     }
 
     /**
@@ -194,8 +208,7 @@ class KeyManager internal constructor(
     fun keysFromMnemonic(mnemonic: String): AddressData {
         val mnemonicCode = Mnemonics.MnemonicCode(normalisePhrase(mnemonic))
         mnemonicCode.validate()
-        val seed = mnemonicCode.toSeed().copyOfRange(0, 32)
-        return keysFromSeed(seed)
+        return keysFromPhrase(mnemonicCode)
     }
 
     /**
@@ -269,20 +282,56 @@ class KeyManager internal constructor(
     override fun exportBackup(): BackupExport {
         val mnemonic = loadMnemonic()
         return if (mnemonic != null) {
-            BackupExport.Phrase(mnemonic)
+            BackupExport.Phrase(
+                mnemonic,
+                legacyPrivateKeyHex = if (hasLegacyDerivation()) load()?.privateKey?.toHex() else null
+            )
         } else {
             val keys = load() ?: loadOrGenerate()
             BackupExport.LegacyHexKey(keys.privateKey.toHex())
         }
     }
 
+    /** Cached [hasLegacyDerivation]; null until checked, and again after anything is saved. */
+    @Volatile
+    private var legacyDerivation: Boolean? = null
+
+    /**
+     * True when the stored recovery phrase no longer derives the stored key —
+     * the SDK's `load()["legacy_derivation"]`. That is an identity minted
+     * before the switch to SLIP-0010: its key stays in use (an update must not
+     * change anyone's address), but restoring from those words now gives a
+     * different, empty identity, and the user has to be told so. False when
+     * there is no phrase (a hex import) or no identity.
+     *
+     * Cached: the check stretches the phrase (2048 rounds of PBKDF2), and the
+     * answer only changes when [save] does.
+     */
+    override fun hasLegacyDerivation(): Boolean {
+        legacyDerivation?.let { return it }
+        val keys = load()
+        val mnemonic = loadMnemonic()
+        val legacy = keys != null && mnemonic != null &&
+            runCatching { keysFromMnemonic(mnemonic) }.getOrNull()?.publicKey?.contentEquals(keys.publicKey) != true
+        if (legacy) {
+            FileLogger.w(
+                LogTags.ACCOUNT,
+                "Identity predates SLIP-0010 derivation: its recovery phrase now derives a different address"
+            )
+        }
+        legacyDerivation = legacy
+        return legacy
+    }
+
     private fun saveMnemonic(mnemonic: String) {
+        legacyDerivation = null
         prefs.edit().putString(KEY_MNEMONIC, mnemonic).apply()
     }
 
     private fun loadMnemonic(): String? = prefs.getString(KEY_MNEMONIC, null)
 
     private fun clearMnemonic() {
+        legacyDerivation = null
         prefs.edit().remove(KEY_MNEMONIC).apply()
     }
 

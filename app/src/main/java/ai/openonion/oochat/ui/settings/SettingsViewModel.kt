@@ -44,6 +44,11 @@ data class SettingsUiState(
     val accountApiKey: String? = null,
     /** Why the account could not be loaded, when it is something the user can fix. */
     val accountProblem: String? = null,
+    /**
+     * The saved recovery phrase no longer restores this identity — it was
+     * minted before SLIP-0010 derivation. See [KeyManager.hasLegacyDerivation].
+     */
+    val legacyDerivation: Boolean = false,
 )
 
 /**
@@ -183,7 +188,8 @@ open class SettingsViewModel @JvmOverloads constructor(
             it.copy(
                 walletAddress = newAddress,
                 accountApiKey = null,
-                accountProblem = null
+                accountProblem = null,
+                legacyDerivation = identityManager.hasLegacyDerivation()
             )
         }
         FileLogger.i(LogTags.ACCOUNT, "identity changed → account cache invalidated, reloading")
@@ -273,7 +279,12 @@ open class SettingsViewModel @JvmOverloads constructor(
     init {
         // Fast local Keystore read — same pattern ChatViewModel's
         // initialMyAddress default already uses.
-        _uiState.update { it.copy(walletAddress = identityManager.loadOrGenerate().address) }
+        _uiState.update {
+            it.copy(
+                walletAddress = identityManager.loadOrGenerate().address,
+                legacyDerivation = identityManager.hasLegacyDerivation()
+            )
+        }
         if (autoLoadAccountOnInit) {
             loadAccount()
         }
@@ -281,6 +292,12 @@ open class SettingsViewModel @JvmOverloads constructor(
 
     companion object {
         /** Shown under the account when sign-in is refused over the device clock (W16AAPPLE-91). */
+        /** Shown under the address when [SettingsUiState.legacyDerivation] (W16AAPPLE-97). */
+        internal const val LEGACY_DERIVATION_WARNING =
+            "This identity was created before recovery phrases moved to the ConnectOnion CLI's derivation. " +
+                "It keeps working, but restoring from its recovery phrase now gives a new, empty identity, not this one. " +
+                "Back up its private key from \"Back up seed phrase\"."
+
         internal const val ACCOUNT_CLOCK_WRONG =
             "Can't sign in to your account: this device's clock is wrong. " +
                 "Check the date and time in your phone's settings (set them to automatic)."
