@@ -419,6 +419,7 @@ val regressionSuite = mapOf(
     "slash-command palette" to listOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",
+        "ui.agent.LiveProfileMatchTest",
     ),
     "dictation" to listOf(
         "ui.chat.components.DictationMergeTest",
