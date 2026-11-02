@@ -517,11 +517,11 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /**
      * The conversation is parked on something only the user can answer, so the
-     * run cannot continue until they do. Read by the agent's Home page, which
-     * replaces the chat entirely: a gate opened while the reader is over there
-     * is otherwise invisible, and the turn simply stalls with nothing saying
-     * why. Onboarding is excluded — [awaitingOnboardCode] already owns it and
-     * its own card blocks the chat before a Home page can be reached.
+     * run cannot continue until they do. Read by the agent's Home page when it
+     * has a screen of its own and so replaces the chat: a gate opened while the
+     * reader is over there is otherwise invisible, and the turn simply stalls with
+     * nothing saying why. Onboarding is excluded — [awaitingOnboardCode] already owns
+     * it and its own card blocks the chat before a Home page can be reached.
      */
     val chatAwaitsUser: StateFlow<Boolean> = uiState
         .map { it.listFlags.hasPendingGate }

@@ -1292,9 +1292,10 @@ conversation meanwhile. A failed send, an agent `ERROR`, Stop in the chat or a
 dropped connection end it with a refusal instead. `conversation: "new"` is refused
 for now. As in the React SDK, the app cancelling an action (it gave up, or timed
 out) interrupts the turn it started, as soon as it starts if its message is still
-being sent. Unlike the web O Chat, where the app sits beside the chat, here it
+being sent. Unlike the web O Chat, where the app sits beside the chat, on a phone it
 replaces the chat on screen, so the page closing (the user going back to the chat
-to watch) only stops the wait and leaves the turn running.
+to watch) only stops the wait and leaves the turn running. On a tablet or an open
+foldable it sits beside the chat, and the page never closes this way.
 
 **The snapshot** (`ChatViewModel.controlCenterSnapshot`) carries the agent's
 address, the session, its published skills (at most 2,000, names cut to 64
@@ -1343,6 +1344,11 @@ If the WebView's renderer dies (a crash, or Android reclaiming its memory), the
 screen says the Control Center stopped and offers Reload rather than letting
 O Chat close with it, and does not reload by itself, so a crashing app cannot
 loop. While O Chat is in the background the WebView and its timers are paused.
+
+Beside the chat, the app belongs to the chat's screen, which is only on screen while
+the user is in the chat. Leaving the chat for Settings, Logs or the agent list removes
+the pane and its WebView, and coming back loads the app again from its URL, so
+whatever it held only in the page is lost.
 
 ## HTTP exception
 

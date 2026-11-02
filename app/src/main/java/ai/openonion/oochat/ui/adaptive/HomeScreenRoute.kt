@@ -12,7 +12,8 @@ import androidx.compose.runtime.LaunchedEffect
 @Composable
 internal fun HomeScreenRoute(
     onLeave: () -> Unit,
-    placement: HomePlacement = currentHomePlacement(hasHome = true),
+    hasHome: Boolean = true,
+    placement: HomePlacement = currentHomePlacement(hasHome),
     content: @Composable () -> Unit
 ) {
     LaunchedEffect(placement) {
