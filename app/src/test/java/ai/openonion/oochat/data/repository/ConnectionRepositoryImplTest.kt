@@ -3,6 +3,7 @@ package ai.openonion.oochat.data.repository
 import ai.openonion.oochat.crypto.KeyManager
 import ai.openonion.oochat.crypto.TestIdentity
 import ai.openonion.oochat.data.protocol.FileAttachment
+import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ChatEvent
@@ -27,6 +28,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -37,6 +39,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -104,15 +107,36 @@ class ConnectionRepositoryImplTest {
     private val sink = RecordingSink()
     private val testDispatcher = UnconfinedTestDispatcher()
 
+    private class InMemorySessionStore : SessionStore {
+        val sessions = mutableMapOf<String, SessionState>()
+
+        override suspend fun saveSession(conversationId: String, session: SessionState) {
+            sessions[conversationId] = session
+        }
+
+        override suspend fun getSession(conversationId: String): SessionState? = sessions[conversationId]
+
+        override suspend fun deleteSessionByConversation(conversationId: String) {
+            sessions.remove(conversationId)
+        }
+
+        override suspend fun deleteOrphanedSessions(): Int = 0
+    }
+
     @Before
     fun setUp() {
         keyManager = KeyManager(ApplicationProvider.getApplicationContext())
         keyManager.save(TestIdentity.keys())
         factory = FakeWebSocketFactory()
 
-        repository = ConnectionRepositoryImpl(
+        repository = repositoryWith()
+    }
+
+    private fun repositoryWith(sessionStore: SessionStore? = null) =
+        ConnectionRepositoryImpl(
             keyManager = keyManager,
             relayUrl = "ws://test.invalid",
+            sessionStore = sessionStore,
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url ->
                 AgentConnection(
@@ -124,7 +148,22 @@ class ConnectionRepositoryImplTest {
                 )
             }
         )
+
+    private fun openLastSocket() {
+        factory.lastListener!!.onOpen(
+            factory.lastWebSocket!!,
+            Response.Builder()
+                .request(Request.Builder().url("wss://fake.example.com/ws").build())
+                .protocol(Protocol.HTTP_1_1)
+                .code(101)
+                .message("Switching Protocols")
+                .build()
+        )
     }
+
+    private fun sentConnect(): JsonObject = factory.lastWebSocket!!.sentMessages
+        .map { Json.parseToJsonElement(it).jsonObject }
+        .first { it["type"]?.jsonPrimitive?.content == "CONNECT" }
 
     /** Lets a test assert whether the outbox was touched. */
     private class RecordingSink : PendingMessageSink {
@@ -208,6 +247,35 @@ class ConnectionRepositoryImplTest {
         repository.connect("0xAGENT")
 
         assertEquals(ConnectionState.Connecting, repository.connectionState.value)
+    }
+
+    @Test
+    fun `connect omits the session when memory is disabled`() = runTest(testDispatcher) {
+        val delegate = InMemorySessionStore().apply {
+            sessions["conversation-1"] = SessionState(sessionId = "saved-session")
+        }
+        repository = repositoryWith(
+            MemoryGatedSessionStore(delegate, MutableStateFlow(false))
+        )
+
+        repository.connect("0xAGENT", conversationId = "conversation-1")
+        openLastSocket()
+
+        val connect = sentConnect()
+        assertFalse(connect.containsKey("session_id"))
+        assertFalse(connect.containsKey("session"))
+    }
+
+    @Test
+    fun `connect keeps the conversation id fallback when memory is enabled`() = runTest(testDispatcher) {
+        repository = repositoryWith(
+            MemoryGatedSessionStore(InMemorySessionStore(), MutableStateFlow(true))
+        )
+
+        repository.connect("0xAGENT", conversationId = "conversation-1")
+        openLastSocket()
+
+        assertEquals("conversation-1", sentConnect()["session_id"]?.jsonPrimitive?.content)
     }
 
     @Test

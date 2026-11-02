@@ -543,29 +543,28 @@ class ConnectionRepositoryImpl(
         connection?.switchSession(session)
     }
 
-    /**
-     * The wire session for [conversationId]: its stored one, or a bare
-     * session under the conversation's own id when nothing is stored yet.
-     *
-     * The conversation id IS the session id — the server allocates under the
-     * id it is given (websocket-protocol.md's state table, "Provided / not
-     * found / allocate new session (same id)"). So a conversation's session
-     * is recoverable from its id alone, and the store only adds the
-     * transcript and turn count on top.
-     */
     /** The plan [session] was saved with, or none — see SessionStateEntity.planJson. */
     private fun showStoredPlan(session: SessionState?) {
         _plan.value = ProtocolParser.decodePlan(session?.plan).orEmpty()
     }
 
+    /**
+     * The wire session for [conversationId]. A configured store owns the
+     * connect policy and may deliberately return null to ask the Host for a
+     * fresh session. Without a store, retain the conversation-id fallback.
+     */
     private suspend fun sessionFor(conversationId: String?): SessionState? {
         if (conversationId == null) return null
-        val stored = conversationId.let { sessionStore?.getSession(it) }
+        val session = if (sessionStore != null) {
+            sessionStore.sessionForConnect(conversationId)
+        } else {
+            SessionState(sessionId = conversationId)
+        }
         FileLogger.i(
             LogTags.CONN_REPO,
-            "Conversation $conversationId: sid=$conversationId (${if (stored != null) "stored" else "fresh"})"
+            "Conversation $conversationId: sid=${session?.sessionId ?: "<new>"}"
         )
-        return stored ?: SessionState(sessionId = conversationId)
+        return session
     }
 
     override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) {

@@ -324,7 +324,7 @@ fun SettingsScreen(
             SettingsSection("Personalization") {
                 SwitchRow(
                     label = "Memory",
-                    subtitle = "Remembers context across chats",
+                    subtitle = "When off, each connection starts fresh",
                     checked = memoryEnabled,
                     onChange = { viewModel.setMemoryEnabled(it) }
                 )
