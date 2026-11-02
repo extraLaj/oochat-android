@@ -226,6 +226,36 @@ class OutgoingMessagesTest {
     }
 
     @Test
+    fun `a session index CONNECT negotiates sync without naming a chat session`() {
+        val encoded = json.encodeToString(
+            ConnectMessage.serializer(),
+            ConnectMessage(
+                payload = ConnectPayload(
+                    timestamp = 1_760_000_000L,
+                    to = "0xagent",
+                    nonce = "n-index",
+                    extensions = OipProtocol.SESSION_SYNC_OFFER,
+                    sessionSyncOnly = 1
+                ),
+                from = "0xme",
+                signature = "sig",
+                timestamp = 1_760_000_000L,
+                to = "0xagent"
+            )
+        )
+
+        assertEquals(
+            """{"type":"CONNECT","protocol":{"name":"oip","version":"0.1","min_version":"0.1","max_version":"0.1"},""" +
+                """"payload":{"timestamp":1760000000,"to":"0xagent","nonce":"n-index","signed_commands":1,""" +
+                """"extensions":{"session-sync":["0.1"]},"session_sync_only":1},"from":"0xme","signature":"sig",""" +
+                """"timestamp":1760000000,"to":"0xagent"}""",
+            encoded
+        )
+        assertFalse("an index-only CONNECT must not resume a chat", encoded.contains("session_id"))
+        assertFalse("an index-only CONNECT must not carry chat state", encoded.contains("\"session\":"))
+    }
+
+    @Test
     fun `INPUT preserves prompt images and file attachments`() {
         val encoded = json.encodeToString(
             InputMsg.serializer(),

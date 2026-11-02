@@ -172,6 +172,11 @@ class SettingsViewModelTest {
     private class FakeSessionRepository : SessionRepository {
         private val all = MutableStateFlow<List<ChatSession>>(emptyList())
         private var counter = 0
+        val activatedIdentities = mutableListOf<String>()
+
+        override suspend fun activateIdentity(identityAddress: String) {
+            activatedIdentities += identityAddress
+        }
 
         override fun getAllSessions(): Flow<List<ChatSession>> = all
         override fun getSessionsByAgent(agentId: String): Flow<List<ChatSession>> =
@@ -320,6 +325,7 @@ class SettingsViewModelTest {
             accountRepo.calls
         )
         assertEquals("0xRESET-IDENTITY", vm.uiState.value.walletAddress)
+        assertEquals(listOf("0xRESET-IDENTITY"), sessionRepo.activatedIdentities)
         assertEquals("the reload must surface the NEW identity's snapshot", "new-token", vm.uiState.value.accountApiKey)
         assertTrue("the fresh mnemonic must be returned for immediate backup", fresh.mnemonic.isNotBlank())
     }
@@ -338,6 +344,7 @@ class SettingsViewModelTest {
         assertEquals(1, accountRepo.invalidateCount)
         assertEquals(listOf("load", "invalidate", "load"), accountRepo.calls)
         assertEquals("0xIMPORTED-IDENTITY", vm.uiState.value.walletAddress)
+        assertEquals(listOf("0xIMPORTED-IDENTITY"), sessionRepo.activatedIdentities)
         assertEquals("imported-token", vm.uiState.value.accountApiKey)
     }
 
