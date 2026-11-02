@@ -44,6 +44,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
 
 ### Server-to-client frame checklist
@@ -65,6 +66,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `session_sync` | Partial | [`ProtocolParserSessionSyncTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserSessionSyncTest.kt); assistant messages are replayed, while other session entries are not rendered as separate items |
+| `SESSION_SYNC_RESULT` index response | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt); pages are combined and revision-aware changes plus the final cursor are committed to Room together |
 | `user_input` | Partial by design | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt); ignored because the local user message is authoritative |
 | `ask_user` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -99,6 +101,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `last_msg_id` is sent for replay recovery | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ProtocolParserLiveFlowTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserLiveFlowTest.kt) |
 | `session_modes` on `CONNECTED` sets the mode and the modes on offer | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `server_newer` session data is merged | Supported | [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
+| Recent Chat index refreshes on connect and reconnect | Supported | [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
 | Reconnect retries use bounded backoff and stop after the attempt limit | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | Runtime input acknowledgement is handled without ending the turn | Supported | [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
 | OIP 0.2 negotiation and frame compatibility | Missing / deferred | No Android implementation or compatibility test |
@@ -160,7 +163,7 @@ They are `@Serializable` Kotlin data classes and are encoded with
 | --- | --- |
 | `type` | Always `"CONNECT"`. |
 | `protocol` | The OIP protocol descriptor, `OipProtocol.DESCRIPTOR`. See below. |
-| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. See [Signed commands](#signed-commands). |
+| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands, extensions, session_sync_only)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. The final two fields are absent on ordinary chat connections and reserved for an index-only Session Sync connection. See [Signed commands](#signed-commands). |
 | `from` | The local Ed25519 address. |
 | `signature` | Hex Ed25519 signature over the canonical payload JSON. |
 | `timestamp` | Unix time in seconds. The same value is used in `payload`. |
@@ -782,6 +785,47 @@ saved SessionState -> SessionStore.getSession(agentAddress)
                    -> (a reconnect on the same AgentConnection also carries last_msg_id)
                    -> CONNECTED / OUTPUT / session_sync refresh local state
 ```
+
+### Session Sync retained-session index
+
+The experimental `session-sync/0.1` extension is a different protocol surface
+from the lower-case `session_sync` event above. `session_sync` carries one open
+conversation's current `SessionState`; the extension discovers the retained
+conversation summaries owned by the Ed25519 identity that signed `CONNECT`.
+
+An index connection offers the extension and asks not to create a chat inside
+the signed CONNECT payload:
+
+```json
+{
+  "extensions": {"session-sync": ["0.1"]},
+  "session_sync_only": 1
+}
+```
+
+It omits chat `session_id` and `session`. A supporting Host answers
+`CONNECTED` with `status: "index"` and selects
+`protocol.extensions["session-sync"] == "0.1"`. `OipProtocol.supportsSessionSync`
+checks that exact selection; absence or another version fails closed.
+
+`SESSION_SYNC` is a signed command. Omitting its opaque `cursor` requests a
+full snapshot; a final `SESSION_SYNC_RESULT` returns a new cursor for the next
+incremental request. Non-final pages return `next_page_token` instead, which
+must be drained before the cursor is replaced. Each result contains changed
+`sessions` and `removed_session_ids`. An `ERROR` with `code: "cursor_expired"`
+means the caller should discard the cursor and make one full request;
+`unsupported_extension` means an older Host remains local-only.
+
+`SessionSyncProtocol.kt` models and validates these frames. `SessionSyncClient`
+opens a separate, short-lived index socket, validates the exact negotiated
+extension, signs each request and drains every page before returning one
+snapshot. A partial fetch is never presented as authoritative state: timeout,
+premature close and malformed frames close the socket and fail the operation.
+`SessionSyncRepositoryImpl` then applies only newer revisions, explicit
+removals and the final identity-and-agent-scoped cursor in one Room transaction;
+existing message rows are preserved by targeted updates rather than parent-row
+replacement. The app refreshes this index when the agent connection is established.
+
 ### Reconnect and replay
 
 A dropped socket does not stop the agent. The Host keeps the running turn and a
