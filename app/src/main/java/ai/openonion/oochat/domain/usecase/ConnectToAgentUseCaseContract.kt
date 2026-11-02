@@ -204,9 +204,10 @@ interface ConnectToAgentUseCaseContract {
      * Disconnect from the current agent.
      */
     /**
-     * Retry a pending reconnect now rather than on its backoff. Called when
-     * the app returns to the foreground, where the cause of the drop — being
-     * backgrounded — has just stopped applying.
+     * Retry a pending reconnect now rather than on its backoff, or with none
+     * pending check that the socket still answers. Called when the app returns
+     * to the foreground or the network comes back, where the likely cause of
+     * a drop has just stopped applying.
      */
     fun retryNow()
 
