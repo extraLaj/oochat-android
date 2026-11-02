@@ -136,6 +136,12 @@ android {
             isIncludeAndroidResources = true
         }
     }
+
+    // FakeAppContainer, shared by the JVM and instrumented tests.
+    sourceSets {
+        getByName("test").java.srcDir("src/sharedTest/java")
+        getByName("androidTest").java.srcDir("src/sharedTest/java")
+    }
 }
 
 // The two build types androidx.baselineprofile derives from release inherit
@@ -302,6 +308,10 @@ tasks.withType<Test>().configureEach {
     inputs.file(rootProject.file("docs/protocol.md"))
         .withPropertyName("protocolDoc")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // The migration tests read the exported schemas.
+    inputs.dir("schemas")
+        .withPropertyName("roomSchemas")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 
     configure<JacocoTaskExtension> {
         isIncludeNoLocationClasses = true
@@ -419,6 +429,7 @@ val regressionSuite = mapOf(
     "slash-command palette" to listOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",
+        "ui.chat.components.InputBarOfflineComposeTest",
     ),
     "dictation" to listOf(
         "ui.chat.components.DictationMergeTest",
@@ -435,9 +446,61 @@ val regressionSuite = mapOf(
     ),
     "session resume" to listOf(
         "ui.chat.ProcessDeathResumeTest",
+        "ui.chat.ForegroundReturnTest",
+        "data.repository.ConnectionRepositorySessionPersistenceTest",
+        "data.repository.SessionPersistsToRoomTest",
+        "domain.usecase.ColdStartConnectionTest",
+        "domain.usecase.SharedConnectionTest",
+        "domain.usecase.ConnectToAgentUseCaseStaleSessionTest",
+        "domain.usecase.SessionFreshnessTest",
+    ),
+    "wrong clock and failed reconnects" to listOf(
+        "network.HostClockTest",
+        "domain.usecase.ServerErrorTextTest",
     ),
     "relay failover" to listOf(
         "ui.chat.RelayFailoverTest",
+    ),
+    "network drop" to listOf(
+        "ui.chat.NetworkDropTest",
+    ),
+    "failed sends" to listOf(
+        "ui.chat.OfflineQueueRestartTest",
+        "data.local.RoomPendingMessageSinkTest",
+        "network.InMemoryPendingMessageSinkTest",
+        "ui.chat.components.FailedMessagesBarComposeTest",
+    ),
+    "session drawer" to listOf(
+        "ui.navigation.SessionDrawerComposeTest",
+        "domain.usecase.ConversationHistoryUseCaseTest",
+        "data.repository.SessionRepositoryImplTest",
+    ),
+    "approval cards and modes" to listOf(
+        "ui.chat.components.ApprovalCardComposeTest",
+        "ui.chat.components.ActionCardsComposeTest",
+        "ui.chat.ApprovalResponseTest",
+        "ui.chat.components.ApprovalModeControlsComposeTest",
+        "domain.model.ApprovalModeTest",
+        "network.ProtocolParserStatusEventsTest",
+    ),
+    "database upgrades" to listOf(
+        "data.local.db.MigrationChainTest",
+        "data.local.db.Migration8To9Test",
+        "data.local.db.Migration9To10Test",
+        "data.local.db.Migration10To11Test",
+        "data.local.db.Migration12To13Test",
+        "data.local.db.Migration13To14Test",
+        "data.local.db.TurnMetadataSchemaCompatTest",
+    ),
+    "which screen opens first" to listOf(
+        "StartScreenTest",
+    ),
+    "stop and interrupt" to listOf(
+        "ui.chat.components.InputBarInterjectComposeTest",
+    ),
+    "keep typing while working" to listOf(
+        "ui.chat.components.InputBarInterjectComposeTest",
+        "network.ProtocolParserRuntimeInputTest",
     ),
     "Home beside the chat" to listOf(
         "ui.adaptive.HomePlacementTest",
