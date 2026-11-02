@@ -20,6 +20,10 @@ class MemoryGatedSessionStore(
         return if (memoryEnabled.first()) delegate.getSession(conversationId) else null
     }
 
+    override suspend fun sessionForConnect(conversationId: String): SessionState? {
+        return if (memoryEnabled.first()) delegate.sessionForConnect(conversationId) else null
+    }
+
     override suspend fun deleteOrphanedSessions(): Int = delegate.deleteOrphanedSessions()
 
     override suspend fun deleteSessionByConversation(conversationId: String) {
