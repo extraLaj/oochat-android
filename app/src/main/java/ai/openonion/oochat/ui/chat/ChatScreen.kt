@@ -15,7 +15,7 @@ import ai.openonion.oochat.ui.chat.components.failedUserMessages
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.ConnectionBanner
 import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
-import ai.openonion.oochat.ui.controlcenter.homeOpensControlCenter
+import ai.openonion.oochat.ui.home.AgentHome
 import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.NavDrawer
 import ai.openonion.oochat.ui.navigation.NavDrawerWidth
@@ -126,7 +126,7 @@ fun ChatScreen(
     val controlCenterApp by viewModel.controlCenterApp.collectAsState()
     // Lazy: asking loads the WebView, which only an agent with both kinds of Home page needs.
     val webViewHostsApps = remember { lazy { controlCenterSupported() } }
-    val opensControlCenter = homeOpensControlCenter(controlCenterApp != null, dashboardHtml != null) { webViewHostsApps.value }
+    val agentHome = AgentHome(dashboardHtml != null, controlCenterApp != null) { webViewHostsApps.value }
     val plan by viewModel.plan.collectAsState()
     val activeSessionId by viewModel.activeSessionId.collectAsState()
     val itemTimestamps by viewModel.itemTimestamps.collectAsState()
@@ -331,8 +331,8 @@ fun ChatScreen(
                 awaitingOnboardCode = awaitingOnboardCode,
                 modelName = agentProfile?.model,
                 sessionActivity = sessionActivity,
-                hasDashboard = !homeBeside && (dashboardHtml != null || opensControlCenter),
-                onOpenDashboard = if (opensControlCenter) onNavigateToControlCenter else onNavigateToDashboard
+                hasDashboard = !homeBeside && agentHome.hasPage,
+                onOpenDashboard = if (agentHome.opensControlCenter) onNavigateToControlCenter else onNavigateToDashboard
             )
 
             ConnectionBanner(

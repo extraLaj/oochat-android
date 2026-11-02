@@ -69,6 +69,18 @@ class HomeScreenRouteComposeTest {
     }
 
     @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet a Home that cannot sit beside the chat keeps its screen`() {
+        composeRule.setContent {
+            HomeScreenRoute(onLeave = { left++ }, hasHome = false) { Text("home screen") }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("home screen").assertIsDisplayed()
+        assertEquals("nothing to leave", 0, left)
+    }
+
+    @Test
     @Config(sdk = [34])
     fun `a foldable unfolded while Home is open leaves it then, not only when it opens`() {
         var placement by mutableStateOf(HomePlacement.OWN_SCREEN)

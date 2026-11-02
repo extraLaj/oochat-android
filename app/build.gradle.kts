@@ -447,6 +447,11 @@ val regressionSuite = mapOf(
         "ui.adaptive.PaneComposeTest",
         "ui.adaptive.HomeScreenRouteComposeTest",
         "ui.adaptive.HomeBesideChatComposeTest",
+        "ui.chat.ChatHomeButtonComposeTest",
+        "ui.navigation.ChatWithHomePanesComposeTest",
+        "ui.controlcenter.HomeScreenWrappersComposeTest",
+        "ui.dashboard.RunSkillFromHomeTest",
+        "ui.home.AgentHomeTest",
     ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent

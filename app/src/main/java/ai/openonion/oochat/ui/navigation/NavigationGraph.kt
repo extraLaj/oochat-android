@@ -9,6 +9,7 @@ import ai.openonion.oochat.ui.chat.ChatScreen
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.controlcenter.ControlCenterScreenWrapper
+import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
 import ai.openonion.oochat.ui.dashboard.DashboardScreenWrapper
 import ai.openonion.oochat.ui.loading.LoadingScreen
 import ai.openonion.oochat.ui.logs.LogsScreen
@@ -455,7 +456,12 @@ fun NavigationGraph(
 
         // The agent's Home when it has a Control Center app. Reached the same way as DASHBOARD.
         composable(Routes.CONTROL_CENTER) {
-            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) }) {
+            // A device that cannot host the app keeps this screen, which says why.
+            val hostsApps = remember { controlCenterSupported() }
+            HomeScreenRoute(
+                onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) },
+                hasHome = hostsApps
+            ) {
                 ControlCenterScreenWrapper(
                     chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
                         runCatching { navController.getBackStackEntry(route) }.getOrNull()

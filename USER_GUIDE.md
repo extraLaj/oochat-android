@@ -145,6 +145,11 @@ its message and leaves the page where it is. Fold the device and the page goes
 back behind the icon, and whatever you had typed in the chat is still there. A
 phone, even turned on its side, keeps the full-screen page.
 
+The page is only open while the chat is. Go from the chat to Settings, Logs or the
+agent list and it is closed; when you come back it is loaded again from the start.
+A Control Center app starts afresh too, so whatever you had open or half-filled in
+it is gone, though anything it already did shows in the chat as before.
+
 ---
 
 ## 6. Deciding what the agent may do

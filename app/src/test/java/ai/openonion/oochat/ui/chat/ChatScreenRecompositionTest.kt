@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ChatMessage
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
+import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
@@ -341,7 +342,10 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override val agentProfile: StateFlow<AgentLiveProfile?> = MutableStateFlow(null)
     override val approvalMode: StateFlow<ApprovalMode> = MutableStateFlow(ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
-    override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
+    val dashboard = MutableStateFlow<String?>(null)
+    override val dashboardHtml: StateFlow<String?> = dashboard
+    val controlCenter = MutableStateFlow<ControlCenterApp?>(null)
+    override val controlCenterApp: StateFlow<ControlCenterApp?> = controlCenter
 
     private val events = MutableSharedFlow<ChatEvent>(
         extraBufferCapacity = 64,
