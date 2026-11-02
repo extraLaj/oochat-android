@@ -8,7 +8,7 @@ import ai.openonion.oochat.data.local.FileAttachResult
 import ai.openonion.oochat.data.local.FileAttachmentStore
 import ai.openonion.oochat.data.local.IgnoredIdsStorage
 import ai.openonion.oochat.data.local.ImageAttachmentStore
-import ai.openonion.oochat.data.local.RecordedVoice
+import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.repository.AccountRepository
 import ai.openonion.oochat.data.repository.AccountSnapshot
@@ -208,7 +208,7 @@ class FakeFileAttachmentStore : FileAttachmentStore {
 
 class FakeVoiceRecorderStore : VoiceRecorderStore {
     override suspend fun startRecording() = true
-    override suspend fun stopRecording(): RecordedVoice? = null
+    override suspend fun stopRecording(): RecordingResult = RecordingResult.Unusable
     override suspend fun cancelRecording() {}
 }
 
