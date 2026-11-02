@@ -21,6 +21,11 @@ class SessionRepositoryImpl(
     private val clock: () -> Long = System::currentTimeMillis
 ) : SessionRepository {
 
+    override suspend fun activateIdentity(identityAddress: String) {
+        require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
+        sessionSyncDao?.showOnlyIdentity(identityAddress)
+    }
+
     override fun getAllSessions(): Flow<List<ChatSession>> {
         return sessionDao.getAllSessions().map { entities ->
             SessionMapper.toDomainList(entities)
@@ -41,6 +46,7 @@ class SessionRepositoryImpl(
 
     override suspend fun createSession(agentId: String, title: String, id: String): ChatSession {
         val now = System.currentTimeMillis()
+        val identity = identityAddress()?.takeIf(String::isNotBlank)
         val session = ChatSessionEntity(
             id = id,
             agentId = agentId,
@@ -48,7 +54,8 @@ class SessionRepositoryImpl(
             createdAt = now,
             updatedAt = now,
             messageCount = 0,
-            lastMessagePreview = null
+            lastMessagePreview = null,
+            syncIdentityAddress = identity
         )
         sessionDao.insertSession(session)
         return SessionMapper.toDomain(session)

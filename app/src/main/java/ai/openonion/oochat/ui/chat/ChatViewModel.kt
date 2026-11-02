@@ -1154,6 +1154,7 @@ open class ChatViewModel @JvmOverloads constructor(
             if (previousAddress.isNotBlank() && (previousAddress != resolved.address || forceNew)) {
                 failRunningThinking()
             }
+            activateRecentChatsIdentity()
             restoreLocalSession(resolved.address, forceNew)
 
             // Perform connection, on this conversation's own server session.
@@ -1182,10 +1183,7 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     private suspend fun onConnectedTo(agentAddress: String, directUrl: String?) {
         saveAgentIfNeeded(agentAddress, directUrl)
-        // Identity filtering is local and must finish before choosing a chat.
-        // The network fetch stays detached below, but restoring first could
-        // reopen the previous identity's synced session under the new key.
-        recentChatsSync.activateIdentity()
+        activateRecentChatsIdentity()
         val forceNew = startFreshOnNextConnect
         startFreshOnNextConnect = false
         restoreLocalSession(agentAddress, forceNew)
@@ -1200,6 +1198,14 @@ open class ChatViewModel @JvmOverloads constructor(
         }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
         joined?.let { actOnHostAnswer(it) }
+    }
+
+    /** Identity filtering is local and must not make a live connection fail. */
+    private suspend fun activateRecentChatsIdentity() {
+        runCatchingCancellable { recentChatsSync.activateIdentity() }
+            .onFailure { error ->
+                FileLogger.w(LogTags.CHAT_VM, "Could not filter Recent Chat identity: ${error.message}")
+            }
     }
 
     private suspend fun startRecentChatsSync(

@@ -339,10 +339,14 @@ class ChatViewModelTest {
         data class Call(val agentId: String, val agentAddress: String, val directUrl: String?)
         val calls = mutableListOf<Call>()
         var identityActivations = 0
+        var activationFailure: Throwable? = null
+        var onActivate: () -> Unit = {}
         var result: RecentChatsSyncResult = RecentChatsSyncResult.Synced
 
         override suspend fun activateIdentity() {
             identityActivations++
+            onActivate()
+            activationFailure?.let { throw it }
         }
 
         override suspend fun sync(
@@ -3929,6 +3933,7 @@ class ChatViewModelTest {
     @Test
     fun `connected agent refreshes Recent Chat exactly once for that connection`() = runTest(testDispatcher) {
         val address = validHexAddress()
+        recentChatsSync.onActivate = { connectUseCase.interactions += "activate-identity" }
         vm.connectToAgent(address)
         testScheduler.runCurrent()
 
@@ -3939,6 +3944,10 @@ class ChatViewModelTest {
 
         val call = recentChatsSync.calls.single()
         assertTrue(recentChatsSync.identityActivations >= 1)
+        assertTrue(
+            connectUseCase.interactions.indexOf("activate-identity") <
+                connectUseCase.interactions.indexOfFirst { it.startsWith("connect:") }
+        )
         assertEquals(address, call.agentAddress)
         assertEquals(agentRepo.createdAgents.single().id, call.agentId)
     }
@@ -3971,6 +3980,20 @@ class ChatViewModelTest {
         assertEquals(1, recentChatsSync.calls.size)
         assertNull(vm.uiState.value.error)
         assertTrue(connectUseCase.connectionState.value is ConnectionState.Connected)
+    }
+
+    @Test
+    fun `identity filter failure does not fail the live chat`() = runTest(testDispatcher) {
+        recentChatsSync.activationFailure = IllegalStateException("database unavailable")
+        val address = validHexAddress()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        assertTrue(connectUseCase.connectionState.value is ConnectionState.Connected)
+        assertNull(vm.uiState.value.error)
     }
 
     @Test

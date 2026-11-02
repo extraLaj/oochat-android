@@ -57,16 +57,20 @@ interface SessionSyncDao {
         identityAddress: String
     ): Int
 
-    /** A Host removal hides the row but keeps its local messages. */
+    /** A Host removal hides only a remote-only row; local transcripts stay listed. */
     @Query(
-        "UPDATE chat_sessions SET remote_removed = 1 " +
+        "UPDATE chat_sessions SET remote_removed = CASE WHEN EXISTS (" +
+            "SELECT 1 FROM chat_messages WHERE session_id = chat_sessions.id" +
+            ") THEN 0 ELSE 1 END " +
             "WHERE id = :sessionId AND agent_id = :agentId AND sync_identity_address = :identityAddress"
     )
     suspend fun markRemoteRemoved(sessionId: String, agentId: String, identityAddress: String): Int
 
     /** A full snapshot is authoritative: hide prior remote rows that it no longer contains. */
     @Query(
-        "UPDATE chat_sessions SET remote_removed = 1 " +
+        "UPDATE chat_sessions SET remote_removed = CASE WHEN EXISTS (" +
+            "SELECT 1 FROM chat_messages WHERE session_id = chat_sessions.id" +
+            ") THEN 0 ELSE 1 END " +
             "WHERE agent_id = :agentId AND sync_identity_address = :identityAddress " +
             "AND id NOT IN (:retainedSessionIds)"
     )
@@ -77,7 +81,9 @@ interface SessionSyncDao {
     )
 
     @Query(
-        "UPDATE chat_sessions SET remote_removed = 1 " +
+        "UPDATE chat_sessions SET remote_removed = CASE WHEN EXISTS (" +
+            "SELECT 1 FROM chat_messages WHERE session_id = chat_sessions.id" +
+            ") THEN 0 ELSE 1 END " +
             "WHERE agent_id = :agentId AND sync_identity_address = :identityAddress"
     )
     suspend fun markAllMissingFromFullSnapshot(agentId: String, identityAddress: String)

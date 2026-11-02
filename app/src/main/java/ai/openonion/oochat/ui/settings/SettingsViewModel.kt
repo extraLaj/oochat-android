@@ -11,6 +11,7 @@ import ai.openonion.oochat.di.appContainer
 import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
+import ai.openonion.oochat.util.runCatchingCancellable
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
@@ -186,6 +187,12 @@ open class SettingsViewModel @JvmOverloads constructor(
             )
         }
         FileLogger.i(LogTags.ACCOUNT, "identity changed → account cache invalidated, reloading")
+        viewModelScope.launch {
+            runCatchingCancellable { sessionRepository.activateIdentity(newAddress) }
+                .onFailure { error ->
+                    FileLogger.w(LogTags.ACCOUNT, "Could not filter conversations for new identity: ${error.message}")
+                }
+        }
         loadAccount()
     }
 

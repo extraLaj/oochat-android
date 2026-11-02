@@ -21,12 +21,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * The app's Room database.
- *
- * Very old databases (versions 1-4) must be rebuilt because their original
- * layouts were not recorded. From version 5 onward, each upgrade has a
- * migration that keeps existing data. Every future database change must bump
- * [version] and add its migration to [ALL_MIGRATIONS].
+ * Versions 1-4 predate schema export, so an upgrade from one of those still
+ * rebuilds destructively — scoped via [fallbackToDestructiveMigrationFrom]
+ * rather than a blanket fallback that silently wipes on every future bump.
+ * From v5 on every change is a real [Migration]. Add one here for any new
+ * schema change instead of growing the destructive list.
  */
 @Database(
     entities = [
@@ -58,6 +57,9 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "connectonion_db"
 
+        // internal: Migration8To9Test opens a hand-built v8
+        // database and drives this migration directly, so it needs access
+        // from outside this class body.
         internal val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN voice_transcript_status TEXT")
@@ -296,7 +298,9 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * Lists every supported upgrade for tests and database use.
+         * The migration chain, shared with the migration tests so it
+         * can never be written, tested, and then left out of the
+         * builder below.
          */
         internal val ALL_MIGRATIONS = arrayOf(
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
@@ -315,8 +319,7 @@ abstract class AppDatabase : RoomDatabase() {
                     DATABASE_NAME
                 )
                     .addMigrations(*ALL_MIGRATIONS)
-                    // Only versions 1-4 may be rebuilt. Newer versions must use
-                    // migrations so an upgrade cannot silently erase user data.
+                    // dropAllTables = false: rebuild only what Room declares.
                     .fallbackToDestructiveMigrationFrom(dropAllTables = false, 1, 2, 3, 4)
                     .build()
                 INSTANCE = instance
