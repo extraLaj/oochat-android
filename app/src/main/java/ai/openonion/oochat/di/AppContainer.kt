@@ -50,6 +50,7 @@ import ai.openonion.oochat.network.VoiceTranscriptionServiceImpl
 import ai.openonion.oochat.notification.AndroidAgentReplyNotifier
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
@@ -114,8 +115,8 @@ interface AppContainer {
      * Persisted protocol-session store (session_states), one row per local
      * conversation — the connection restores and saves each conversation's
      * own wire session through it. Memory-gated: with the Memory toggle off
-     * reads return null, so a conversation starts a fresh server session
-     * instead of resuming its own.
+     * reads return null, so every connection starts a fresh server session
+     * instead of resuming the saved one.
      */
     val sessionStore: SessionStore
 
@@ -244,6 +245,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             identityAddress = {
                 withContext(Dispatchers.IO) { keyManager.loadOrGenerate().address }
             },
+            syncEnabled = { appSettings.memoryEnabled.first() },
             fetch = { agentAddress, directUrl, cursor ->
                 client.fetch(agentAddress, directUrl, cursor)
             }

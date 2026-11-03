@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 /** The result of refreshing one agent's retained conversation index. */
 sealed interface RecentChatsSyncResult {
     data object Synced : RecentChatsSyncResult
+    data object MemoryDisabled : RecentChatsSyncResult
     data object Unsupported : RecentChatsSyncResult
     data class Failed(val message: String, val retryable: Boolean = false) : RecentChatsSyncResult
 }
@@ -25,6 +26,7 @@ fun interface RecentChatsSync {
 class SyncRecentChatsUseCase(
     private val repository: SessionSyncRepository,
     private val identityAddress: suspend () -> String,
+    private val syncEnabled: suspend () -> Boolean = { true },
     private val fetch: suspend (agentAddress: String, directUrl: String?, cursor: String?) -> SessionSyncFetchResult
 ) : RecentChatsSync {
     // A reconnect and the screen joining that same connection can arrive
@@ -51,6 +53,9 @@ class SyncRecentChatsUseCase(
             val identity = identityAddress()
             require(identity.isNotBlank()) { "identityAddress must not be blank" }
             activateIdentity(identity)
+            // A Memory-off CONNECT deliberately creates a fresh Host session.
+            // Importing that session would expose an unusable duplicate chat.
+            if (!syncEnabled()) return@withLock RecentChatsSyncResult.MemoryDisabled
             val cursor = repository.cursorFor(identity, agentId)
 
             var first = fetch(agentAddress, directUrl, cursor)

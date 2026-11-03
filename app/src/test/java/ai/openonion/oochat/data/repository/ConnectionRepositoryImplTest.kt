@@ -279,6 +279,14 @@ class ConnectionRepositoryImplTest {
     }
 
     @Test
+    fun `connect keeps the conversation id fallback when no session store is configured`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT", conversationId = "conversation-1")
+        openLastSocket()
+
+        assertEquals("conversation-1", sentConnect()["session_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `a CONNECTED frame from the underlying AgentConnection updates connectionState to Connected`() = runTest(testDispatcher) {
         repository.connect("0xAGENT")
 

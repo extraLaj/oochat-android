@@ -1226,6 +1226,8 @@ open class ChatViewModel @JvmOverloads constructor(
             when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl)) {
                 RecentChatsSyncResult.Synced ->
                     FileLogger.i(LogTags.CHAT_VM, "Recent Chat sync completed")
+                RecentChatsSyncResult.MemoryDisabled ->
+                    FileLogger.i(LogTags.CHAT_VM, "Recent Chat sync skipped while Memory is off")
                 RecentChatsSyncResult.Unsupported ->
                     FileLogger.i(LogTags.CHAT_VM, "Host does not support Recent Chat sync")
                 is RecentChatsSyncResult.Failed ->

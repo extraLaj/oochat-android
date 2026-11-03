@@ -244,7 +244,7 @@ opens.
 | **Font size** | Four steps — Small, Medium, Large, Extra Large — previewed live. Combines with the system font size rather than overriding it. |
 | **Haptic feedback** | The small vibration when a message is sent. |
 | **Sound effects** | The in-app tones for sending and receiving. Separate from notifications. |
-| **Memory** | Whether an agent sees context carried over from your other chats with it. Off means each chat starts clean. |
+| **Memory** | Whether an agent sees context carried over from your other chats with it. When off, every connection starts a fresh session on the agent. |
 | **Custom instructions** | Text quietly prepended to everything you send — a standing "answer briefly", say. |
 | **Push notifications** | Section 9. |
 | **Notification sound** | Opens Android's own settings for this app's notification channel, where the full system sound list lives. |

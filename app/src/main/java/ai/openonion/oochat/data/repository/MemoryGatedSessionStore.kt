@@ -5,7 +5,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
 /**
- * Suppresses session reads when the Memory toggle is off, so a disabled toggle starts each connection fresh without deleting the saved session (re-enabling resumes where it left off). Writes/deletes always pass through.
+ * Suppresses session reads when the Memory toggle is off, so every connection
+ * starts a fresh server session without deleting its saved session. Re-enabling
+ * Memory resumes the saved session. Writes and deletes always pass through.
  */
 class MemoryGatedSessionStore(
     private val delegate: SessionStore,

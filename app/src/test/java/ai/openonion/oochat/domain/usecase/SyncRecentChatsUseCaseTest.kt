@@ -77,6 +77,24 @@ class SyncRecentChatsUseCaseTest {
     }
 
     @Test
+    fun `memory disabled skips host sync without changing recent chats`() = runTest {
+        val repository = FakeRepository()
+        var fetches = 0
+        val useCase = useCase(repository, syncEnabled = { false }) { _, _, _ ->
+            fetches++
+            SessionSyncFetchResult.Complete(snapshot)
+        }
+
+        val result = useCase.sync("agent-1", "0xagent", null)
+
+        assertSame(RecentChatsSyncResult.MemoryDisabled, result)
+        assertEquals(listOf("0xidentity"), repository.activatedIdentities)
+        assertEquals(0, fetches)
+        assertEquals(emptyList<Any>(), repository.reconciled)
+        assertEquals("cursor-1", repository.cursor)
+    }
+
+    @Test
     fun `expired cursor retries once without a cursor`() = runTest {
         val repository = FakeRepository()
         val cursors = mutableListOf<String?>()
@@ -145,10 +163,12 @@ class SyncRecentChatsUseCaseTest {
 
     private fun useCase(
         repository: FakeRepository,
+        syncEnabled: suspend () -> Boolean = { true },
         fetch: suspend (String, String?, String?) -> SessionSyncFetchResult
     ) = SyncRecentChatsUseCase(
         repository = repository,
         identityAddress = { "0xidentity" },
+        syncEnabled = syncEnabled,
         fetch = fetch
     )
 }

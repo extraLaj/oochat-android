@@ -324,7 +324,7 @@ fun SettingsScreen(
             SettingsSection("Personalization") {
                 SwitchRow(
                     label = "Memory",
-                    subtitle = "When off, each connection starts fresh",
+                    subtitle = "When off, every connection starts a fresh session on the agent",
                     checked = memoryEnabled,
                     onChange = { viewModel.setMemoryEnabled(it) }
                 )
