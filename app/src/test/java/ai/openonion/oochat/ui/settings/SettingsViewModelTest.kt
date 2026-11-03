@@ -12,11 +12,14 @@ import ai.openonion.oochat.data.repository.SessionRepository
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.UserProfile
 import android.app.Application
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -82,7 +85,13 @@ class SettingsViewModelTest {
             KeyManager.BackupExport.Phrase("exported phrase words")
 
         var legacyDerivation = false
-        override fun hasLegacyDerivation(): Boolean = legacyDerivation
+        /** Runs once, inside the next check, after that check has read its answer. */
+        var duringNextCheck: (() -> Unit)? = null
+        override fun hasLegacyDerivation(): Boolean {
+            val answer = legacyDerivation
+            duringNextCheck?.also { duringNextCheck = null }?.invoke()
+            return answer
+        }
     }
 
     private class FakeAccountRepository : AccountRepository {
@@ -229,6 +238,7 @@ class SettingsViewModelTest {
     private fun createVm(
         requiresNotificationPermission: Boolean = true,
         autoLoadAccountOnInit: Boolean = true,
+        legacyCheckDispatcher: CoroutineDispatcher = testDispatcher,
     ) = SettingsViewModel(
         application = Application(),
         identityManager = identityManager,
@@ -239,6 +249,7 @@ class SettingsViewModelTest {
         requiresNotificationPermission = requiresNotificationPermission,
         notificationPermissionChecker = { !requiresNotificationPermission || permissionGranted },
         autoLoadAccountOnInit = autoLoadAccountOnInit,
+        legacyCheckDispatcher = legacyCheckDispatcher,
     )
 
     // ── Construction / initial account load ────────────────────────────
@@ -425,6 +436,44 @@ class SettingsViewModelTest {
         vm.importIdentity("legal winner thank year wave sausage worth useful legal winner thank yellow")
 
         assertFalse(vm.uiState.value.legacyDerivation)
+    }
+
+    @Test
+    fun `the legacy check runs on its own dispatcher, not the main thread`() {
+        // Its first call is 2048 rounds of PBKDF2 plus a key derivation.
+        val checkDispatcher = StandardTestDispatcher()
+        identityManager.legacyDerivation = true
+        val vm = createVm(autoLoadAccountOnInit = false, legacyCheckDispatcher = checkDispatcher)
+
+        assertFalse("must not have run inline on Main", vm.uiState.value.legacyDerivation)
+        checkDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.legacyDerivation)
+    }
+
+    @Test
+    fun `a legacy check from before an identity switch cannot flag the new identity`() {
+        // Checks that finish in the order they started need no fence: the
+        // later one writes last. It matters when the older one finishes last,
+        // so run them newest first. The old identity's check answers "legacy".
+        val checks = NewestFirstDispatcher()
+        val vm = createVm(autoLoadAccountOnInit = false, legacyCheckDispatcher = checks)
+        vm.importIdentity("legal winner thank year wave sausage worth useful legal winner thank yellow")
+        identityManager.duringNextCheck = { identityManager.legacyDerivation = true }
+
+        checks.runNewestFirst()
+
+        assertFalse(vm.uiState.value.legacyDerivation)
+    }
+
+    /** Holds what is dispatched to it until [runNewestFirst]. */
+    private class NewestFirstDispatcher : CoroutineDispatcher() {
+        private val queued = ArrayDeque<Runnable>()
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            queued.addLast(block)
+        }
+        fun runNewestFirst() {
+            while (queued.isNotEmpty()) queued.removeLast().run()
+        }
     }
 
     @Test

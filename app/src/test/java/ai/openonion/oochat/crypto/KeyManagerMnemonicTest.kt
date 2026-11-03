@@ -237,6 +237,19 @@ class KeyManagerMnemonicTest {
     }
 
     @Test
+    fun `saving a new key under the same phrase rechecks rather than serving the cached answer`() {
+        // Only the key changes here; the stored phrase is not touched, so the
+        // reset in saveMnemonic() never runs. The one in save() is what has to
+        // drop the cached "legacy".
+        seedPreSlip10Install()
+        assertTrue(keyManager.hasLegacyDerivation())
+
+        keyManager.save(keyManager.keysFromMnemonic(phrase12))
+
+        assertFalse(keyManager.hasLegacyDerivation())
+    }
+
+    @Test
     fun `a current identity, a hex import and no identity at all are not legacy`() {
         assertFalse("no identity", keyManager.hasLegacyDerivation())
 

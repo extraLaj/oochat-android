@@ -19,6 +19,8 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Account/identity state for the Settings screen. Wallet address is a fast
@@ -81,6 +84,11 @@ open class SettingsViewModel @JvmOverloads constructor(
     },
     // Tests set this to false to control exactly when the first load runs.
     autoLoadAccountOnInit: Boolean = true,
+    // Where [IdentityManager.hasLegacyDerivation] runs. Its first call
+    // stretches the phrase (2048 rounds of PBKDF2-HMAC-SHA512 in pure Kotlin)
+    // and derives a key pair, too slow for the main thread when Settings
+    // opens. Injected so tests can run it inline.
+    private val legacyCheckDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -189,9 +197,11 @@ open class SettingsViewModel @JvmOverloads constructor(
                 walletAddress = newAddress,
                 accountApiKey = null,
                 accountProblem = null,
-                legacyDerivation = identityManager.hasLegacyDerivation()
+                // The old identity's answer says nothing about the new one.
+                legacyDerivation = false
             )
         }
+        refreshLegacyDerivation()
         FileLogger.i(LogTags.ACCOUNT, "identity changed → account cache invalidated, reloading")
         viewModelScope.launch {
             runCatchingCancellable { sessionRepository.activateIdentity(newAddress) }
@@ -272,6 +282,20 @@ open class SettingsViewModel @JvmOverloads constructor(
     fun setSafeModeEnabled(value: Boolean) = persist { appSettings.setSafeModeEnabled(value) }
     fun setDeveloperToolsEnabled(value: Boolean) = persist { appSettings.setDeveloperToolsEnabled(value) }
 
+    /**
+     * Fills [SettingsUiState.legacyDerivation] off the main thread. Fenced by
+     * [identityGeneration] like the account load, so a check that started
+     * before an identity switch can't flag (or clear) the identity after it.
+     */
+    private fun refreshLegacyDerivation() {
+        val generation = identityGeneration
+        viewModelScope.launch {
+            val legacy = withContext(legacyCheckDispatcher) { identityManager.hasLegacyDerivation() }
+            if (generation != identityGeneration) return@launch
+            _uiState.update { it.copy(legacyDerivation = legacy) }
+        }
+    }
+
     // Thin alias over the shared [launchScoped] fire-and-forget helper,
     // kept for the many `set…` delegators above that read as `persist { … }`.
     private fun persist(write: suspend () -> Unit) = launchScoped { write() }
@@ -279,24 +303,21 @@ open class SettingsViewModel @JvmOverloads constructor(
     init {
         // Fast local Keystore read — same pattern ChatViewModel's
         // initialMyAddress default already uses.
-        _uiState.update {
-            it.copy(
-                walletAddress = identityManager.loadOrGenerate().address,
-                legacyDerivation = identityManager.hasLegacyDerivation()
-            )
-        }
+        _uiState.update { it.copy(walletAddress = identityManager.loadOrGenerate().address) }
+        refreshLegacyDerivation()
         if (autoLoadAccountOnInit) {
             loadAccount()
         }
     }
 
     companion object {
-        /** Shown under the account when sign-in is refused over the device clock (W16AAPPLE-91). */
         /** Shown under the address when [SettingsUiState.legacyDerivation] (W16AAPPLE-97). */
         internal const val LEGACY_DERIVATION_WARNING =
             "This identity was created before recovery phrases moved to the ConnectOnion CLI's derivation. " +
                 "It keeps working, but restoring from its recovery phrase now gives a new, empty identity, not this one. " +
                 "Back up its private key from \"Back up seed phrase\"."
+
+        /** Shown under the account when sign-in is refused over the device clock (W16AAPPLE-91). */
 
         internal const val ACCOUNT_CLOCK_WRONG =
             "Can't sign in to your account: this device's clock is wrong. " +

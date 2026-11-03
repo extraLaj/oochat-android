@@ -296,7 +296,8 @@ The phrase gives the same identity in the ConnectOnion CLI (`co auth recover`).
 An identity made by an older version of the app keeps working, but its phrase
 now restores a different, empty identity. Settings says so under the wallet
 address when that is the case, and **Back up seed phrase** then shows the
-identity's private key, which is what restores it.
+identity's private key, which is what restores it. **Import Key** says the same,
+for anyone restoring onto a new phone.
 
 Conversations and attachments are stored on the device. Voice recordings are
 never saved.

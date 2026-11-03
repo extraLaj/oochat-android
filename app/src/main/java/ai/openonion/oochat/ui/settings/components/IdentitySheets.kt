@@ -122,7 +122,6 @@ internal fun BackupSeedSheet(export: KeyManager.BackupExport, onDismiss: () -> U
                             copyState.markCopied()
                             clipboardSecret = legacyKeyHex
                         },
-                        title = "Back Up Your Private Key",
                         explanation = "This identity was created before recovery phrases switched to the ConnectOnion CLI's derivation. " +
                             "Its recovery phrase now restores a different, empty identity — only the private key below restores this one. " +
                             "Import it with \"Import Recovery Key\"."
@@ -319,19 +318,21 @@ private fun MnemonicWordGrid(words: List<String>) {
 }
 
 /**
- * Raw hex key + copy: for identities that predate mnemonics, and (with its own
- * [title] and [explanation]) for those whose phrase predates SLIP-0010.
+ * Raw hex key + copy: for identities with no phrase (imported from hex, or
+ * older than mnemonics), and (with its own [explanation]) for those whose
+ * phrase predates SLIP-0010.
  */
 @Composable
 private fun LegacyHexBackup(
     privateKeyHex: String,
     copied: Boolean,
     onCopy: () -> Unit,
-    title: String = "Legacy Identity",
-    explanation: String = "This identity was created before recovery phrases were supported, so there's no 12-word phrase for it — only the raw private key below."
+    // Also what a hex import leaves (the phrase is dropped with it), so this
+    // must not claim the identity predates phrases.
+    explanation: String = "This identity has no recovery phrase: it was imported from its private key, or created before recovery phrases were supported. The raw private key below is what restores it."
 ) {
     Text(
-        title,
+        "Back Up Your Private Key",
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold
     )
@@ -381,7 +382,11 @@ internal fun ImportKeySheet(onImport: (String) -> Unit, onDismiss: () -> Unit) {
 
     ConfirmationSheet(
         title = "Import Key",
-        subtitle = "Enter your 12-word recovery phrase, or a raw 64-byte hex private key, to restore an Ed25519 identity.",
+        // The second sentence is for W16AAPPLE-97: someone restoring onto a
+        // new phone never saw the old phone's Settings warning, and an old
+        // phrase now restores quietly, into a different and empty identity.
+        subtitle = "Enter your 12-word recovery phrase, or a raw 64-byte hex private key, to restore an Ed25519 identity. " +
+            "A phrase from an older version of this app now restores a different identity, so import that identity's private key instead.",
         subtitleSpacingBefore = MaterialTheme.spacing.xs,
         onDismiss = onDismiss,
         content = {
