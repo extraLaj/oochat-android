@@ -2649,10 +2649,24 @@ open class ChatViewModel @JvmOverloads constructor(
         agentReplyNotifier.clearReplyNotifications()
     }
 
-    fun respond(answer: String) {
-        // The card answered is the newest question: the Host waits on one at a time.
-        val question = _uiState.value.chatItems.lastOrNull { it is ChatItem.AskUser } as ChatItem.AskUser?
-        launchScoped { connectUseCase.respond(answer, question?.requestId) }
+    /**
+     * Answer the ask_user card [itemId], with that card's own request id. An
+     * older question can still be on screen after another device answered it,
+     * and its answer must not be sent as one to the newer question.
+     */
+    fun respond(itemId: String, answer: String) {
+        val question = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.AskUser>()
+            .firstOrNull { it.id == itemId }
+        if (question == null || question.answer != null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring duplicate/unknown ask_user answer for $itemId")
+            return
+        }
+        val answered = question.copy(answer = answer)
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == itemId) answered else it })
+        }
+        launchScoped { connectUseCase.respond(answer, question.requestId) }
     }
 
     /**
@@ -2782,22 +2796,37 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * The Host refused this device's answer because another device answered
-     * first. The approval card says so instead of keeping a decision that was
-     * never applied. Nothing is re-sent. Without an id, the newest answered card is meant.
+     * The Host refused this device's answer: it was no longer waiting for one
+     * (another device answered first, or the turn ended). The card says so
+     * instead of keeping an answer that was never applied. Nothing is re-sent.
+     * Matched by id; with none, only if exactly one answered card was sent
+     * without an id, since otherwise there is no telling which was refused.
      */
     private fun markAnswerRefused(requestId: String?) {
-        val approvals = _uiState.value.chatItems.filterIsInstance<ChatItem.ApprovalNeeded>()
-        val gate = (
-            if (requestId != null) approvals.lastOrNull { it.requestId == requestId }
-            else approvals.lastOrNull { it.decision != null }
-            ) ?: return
-        val decision = gate.decision ?: return
-        val refused = gate.copy(decision = decision.copy(refused = true))
-        _uiState.update { state ->
-            state.copy(chatItems = state.chatItems.map { if (it.id == gate.id) refused else it })
+        val answered = _uiState.value.chatItems.filter {
+            (it is ChatItem.ApprovalNeeded && it.decision != null) || (it is ChatItem.AskUser && it.answer != null)
         }
-        launchScoped { conversationHistory.persistMessage(refused) }
+        val card = if (requestId != null) {
+            answered.lastOrNull { it.answerRequestId() == requestId }
+        } else {
+            answered.filter { it.answerRequestId() == null }.singleOrNull()
+        } ?: return
+        val refused = when (card) {
+            is ChatItem.ApprovalNeeded -> card.copy(decision = card.decision?.copy(refused = true))
+            is ChatItem.AskUser -> card.copy(refused = true)
+            else -> return
+        }
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == card.id) refused else it })
+        }
+        // Ask_user cards are not saved (see TranscriptItemPayload).
+        if (refused is ChatItem.ApprovalNeeded) launchScoped { conversationHistory.persistMessage(refused) }
+    }
+
+    private fun ChatItem.answerRequestId(): String? = when (this) {
+        is ChatItem.ApprovalNeeded -> requestId
+        is ChatItem.AskUser -> requestId
+        else -> null
     }
 
     /**

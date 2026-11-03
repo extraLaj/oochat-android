@@ -105,12 +105,13 @@ class TranscriptItemCodecTest {
     }
 
     @Test
-    fun `an approval answered on another device survives a round trip`() {
+    fun `a refused approval survives a round trip, request id included`() {
         val item = ChatItem.ApprovalNeeded(
             id = "a2",
             tool = "bash",
             arguments = mapOf("command" to "npm install"),
-            decision = ApprovalDecision(approved = true, scope = "once", mode = null, refused = true)
+            decision = ApprovalDecision(approved = true, scope = "once", mode = null, refused = true),
+            requestId = "req-2"
         )
         assertEquals(item, roundTrip(item))
     }
@@ -121,6 +122,7 @@ class TranscriptItemCodecTest {
         val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ApprovalNeeded
         assertNull(decoded.decision?.feedback)
         assertEquals(false, decoded.decision?.refused)
+        assertNull(decoded.requestId)
         assertEquals(false, decoded.decision?.approved)
         assertEquals("reject_hard", decoded.decision?.mode)
     }

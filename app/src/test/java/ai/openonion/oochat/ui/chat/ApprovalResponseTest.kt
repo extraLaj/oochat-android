@@ -155,7 +155,7 @@ class ApprovalResponseTest : RelayResumeTestBase() {
         relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which day?","options":["Mon","Tue"]}""")
         pumpUntil("the question to show") { app.items.any { it is ChatItem.AskUser } }
 
-        app.vm.respond("Tue")
+        app.vm.respond(app.items.filterIsInstance<ChatItem.AskUser>().single().id, "Tue")
         pumpUntil("the answer to reach the socket") { sent("ASK_USER_RESPONSE").isNotEmpty() }
 
         val frame = sent("ASK_USER_RESPONSE").single()
@@ -164,12 +164,27 @@ class ApprovalResponseTest : RelayResumeTestBase() {
     }
 
     @Test
+    fun `an answer to an older question still on screen names that question`() = runBlocking {
+        val (app, _) = connectedMidTurn()
+        // Another device answered ask-1, and the Host asked ask-2 on both.
+        relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which day?","options":["Mon","Tue"]}""")
+        relay.emit("""{"type":"ask_user","id":"ask-2","question":"Which time?","options":["9am","5pm"]}""")
+        pumpUntil("both questions to show") { app.items.count { it is ChatItem.AskUser } == 2 }
+
+        val older = app.items.filterIsInstance<ChatItem.AskUser>().single { it.requestId == "ask-1" }
+        app.vm.respond(older.id, "Tue")
+        pumpUntil("the answer to reach the socket") { sent("ASK_USER_RESPONSE").isNotEmpty() }
+
+        assertEquals("never applied to a question the user did not see", "ask-1", sent("ASK_USER_RESPONSE").single().string("request_id"))
+    }
+
+    @Test
     fun `an answer the Host refused shows as answered elsewhere, and nothing is re-sent or reconnected`() = runBlocking {
         val app = awaitingApproval()
         app.vm.respondToApproval(app.card().id, approved = true, scope = "once")
         pumpUntil("the answer to reach the socket") { sent("APPROVAL_RESPONSE").isNotEmpty() }
 
-        // What ws_router/session.py sends when another device answered first.
+        // The STALE_ANSWER docs/network/websocket-protocol.md describes, for another device answering first.
         relay.emit(
             """{"type":"ERROR","code":"STALE_ANSWER","reason":"stale","request_id":"req-1",""" +
                 """"message":"that request is no longer waiting for an answer"}"""

@@ -27,8 +27,7 @@ import kotlinx.serialization.json.Json
  * what the agent was allowed to do, which is transcript like any other.
  *
  * The remaining gates (AskUser, Onboard*, PlanReview, UlwTurnsReached) are
- * still excluded — none of them carries its answer on the item yet, so there
- * is nothing to restore them into.
+ * still excluded. AskUser now keeps its answer on the item, but is not saved yet.
  */
 @Serializable
 sealed class TranscriptItemPayload {
@@ -137,7 +136,9 @@ sealed class TranscriptItemPayload {
         val scope: String,
         val mode: String? = null,
         val feedback: String? = null,
-        val refused: Boolean = false
+        val refused: Boolean = false,
+        /** Kept so a STALE_ANSWER arriving after a reload still finds its card. */
+        val requestId: String? = null
     ) : TranscriptItemPayload()
 
     @Serializable
@@ -294,7 +295,8 @@ object TranscriptItemCodec {
                 scope = d.scope,
                 mode = d.mode,
                 feedback = d.feedback,
-                refused = d.refused
+                refused = d.refused,
+                requestId = item.requestId
             )
         }
         is ChatItem.FilesReceivedItem -> TranscriptItemPayload.FilesReceived(
@@ -398,7 +400,8 @@ object TranscriptItemCodec {
             tool = payload.tool,
             arguments = payload.arguments,
             description = payload.description,
-            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback, payload.refused)
+            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback, payload.refused),
+            requestId = payload.requestId
         )
         is TranscriptItemPayload.FilesReceived -> ChatItem.FilesReceivedItem(
             id = payload.id,

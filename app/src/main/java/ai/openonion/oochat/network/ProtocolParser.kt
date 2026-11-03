@@ -609,7 +609,9 @@ object ProtocolParser {
                         )
                     )
 
-                // Another device answered first. Nothing was applied, and the socket is fine.
+                // The Host was no longer waiting on that request (another device
+                // answered first, or the turn ended). Nothing was applied, and the
+                // socket is fine. Shape: docs/network/websocket-protocol.md, APPROVAL_RESPONSE.
                 STALE_ANSWER ->
                     ParseResult(event = ConnectionEvent.AnswerRefused(requestId = event.requestId))
 
@@ -830,7 +832,7 @@ object ProtocolParser {
     /** `code` of the ERROR frame a host sends when a running turn refuses runtime input. */
     const val RUNTIME_INPUT_REJECTED = "RUNTIME_INPUT_REJECTED"
 
-    /** `code` of the ERROR a host sends when it refuses an answer (ws_router/session.py). */
+    /** `code` of the ERROR a host sends when it refuses an answer (docs/network/websocket-protocol.md). */
     const val STALE_ANSWER = "STALE_ANSWER"
 
     /** [ChatItem.Thinking.kind] for reasoning text whose frame names no kind. */

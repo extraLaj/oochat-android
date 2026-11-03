@@ -128,7 +128,11 @@ sealed class ChatItem {
         val options: List<String>,
         val multiSelect: Boolean,
         /** The Host's id for this question, sent back as `request_id`. Null when the event had none. */
-        val requestId: String? = null
+        val requestId: String? = null,
+        /** What this device answered. Null while the question is open. Set once, by respond. */
+        val answer: String? = null,
+        /** The Host refused [answer] (STALE_ANSWER): it was no longer waiting for one. */
+        val refused: Boolean = false
     ) : ChatItem()
 
     data class ApprovalNeeded(
