@@ -266,7 +266,8 @@ fun SettingsScreen(
                 },
                 onImportKey = { showImportSheet = true },
                 onReset = { showResetSheet = true },
-                accountProblem = uiState.accountProblem
+                accountProblem = uiState.accountProblem,
+                identityWarning = if (uiState.legacyDerivation) SettingsViewModel.LEGACY_DERIVATION_WARNING else null
             )
 
             SettingsSection("Appearance") {

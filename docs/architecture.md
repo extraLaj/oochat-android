@@ -236,6 +236,59 @@ ChatViewModel → ChatScreen: render restored history and continue the live sess
 long timeout. `MemoryGatedSessionStore` applies the memory preference while
 keeping Room access behind the store boundary.
 
+## Identity
+
+The app's identity is one Ed25519 key pair; its address is `0x` plus the
+public key in hex. `KeyManager` (`crypto/`) owns it, keeps it in the
+`connectonion_keys_secure` encrypted store, and signs `CONNECT` and every
+signed command with it.
+
+### From recovery phrase to key
+
+A phrase derives the key the way the connectonion Python SDK does (1.5.5 and
+later, `address._account_key()`), so the same words give the same address here
+and in `co` (W16AAPPLE-97):
+
+1. BIP39: the phrase (12, 15, 18, 21 or 24 words, lower case, single-spaced)
+   stretches to a 64-byte seed with PBKDF2-HMAC-SHA512, empty passphrase.
+2. SLIP-0010 for ed25519 (`Slip10`, a port of the SDK's `derive.py`), down the
+   SLIP-0013 path for the account URI `https://oo.openonion.ai`:
+   `m/13'/2107038128'/851645955'/1509754396'/381167091'`. Every level is
+   hardened; ed25519 has no other kind.
+3. The 32 bytes at that path are the Ed25519 seed (RFC 8032 expansion, as
+   libsodium and PyNaCl do). The stored secret key is libsodium's 64-byte form:
+   that seed, then the public key.
+
+The account URI is a domain separator, not a server address. It must not follow
+the relay or backend URL, or one phrase would be a different identity per
+environment.
+
+| Path | What it does |
+|---|---|
+| First launch, Reset Identity | Mints a 12-word phrase and derives the key from it. Both are stored. |
+| Import a phrase | Derives the key from it. Both are stored. |
+| Import a hex key | 128 hex characters: the secret key as is, refused if its public half is not the one its seed gives. No phrase is involved, and any stored phrase is dropped. |
+| Every later launch | Reads the stored key. Nothing is derived again. |
+
+### Identities made before SLIP-0010
+
+Until W16AAPPLE-97 the app took the first 32 bytes of the BIP39 seed as the
+Ed25519 seed. An update does not touch a key made that way: launches read the
+stored key, so the address does not change unless the user restores. What has
+changed is that the phrase stored beside it now derives a different key, so
+restoring from those words gives a new, empty identity.
+
+`KeyManager.hasLegacyDerivation()` checks for this the way the SDK's `load()`
+sets `legacy_derivation`: there is a stored phrase, and it does not derive the
+stored key. When it is true, Settings says so under the wallet address, and
+"Back up seed phrase" shows the private key instead of the phrase, since the key
+is the only backup that restores this identity. Importing the phrase again moves
+the user onto the SLIP-0010 address and clears the warning.
+
+The web client (connectonion-react) still takes `seed[:32]`. Until it moves,
+the same phrase gives a different identity on the web from the one on the phone
+and in `co`.
+
 ## Test architecture
 
 The project uses three complementary test levels:

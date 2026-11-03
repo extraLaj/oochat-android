@@ -19,7 +19,7 @@ belongs in one of those classes, or its class belongs in that list.
 |---|---|---|
 | Add agent by 0x address | `AgentViewModelTest`, `AgentFormScreenComposeTest`, `AgentFormNamingTest`, `EmbeddedDiscoveryPanelComposeTest`, `AgentDiscoveryServiceTest`, `AgentRepositoryImplTest`, `AgentDiscoveryRepositoryImplTest`, `AgentMapperTest`, `AgentQrCodeTest` | 0x + 64 hex and every near miss, in Setup too; a URL pasted as an address; what Save hands over (trimmed, lower-cased address, default name, relay or direct); one agent per address in any letter case, on add, edit and discovery; the first agent added becomes the default; a scanned QR code fills the form only if it names an agent (the website's Share code, the app's link, a server link or just the address), and any other is refused with a message (W16AAPPLE-57 to -61, -68, -81) |
 | Direct (/ws) and relay (/ws/input) | `AgentConnectionRobolectricTest`, `AgentConnectionTest`, `ProtocolParserTest`, `ConnectionConfigTest`, `ConstantsTest`, `EncryptedPreferencesConnectionConfigRepositoryTest`, `LoadingViewModelTest` | The URL actually dialled in each mode; `to` present on relay frames and absent on direct ones, signed and unsigned; which saved configs count as relay |
-| Ed25519 identity | `IdentityVectorsTest`, `KeyManagerMnemonicTest`, `KeyManagerPersistenceTest`, `KeyManagerTest`, `SettingsViewModelTest` | Phrase -> seed -> address and key -> signature, against outside test data; mint, restore, import, reset and backup; every BIP39 phrase length, spacing, and hex keys whose halves do not match (W16AAPPLE-62, -63, -64) |
+| Ed25519 identity | `IdentityVectorsTest`, `Slip10Test`, `KeyManagerMnemonicTest`, `KeyManagerPersistenceTest`, `KeyManagerTest`, `SettingsViewModelTest` | Phrase -> seed -> SLIP-0010 account key -> address and key -> signature, against the connectonion SDK's own output; mint, restore, import, reset and backup; every BIP39 phrase length, spacing, and hex keys whose halves do not match; a pre-SLIP-0010 install keeps its key and is told its phrase no longer restores it (W16AAPPLE-62, -63, -64, -97) |
 | Onboarding gate | `OnboardCardsComposeTest`, `ChatEventReducerTest`, `OutgoingMessagesTest`, `ConnectionRepositoryImplTest`, `ConnectToAgentUseCaseTest`, `OnboardingViewModelTest` | No reconnect behind the user while the gate is open (failure and close); the exact `ONBOARD_SUBMIT` frame; submitting while disconnected |
 | Slash-command palette | `SlashCommandMatcherTest`, `SlashCommandPaletteComposeTest`, `InputBarOfflineComposeTest`, `LiveProfileMatchTest`, `AgentFormScreenComposeTest` (plus `ConnectionRepositoryImplTest`) | Skills come only from `AGENT_PROFILE`, never the relay's public profile, so they stay hidden until the Host lets the user in, and are dropped again on a disconnect, a refused reconnect or a new invite-code prompt (W16AAPPLE-71). The agent's Edit screen says skills will show once the user is let in, then lists them collapsed behind "What this agent can do (N)", matched to the agent by the address the app dialled, in any case; cleaned to one per name with "No description" dropped (W16AAPPLE-65); a picked command is sent as plain text; still offered while disconnected, since the message is queued (W16AAPPLE-102), and hidden only with no agent to send to |
 | Dictation | `DictationMergeTest`, `InputBarDictationComposeTest`, `ChatViewModelTest`, `SpeechRecognizerIntentTest`, `SpeechRecognitionLevelTest`, `VoiceTranscriptionInstructionTest`, `VoiceTranscriptionServiceTest`, `VoiceRecorderStoreTest` | Nothing is ever sent on its own, including when the fallback path fails; a recording under a second says "Recording too short" instead of vanishing, while an unusable one is dropped quietly (W16AAPPLE-103); one token refresh after a 401 |
@@ -44,8 +44,10 @@ belongs in one of those classes, or its class belongs in that list.
 `IdentityVectorsTest` asserts values that did not come from this app:
 
 - RFC 8032's own Ed25519 test vectors.
-- Addresses and signatures made with python-mnemonic and PyNaCl (libsodium),
-  the libraries the connectonion SDK uses.
+- SLIP-0010's own ed25519 test vector 1.
+- Account paths, keys, addresses and signatures made with the connectonion SDK
+  itself (v1.9.2b28: `derive.py` over python-mnemonic and PyNaCl, i.e.
+  libsodium), so the addresses are the ones `co` recovers from those phrases.
 - Signatures checked with the server's own
   `connectonion.network.host.auth.verify_signature`.
 
@@ -72,10 +74,10 @@ purpose. At that point, remove the wrapper, and the test guards the fix.
 
 ## Not covered, and why
 
-- **The recovery phrase across clients.** Android derives the key from the first
-  32 bytes of the BIP39 seed. `connectonion` 1.8.8's `address.recover()` uses
-  SLIP-0010 instead, so the same phrase gives a different address in the CLI.
-  Which one the web client uses needs confirming.
+- **The recovery phrase on the web.** Android and the `co` CLI derive the key
+  with SLIP-0010 (W16AAPPLE-97). The web client still takes the first 32 bytes
+  of the BIP39 seed, so the same phrase gives a different address there. That
+  is the web client's to change; nothing here can test it.
 - **Anything needing a device.** CI runs no instrumented tests, and the
   screenshot baselines are not verified (see the README). Process death is
   therefore modelled in `ProcessDeathResumeTest`: the first launch's objects
