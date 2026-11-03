@@ -12,7 +12,6 @@ import ai.openonion.oochat.data.repository.SessionRepository
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.UserProfile
 import android.app.Application
-import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +30,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Unit tests for [SettingsViewModel].
