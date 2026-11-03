@@ -460,8 +460,9 @@ waiting EXEC card at once instead of leaving it to time out:
 
 - `code: "provider_station_only"`: a Work Room Host takes no EXEC. It concerns
   EXEC alone, so it is shown on the cards only, not again as a chat error.
-- `"authenticate first"`: refuses every command on the socket, so it is still
-  reported in the chat as well, in case a message was refused alongside.
+- `"authenticate first"`: refuses every command on the socket. On a connected
+  socket it means the Host lost the session, so the client reconnects
+  ([below](#when-a-reconnect-fails)). Nothing is sent again by itself.
 
 Any other refusal, such as a signed-command `unauthorized: …`, could belong to
 an `INPUT` instead, so a waiting EXEC is left to its timeout.
@@ -489,7 +490,7 @@ It is a signed command, sent only on a ready socket and never queued.
 | `co rem is available only to the Host owner` | `NotOwner` |
 | `co rem is not available on this Host` | `NoNotebook` |
 | `co rem reader exceeds the 16 MiB limit` | `TooLarge` |
-| `Authentication required` (the Host restarted, or its session crashed, while the relay kept the socket open) | `SessionLost`: the screen asks for a reconnect, since reading again cannot help |
+| `Authentication required` (the Host restarted, or its session crashed, while the relay kept the socket open) | The client reconnects and `readRem()` reads once more, within the same 25-second wait (W16AAPPLE-108). `SessionLost` when the app will not reconnect by itself (lost again within the minute) or that read is refused too, both leaving Reconnect offered; `NotConnected` if the reconnect does not land in time |
 | `ERROR` `unknown message type: 'WIKI_READ'` (a Host older than Rem) | `HostTooOld`, and not shown again as a chat error |
 | Nothing within 25 s | `NoAnswer` |
 | The socket closes first | `NotConnected` |
@@ -1020,7 +1021,33 @@ ladder retry, `retryNow()`, or a conversation switch. The Host keeps a socket
 open after an `ERROR`, so before this (W16AAPPLE-82) no close arrived to climb
 the ladder, and the repository read the `ERROR` as a business error on a live
 session: the screen sat on "Reconnecting…" for good. An `ERROR` after
-`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`.
+`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`, except the one below.
+
+**The Host losing the session (W16AAPPLE-108).** Through the relay the Host keeps
+one session per app connection. When it restarts, or that session's task
+crashes, the relay keeps the app's socket open, and the next frame reaches a
+new, unauthenticated session: a command is refused with `ERROR "authenticate
+first (send CONNECT)"` (ws_router/agent_io.py), a Rem read with `WIKI_RESULT`
+`error: "Authentication required"` (ws_router/rem.py). On a connected socket,
+either one makes `AgentConnection.recoverLostSession` reopen the socket under the
+same session, as a relay reattach would: the state shows `Reconnecting`, and the
+fresh `CONNECT` authenticates it again. `authenticate first` is matched only on
+an `ERROR`, and `Authentication required` only on a `WIKI_RESULT`.
+
+Nothing is sent again by itself: a turn the old session had taken may already
+have run tools, and sending it again would repeat them. If a message was still
+unanswered (no `OUTPUT` since), the client first emits a `ConnectionError` with
+its own wording (`LOST_SESSION_MESSAGE`), which the chat shows as a failed turn
+with Retry; a Retry tapped during the reconnect waits in the outbox. A turn that
+was running is failed by the chat on `Reconnecting` anyway, and un-failed if the
+new `CONNECTED` says it is still running. A Rem read waits for the reconnect and
+is sent once more, all within its one 25-second wait.
+
+At most one such reconnect a minute (`SESSION_RECOVERY_WINDOW_MS`, timed with
+`SystemClock.elapsedRealtime()`). A session lost again within the minute ends the
+way a refused reconnect does: `ReconnectRefused`, so `Error` with Reconnect, which
+the chat shows on the turn, and a Rem read returns `SessionLost`. Reconnect builds
+a new connection, so it gets its own minute.
 
 The exception is a cycle that has passed an onboarding gate (W16AAPPLE-83).
 `ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives, so
@@ -1051,9 +1078,12 @@ with no reconnect pending, `retryNow()` checks the socket instead: it sends
 not shown: the Host answers `not_found` for a session that has not run a turn since
 it started. Covered by `ForegroundReturnTest`.
 
-Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82 and -79
+Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82, -79 and -108
 sections, on a virtual clock) and `ConnectionRepositoryImplTest` (a refused
-reconnect ends in `Error` although the attempt had connected).
+reconnect ends in `Error` although the attempt had connected; a lost session
+shows `Reconnecting` and connects again; Reconnect gets its own recovery), and
+`ChatViewModelTest` (a message lost with the session is failed with Retry and
+sent again only by Retry).
 
 ### CONNECTED status
 

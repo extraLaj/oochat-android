@@ -43,6 +43,7 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
 import ai.openonion.oochat.knownIssue
+import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.OFFLINE_GRACE_MS
 import ai.openonion.oochat.network.RecognizerReadiness
@@ -2022,6 +2023,47 @@ class ChatViewModelTest {
             assertTrue(
                 "and no bubble is left claiming to be waiting",
                 vm.uiState.value.chatItems.filterIsInstance<ChatItem.User>().none { it.queued }
+            )
+        }
+
+    /**
+     * W16AAPPLE-108: the Host lost this connection's session, so it refused
+     * the message unread. AgentConnection says so, then reconnects, and sends
+     * nothing again by itself: the message is shown failed with Retry, and
+     * only Retry sends it, once.
+     */
+    @Test
+    fun `a message lost with the Host's session is shown failed with Retry, and sent again only by Retry`() =
+        runTest(testDispatcher) {
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            connectUseCase.markConnected(address)
+            vm.sendMessage("what's on today?")
+            testScheduler.runCurrent()
+
+            connectUseCase.emit(ChatEvent.ConnectionErrorOccurred(AgentConnection.LOST_SESSION_MESSAGE))
+            testScheduler.runCurrent()
+            connectUseCase.forceState(ConnectionState.Reconnecting)
+            testScheduler.runCurrent()
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            val items = vm.uiState.value.chatItems
+            val bubble = items.indexOfFirst { it is ChatItem.User && it.content == "what's on today?" }
+            val failed = items.drop(bubble + 1).filterIsInstance<ChatItem.Thinking>().single()
+            assertEquals("a failed turn, which offers Retry", ThinkingStatus.ERROR, failed.status)
+            assertEquals(AgentConnection.LOST_SESSION_MESSAGE, failed.content)
+            assertEquals("not sent again by itself", listOf("what's on today?"), connectUseCase.sentMessages.map { it.content })
+
+            vm.retryFailedTurn("what's on today?")
+            testScheduler.runCurrent()
+
+            assertEquals(listOf("what's on today?", "what's on today?"), connectUseCase.sentMessages.map { it.content })
+            assertEquals(
+                "Retry adds no second bubble",
+                1,
+                vm.uiState.value.chatItems.count { it is ChatItem.User && it.content == "what's on today?" }
             )
         }
 

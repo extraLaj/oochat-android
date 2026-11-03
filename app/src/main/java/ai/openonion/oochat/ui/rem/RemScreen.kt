@@ -276,11 +276,10 @@ internal fun RemOutcome.message(ownAddress: String?): RemMessage = when (this) {
     )
     RemOutcome.SessionLost -> RemMessage(
         "Reconnect to read Rem",
-        // The chat still looks connected here, so it offers no Reconnect: only
-        // a fresh start sends the CONNECT the Host needs (W16AAPPLE-108 tracks
-        // reconnecting by itself).
-        "The agent's Host no longer recognises this connection, for example because it restarted. " +
-            "Close the app fully and open it again to reconnect, then open Rem again.",
+        // Only after the app's own reconnect was refused the same way
+        // (W16AAPPLE-108), which leaves the chat offering Reconnect.
+        "The agent's Host keeps losing this connection, for example because it is restarting. " +
+            "Go back to the chat, tap Reconnect, then open Rem again.",
         // A read on this socket is refused until it reconnects.
         canRetry = false
     )

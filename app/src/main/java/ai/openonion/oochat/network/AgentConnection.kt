@@ -43,8 +43,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -92,7 +95,10 @@ class AgentConnection(
     private val isAppVisible: () -> Boolean = { true },
     // Where a Rem reader page is parsed, off the socket's thread. A test
     // passes one that runs inline, so its virtual clock is not outrun.
-    private val remParseDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val remParseDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    // The clock that spaces lost-session recoveries apart; see recoverLostSession.
+    // Time since boot, so a change to the device clock cannot shorten or stretch the minute.
+    private val nowMs: () -> Long = android.os.SystemClock::elapsedRealtime
 ) {
     @Volatile private var webSocket: WebSocket? = null
 
@@ -269,6 +275,19 @@ class AgentConnection(
     // directly rather than [connect], precisely so this flag survives
     // its own retry.
     @Volatile private var staleSessionRecoveryAttempted = false
+
+    // When this connection last reconnected because the Host lost its
+    // session; see [recoverLostSession]. Null until it first has to.
+    @Volatile private var lastSessionRecoveryAt: Long? = null
+
+    /**
+     * How many CONNECTEDs, refused reconnects and teardowns this connection
+     * has seen, so a Rem read can wait out a lost-session reconnect and tell
+     * how it ended.
+     */
+    private data class SessionEpochs(val connected: Int = 0, val refused: Int = 0, val closed: Int = 0)
+
+    private val sessionEpochs = MutableStateFlow(SessionEpochs())
 
     // True once the Host has refused this client's OIP version (W16AAPPLE-12).
     // Terminal for the cycle: every reconnect would send the same descriptor
@@ -480,6 +499,7 @@ class AgentConnection(
             // stale-session recovery, independent of whether a previous
             // cycle already used (and possibly exhausted) its one shot.
             staleSessionRecoveryAttempted = false
+            lastSessionRecoveryAt = null
             protocolRejected = false
             reconnectScope = CoroutineScope(SupervisorJob() + reconnectDispatcher)
 
@@ -708,7 +728,8 @@ class AgentConnection(
      *   on its cards, so the generic chat error would only repeat it. That is
      *   `provider_station_only` (session.py's EXEC branch). "authenticate first"
      *   refuses every command on the socket, so it settles the cards but still
-     *   returns false: a message refused alongside them must still be reported.
+     *   returns false: the Host lost the session, and the ERROR goes on to
+     *   [recoverLostSession], which tells the chat about a message refused with it.
      */
     private fun failPendingExecsForRefusal(event: ConnectionEvent.ConnectionError): Boolean {
         // Keep this list narrow. A generic `unauthorized: ...` ERROR may have
@@ -749,8 +770,34 @@ class AgentConnection(
      * Read the owner's Rem notebook (W16AAPPLE-69): a signed `WIKI_READ`, then
      * the `WIKI_RESULT` with the same request id. Never queued: a read that
      * cannot go out now has nothing to wait for.
+     *
+     * When the Host has lost this connection's session, the answer starts a
+     * reconnect (see recoverLostSession), and the read waits for it and is
+     * sent once more (W16AAPPLE-108). [RemOutcome.SessionLost] comes back when
+     * the app will not reconnect by itself (the session was lost again within
+     * the minute), or that second read is refused the same way: either way the
+     * chat now offers Reconnect. All of it fits in the one [timeoutMs], the
+     * wait the screen promises.
      */
     suspend fun readRem(timeoutMs: Long = REM_TIMEOUT_MS): RemOutcome {
+        val before = sessionEpochs.value
+        var waitingForReconnect = false
+        return withTimeoutOrNull(timeoutMs) {
+            val outcome = readRemOnce(timeoutMs)
+            if (outcome != RemOutcome.SessionLost) return@withTimeoutOrNull outcome
+            waitingForReconnect = true
+            val after = sessionEpochs.first { it != before }
+            when {
+                after.refused > before.refused -> return@withTimeoutOrNull RemOutcome.SessionLost
+                after.connected == before.connected -> return@withTimeoutOrNull RemOutcome.NotConnected
+            }
+            waitingForReconnect = false
+            FileLogger.i(LogTags.AGENT_CONN, "Reconnected after a lost session, reading Rem again")
+            readRemOnce(timeoutMs)
+        } ?: if (waitingForReconnect) RemOutcome.NotConnected else RemOutcome.NoAnswer
+    }
+
+    private suspend fun readRemOnce(timeoutMs: Long): RemOutcome {
         val socket = webSocket?.takeIf { isConnectionReady } ?: return RemOutcome.NotConnected
         val requestId = java.util.UUID.randomUUID().toString()
         val frame = signedCommand(RemReadMessage(requestId = requestId))
@@ -785,6 +832,12 @@ class AgentConnection(
             FileLogger.w(LogTags.AGENT_CONN, "WIKI_RESULT refused: ${event.error ?: "<no reason>"}")
         }
         waiter.complete { RemOutcome.fromResult(event.ok, event.html, event.error) }
+        // After the waiter is settled: the reopen below settles every pending read.
+        // A message still unanswered went with the session too, and its own
+        // ERROR may not have arrived yet; on the replaced socket it never will.
+        if (!event.ok && isConnectionReady && event.error?.contains(AUTHENTICATION_REQUIRED, ignoreCase = true) == true) {
+            recoverLostSession(event.error, messageLost = clearOutstandingInputs())
+        }
     }
 
     /**
@@ -862,6 +915,13 @@ class AgentConnection(
             synchronized(outstandingInputIds) { outstandingInputIds.remove(inputId) }
         }
         return accepted
+    }
+
+    /** Forget every unanswered INPUT. @return whether there were any. */
+    private fun clearOutstandingInputs(): Boolean = synchronized(outstandingInputIds) {
+        val any = outstandingInputIds.isNotEmpty()
+        outstandingInputIds.clear()
+        any
     }
 
     private fun flushPendingMessages() {
@@ -1032,9 +1092,11 @@ class AgentConnection(
             reconnectAttempts = 0
             webSocket?.close(1000, "User disconnected")
             webSocket = null
-            outstandingInputIds.clear()
+            clearOutstandingInputs()
             reconnectScope.cancel()
         }
+        // A Rem read waiting out a reconnect stops waiting.
+        sessionEpochs.update { it.copy(closed = it.closed + 1) }
     }
 
     fun isConnected(): Boolean = webSocket != null && isConnectionReady
@@ -1063,7 +1125,7 @@ class AgentConnection(
         _currentSession = null
         replayCursor = null
         synchronized(seenFrames) { seenFrames.clear() }
-        outstandingInputIds.clear()
+        clearOutstandingInputs()
         pendingMessageSink.clear(agentAddress)
     }
 
@@ -1278,7 +1340,53 @@ class AgentConnection(
             reconnectJob = null
             retireSocket("Reconnect refused")
         }
+        sessionEpochs.update { it.copy(refused = it.refused + 1) }
         _events.tryEmit(ConnectionEvent.ReconnectRefused(message))
+    }
+
+    /**
+     * The Host has no authenticated session for this socket any more
+     * (W16AAPPLE-108). Through the relay it keeps one session per app
+     * connection, and loses it when it restarts or that session's task
+     * crashes, while the relay keeps our socket open. The next frame then
+     * reaches a new, unauthenticated session: a command is refused with
+     * "authenticate first (send CONNECT)" (ws_router/agent_io.py), a Rem read
+     * with "Authentication required" (ws_router/rem.py). Only a fresh CONNECT
+     * fixes it, and nothing else would send one: the socket never closes.
+     *
+     * Reconnect on a fresh socket under the same session, as a relay reattach
+     * would, so the Host authenticates it again.
+     *
+     * Nothing is sent again. A message the old session took may already have
+     * run tools, and sending it again would repeat them; one it refused is
+     * told apart only by guesswork. So when a message was unanswered
+     * ([messageLost]), the chat is told in plain words that it did not go,
+     * which it shows as a failed turn with Retry. A Retry tapped meanwhile
+     * waits in the outbox for the reconnect. A turn that was running is
+     * failed by the chat on Reconnecting anyway, and un-failed if the
+     * CONNECTED says it is still running.
+     *
+     * At most once a minute ([SESSION_RECOVERY_WINDOW_MS]). A session lost
+     * again that soon is not going to stay, so it ends the way a refused
+     * reconnect does: an error with Reconnect offered (W16AAPPLE-82), which
+     * the chat shows on the turn itself.
+     */
+    private fun recoverLostSession(reason: String, messageLost: Boolean) {
+        // A Rem read still waiting went with the session too, though its own
+        // answer has not come yet. Settled first, so retiring the socket does
+        // not end it as NotConnected: readRem waits for the reconnect and asks again.
+        settlePendingRemReads(RemOutcome.SessionLost)
+        val now = nowMs()
+        val last = lastSessionRecoveryAt
+        if (last != null && now - last < SESSION_RECOVERY_WINDOW_MS) {
+            FileLogger.w(LogTags.AGENT_CONN, "Host lost the session again within a minute — not reconnecting by itself")
+            endRefusedReconnect(reason)
+            return
+        }
+        lastSessionRecoveryAt = now
+        FileLogger.w(LogTags.AGENT_CONN, "Host lost this connection's session — reconnecting${if (messageLost) ", a message went with it" else ""}")
+        if (messageLost) _events.tryEmit(ConnectionEvent.ConnectionError(LOST_SESSION_MESSAGE))
+        reopenSocket("Host lost the session")
     }
 
     /**
@@ -1563,11 +1671,13 @@ class AgentConnection(
 
             // The run these ids belonged to has answered (or given up), so the
             // next send starts from an empty set rather than inheriting them.
-            if (result.event is ConnectionEvent.OutputReceived ||
-                result.event is ConnectionEvent.ConnectionError
-            ) {
-                outstandingInputIds.clear()
-            }
+            // Whether there were any is kept for this frame: an ERROR saying
+            // the Host lost the session tells the chat a message went with it
+            // (see recoverLostSession).
+            val inputsWereUnanswered = (
+                result.event is ConnectionEvent.OutputReceived ||
+                    result.event is ConnectionEvent.ConnectionError
+                ) && clearOutstandingInputs()
 
             // Send PONG if needed
             if (result.shouldSendPong) {
@@ -1673,6 +1783,7 @@ class AgentConnection(
                     lastAttemptAgentOffline = false
                     pollingOfflineAgent = false
                     flushPendingMessages()
+                    sessionEpochs.update { it.copy(connected = it.connected + 1) }
                     // The frame's session payload is forwarded, not dropped:
                     // it is the server's own transcript for this agent, and
                     // the only chance to reconcile it against local history
@@ -1772,6 +1883,9 @@ class AgentConnection(
                         // "session already attached" rejection, recovered
                         // here once whichever path sent the CONNECT.
                         recoverFromStaleSession()
+                    } else if (!answersConnect && isConnectionReady && event.message.contains(AUTHENTICATE_FIRST, ignoreCase = true)) {
+                        // The Host no longer knows this socket's session; see recoverLostSession.
+                        recoverLostSession(event.message, messageLost = inputsWereUnanswered)
                     } else if (answersConnect && socketIsReconnect) {
                         // A reconnect refused, rather than a business error on
                         // a live session; see endRefusedReconnect.
@@ -1939,6 +2053,19 @@ class AgentConnection(
 
         /** How many handled frames are remembered for replay de-duplication; see seenFrames. */
         private const val MAX_SEEN_FRAMES = 4096
+
+        /** The least time between two lost-session reconnects; see recoverLostSession. */
+        internal const val SESSION_RECOVERY_WINDOW_MS = 60_000L
+
+        /** ws_router/agent_io.py's refusal of a command on a session that has not sent CONNECT. */
+        private const val AUTHENTICATE_FIRST = "authenticate first"
+
+        /** ws_router/rem.py's refusal of a Rem read on such a session. */
+        private const val AUTHENTICATION_REQUIRED = "Authentication required"
+
+        /** What the chat shows for a message the Host lost with its session. */
+        internal const val LOST_SESSION_MESSAGE =
+            "The agent's Host lost this connection, so your message didn't go through. Reconnecting now. Tap Retry to send it again."
 
         /** Interjections per run before the oldest id stops being recognised; see outstandingInputIds. */
         private const val MAX_OUTSTANDING_INPUT_IDS = 16
