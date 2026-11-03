@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,12 +53,13 @@ fun SlashCommandPalette(
             // control rather than a popup that happens to be nearby.
             .padding(horizontal = MaterialTheme.spacing.xs)
             .padding(bottom = MaterialTheme.spacing.xs)
-            .clip(RoundedCornerShape(PaletteRadius))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(MaterialTheme.shapes.extraLarge)
+            // surfaceContainer, not a higher one: the outlineVariant border below is 3.2:1 on it and 2.7:1 above.
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .border(
                 1.dp,
                 MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(PaletteRadius)
+                MaterialTheme.shapes.extraLarge
             )
     ) {
         LazyColumn(
@@ -104,7 +104,6 @@ fun SlashCommandPalette(
     }
 }
 
-private val PaletteRadius = 20.dp
 
 /** Roughly three described rows — enough to show there is a list, short enough to stay clear of the field. */
 private val MaxPaletteHeight = 232.dp

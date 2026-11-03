@@ -13,6 +13,7 @@ import ai.openonion.oochat.ui.chat.components.VoiceInputState
 import ai.openonion.oochat.ui.chat.components.composerEnabled
 import ai.openonion.oochat.ui.chat.components.failedUserMessages
 import ai.openonion.oochat.ui.common.appViewModel
+import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.ConnectionBanner
 import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
 import ai.openonion.oochat.ui.home.AgentHome
@@ -43,7 +44,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -431,7 +431,7 @@ fun ChatScreen(
                 }
             )
             }
-            SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+            AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }

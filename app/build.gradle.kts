@@ -530,6 +530,21 @@ val regressionSuite = mapOf(
         "ui.dashboard.RunSkillFromHomeTest",
         "ui.home.AgentHomeTest",
     ),
+    "design system" to listOf(
+        "ui.theme.ColorSchemePaletteTest",
+        "ui.theme.StatusColorsPaletteTest",
+        "ui.theme.LogColorsTest",
+        "ui.theme.ThemeColorsOnlyInThemeTest",
+        "ui.theme.ContrastUsageTest",
+        "ui.theme.TypographyTest",
+        "ui.theme.ShapesTest",
+        "ui.theme.ElevationTest",
+        "ui.components.AgentStatusColorComposeTest",
+        "ui.components.AppSnackbarHostComposeTest",
+        "ui.controlcenter.ControlCenterWebViewTest",
+        "ui.controlcenter.ControlCenterPageTest",
+        "ui.dashboard.DashboardWebViewTest",
+    ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent
 tasks.withType<Test>().configureEach {

@@ -159,6 +159,11 @@ agent list and it is closed; when you come back it is loaded again from the star
 A Control Center app starts afresh too, so whatever you had open or half-filled in
 it is gone, though anything it already did shows in the chat as before.
 
+Changing the theme does the same. When the page is open and the theme changes, whether
+you change it or your phone does (a scheduled switch to dark at sunset, with the app
+following the system), the page is loaded again in the new theme and a Control Center
+app starts afresh.
+
 ## 5b. Your agent's Rem notebook
 
 If you own the agent, it keeps a notebook called **Rem** about your people,
@@ -271,7 +276,7 @@ opens.
 
 | | |
 |---|---|
-| **Appearance** | Light, dark, or follow the system. |
+| **Appearance** | Light, dark, or follow the system. It applies to an agent's Home page too: a page written without a dark style is darkened automatically, so it can look a little different from the app's own colours. |
 | **Show live progress** | Whether thinking and tool steps appear as they happen, or only the finished reply. |
 | **Render Markdown** | Formatted replies, or plain text. |
 | **Font size** | Four steps — Small, Medium, Large, Extra Large — previewed live. Combines with the system font size rather than overriding it. |

@@ -1465,6 +1465,12 @@ the app as it was. Leaving the chat for Settings, Logs or the agent list removes
 pane or tab and its WebView, and coming back loads the app again from its URL, so
 whatever it held only in the page is lost.
 
+**Light and dark.** The app tells the page which theme it is in with the standard `prefers-color-scheme`
+media query, taken from the app's own Light, Dark or System setting and not the phone's, so an app
+written for both follows it. The Dashboard page gets the same. A page with no dark styles is darkened by
+the WebView where the phone's WebView supports it, unless the page opts out; one that uses
+`prefers-color-scheme` is left as it wrote it. A change of theme with the page open reloads it.
+
 ## HTTP exception
 
 Every frame above travels over the WebSocket. Voice transcription is the one

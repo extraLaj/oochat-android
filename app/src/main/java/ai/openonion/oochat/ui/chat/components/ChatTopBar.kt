@@ -5,6 +5,8 @@ import ai.openonion.oochat.domain.model.SessionActivity
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.ConnectionStatusDot
 import ai.openonion.oochat.ui.components.DangerConfirmActions
+import ai.openonion.oochat.ui.theme.Elevation
+import ai.openonion.oochat.ui.theme.hairline
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -168,13 +170,10 @@ fun ChatTopBar(
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false },
-                // 1.4 switched the default from surface-plus-elevation to
-                // the flat surfaceContainer role, which drops the green
-                // tint the rest of the app carries. Same computation as
-                // before, expressed through the theme rather than pinned
-                // to a value, so dark mode still derives its own.
+                // A flat surface set apart by a hairline, not a shadow or a tint.
                 containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
+                shadowElevation = Elevation.hairline,
+                border = MaterialTheme.hairline
             ) {
                 if (isConnected) {
                     DropdownMenuItem(

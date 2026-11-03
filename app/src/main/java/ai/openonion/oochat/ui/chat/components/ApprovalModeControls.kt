@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -134,7 +133,8 @@ fun ApprovalModeChip(
                 contentDescription = approvalChipDescription(mode, turnsLeft)
                 onClick(label = if (isUnattended) "exit" else "change mode", action = null)
             },
-            shape = RoundedCornerShape(50),
+            shape = MaterialTheme.shapes.large,
+
             color = containerColor,
             contentColor = contentColor,
             border = if (isUnattended) BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)) else null
@@ -378,8 +378,8 @@ private fun UnattendedBlock(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, error.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-            .background(error.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .border(1.dp, error.copy(alpha = 0.4f), MaterialTheme.shapes.large)
+            .background(error.copy(alpha = 0.08f), MaterialTheme.shapes.large)
             .padding(MaterialTheme.spacing.md)
     ) {
         Row(
@@ -430,6 +430,7 @@ private fun UnattendedBlock(
         if (active) {
             Button(
                 onClick = onExit,
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 48.dp),
@@ -458,6 +459,7 @@ private fun UnattendedBlock(
             Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
                 OutlinedButton(
                     onClick = onCancel,
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = 48.dp)
@@ -466,6 +468,7 @@ private fun UnattendedBlock(
                 }
                 Button(
                     onClick = onConfirm,
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = 48.dp),
@@ -507,6 +510,7 @@ private fun UnattendedBlock(
             }
             Button(
                 onClick = onStart,
+                shape = MaterialTheme.shapes.large,
                 enabled = mode != ApprovalMode.ULW || turnsValid,
                 modifier = Modifier
                     .fillMaxWidth()
