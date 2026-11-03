@@ -15,7 +15,6 @@ import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
-import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.QueuedMessage
@@ -60,6 +59,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 /**
  * Unit tests for [ConnectionRepositoryImpl]'s [ConnectionRepositoryImpl.connect]
@@ -293,8 +293,15 @@ class ConnectionRepositoryImplTest {
 
         repository.switchConversation("conv-B")
 
-        val connected = repository.connectionState.value as ConnectionState.Connected
-        assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, connected.status)
+        // Moving conversation reopens the socket, and its Reconnecting reaches
+        // the state on the collector's own time: either is right here, as long
+        // as conv-A's RUNNING is not still showing.
+        when (val state = repository.connectionState.value) {
+            is ConnectionState.Connected ->
+                assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, state.status)
+            ConnectionState.Reconnecting -> Unit
+            else -> fail("expected Connected or Reconnecting after the switch, was $state")
+        }
     }
 
     @Test
@@ -906,93 +913,131 @@ class ConnectionRepositoryImplTest {
         assertEquals(null, repository.agentProfile.value)
     }
 
-    // -- the published profile: slash-palette skills and agent balance --
+    // -- skills only after the Host lets the user in (W16AAPPLE-71) --
     //
-    // No agent actually sends AGENT_PROFILE; the palette is filled from the
-    // relay's directory on CONNECTED (fetchPublishedProfile). These run the
-    // real AgentDiscoveryService against a local directory.
+    // AGENT_PROFILE is the only source: the Host sends it once CONNECT has
+    // passed its trust gate. The relay's public profile lists skills too, but
+    // anyone with the address can read it, so connecting must never fetch it.
 
     private val publishedAgent = "0x" + "c5".repeat(32)
 
-    /** Every directory a test started, shut down in [shutDownDirectories] even when the test fails. */
-    private val directories = mutableListOf<MockWebServer>()
+    /** Every relay a test started, shut down in [shutDownRelays] even when the test fails. */
+    private val relays = mutableListOf<MockWebServer>()
 
     @After
-    fun shutDownDirectories() = directories.forEach { it.shutdown() }
+    fun shutDownRelays() = relays.forEach { it.shutdown() }
 
-    /** A directory that answers every lookup with [body], recording the paths asked for. */
-    private fun directory(body: String): MockWebServer = MockWebServer().apply {
+    /** A relay whose HTTP side answers every request with [body], as its public agent profile would. */
+    private fun relayServing(body: String): MockWebServer = MockWebServer().apply {
         dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = MockResponse().setBody(body)
         }
         start()
-        directories += this
+        relays += this
     }
 
     private fun simulateFrame(json: String) {
         factory.lastListener?.onMessage(factory.lastWebSocket!!, json)
     }
 
-    private fun repositoryWithDirectory(server: MockWebServer) = ConnectionRepositoryImpl(
+    private fun repositoryOnRelay(server: MockWebServer) = ConnectionRepositoryImpl(
         keyManager = keyManager,
         relayUrl = server.url("/").toString(),
         pendingMessageSink = sink,
-        agentConnectionFactory = { km, url -> AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = sink) },
-        agentDiscovery = AgentDiscoveryService()
+        agentConnectionFactory = { km, url -> AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = sink) }
     )
 
     @Test
-    fun `on connect the agent's published skills come from the directory`() = runTest(testDispatcher) {
-        val server = directory(
-            """{"profile":{"alias":"palette-agent","model":"gemini-2.5-flash","tools":["echo"],
-              |"skills":[{"name":"explain","description":"Explain a snippet of code"},{"name":"translate"}]}}"""
-                .trimMargin()
-        )
-        val repo = repositoryWithDirectory(server)
+    fun `connecting never reads skills from the relay's public profile`() = runTest(testDispatcher) {
+        val server = relayServing("""{"profile":{"skills":[{"name":"internal-workflow"}]}}""")
+        val repo = repositoryOnRelay(server)
 
         repo.connect(publishedAgent)
-        awaitUntil(retry = { simulateConnected() }) { repo.agentProfile.value?.skills?.isNotEmpty() == true }
+        awaitUntil(retry = { simulateConnected() }) { repo.connectionState.value is ConnectionState.Connected }
 
-        assertEquals(
-            listOf(AgentSkill("explain", "Explain a snippet of code"), AgentSkill("translate")),
-            repo.agentProfile.value?.skills
-        )
-        // The agent's row, not this device's: CONNECTED carries the identity
-        // the relay authenticated, and looking that up returns our own empty row.
-        assertEquals("/api/agents/$publishedAgent", server.takeRequest().path)
+        // The removed lookup ran in the background after CONNECTED, so a count
+        // taken straight away could pass with it still in flight. Wait for any
+        // request at all instead.
+        assertNull("a request reached the relay", server.takeRequest(1, TimeUnit.SECONDS)?.path)
+        assertNull(repo.agentProfile.value)
     }
 
     @Test
-    fun `directory skills are de-duplicated and cleaned the way AGENT_PROFILE skills are`() = runTest(testDispatcher) {
-        // W16AAPPLE-65. The directory path is the one that actually fills the
-        // palette, which keys its rows on the name, so a repeated name there
-        // reached the UI. Both paths now go through AgentSkill.cleaned.
-        val server = directory(
-            """{"profile":{"skills":[{"name":"explain","description":"No description"},
-              |{"name":"explain","description":"Explain a snippet of code"}]}}""".trimMargin()
-        )
-        val repo = repositoryWithDirectory(server)
+    fun `skills stay hidden while the Host asks for an invite code, and appear once it lets the user in`() = runBlocking {
+        // Real dispatchers, as in the OnboardRequired forwarding test above.
+        // ONBOARD_REQUIRED, ONBOARD_SUCCESS, CONNECTED and AGENT_PROFILE all
+        // arrive on one socket, so the skills must show with no reconnect.
+        val onboard = """{"type":"ONBOARD_REQUIRED","id":"ob1","methods":["invite_code"]}"""
+        repository.connect(publishedAgent)
 
-        repo.connect(publishedAgent)
-        awaitUntil(retry = { simulateConnected() }) { repo.agentProfile.value?.skills?.isNotEmpty() == true }
-        val skills = repo.agentProfile.value!!.skills
+        withTimeout(3000L) {
+            val asked = async { repository.observeEvents().first { (it as? ChatEvent.ChatItemReceived)?.item is ChatItem.OnboardRequired } }
+            while (asked.isActive) {
+                simulateFrame(onboard)
+                delay(20)
+            }
+        }
+        assertNull("skills before admission", repository.agentProfile.value)
+
+        simulateFrame("""{"type":"ONBOARD_SUCCESS","level":"contact","message":"Welcome"}""")
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+        awaitUntil(retry = { simulateAgentProfile() }) { repository.agentProfile.value != null }
+
+        assertEquals(listOf("web-scraping"), repository.agentProfile.value?.skills?.map { it.name })
+    }
+
+    @Test
+    fun `skills are dropped when the user disconnects`() = runTest(testDispatcher) {
+        repository.connect(publishedAgent)
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+        awaitUntil(retry = { simulateAgentProfile() }) { repository.agentProfile.value != null }
+
+        repository.disconnect()
+
+        assertNull(repository.agentProfile.value)
+    }
+
+    @Test
+    fun `skills are dropped when the Host asks for an invite code again`() = runTest(testDispatcher) {
+        // How a reconnect looks after the operator has blocked this user.
+        repository.connect(publishedAgent)
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+        awaitUntil(retry = { simulateAgentProfile() }) { repository.agentProfile.value != null }
+
+        awaitUntil(retry = { simulateFrame("""{"type":"ONBOARD_REQUIRED","id":"ob2","methods":["invite_code"]}""") }) {
+            repository.agentProfile.value == null
+        }
+    }
+
+    @Test
+    fun `a profile is stamped with the address this connection dialled`() = runTest(testDispatcher) {
+        // The agent screen matches on it. Older Hosts send no address, and the
+        // frame's own is the agent's word, not the one the user picked.
+        repository.connect(publishedAgent)
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+
+        awaitUntil(retry = { simulateAgentProfile() }) { repository.agentProfile.value != null }
+
+        assertEquals(publishedAgent, repository.agentProfile.value?.address)
+    }
+
+    @Test
+    fun `AGENT_PROFILE skills are de-duplicated and cleaned`() = runTest(testDispatcher) {
+        // W16AAPPLE-65's guard, now on the one path that fills the palette,
+        // which keys its rows on the name.
+        repository.connect(publishedAgent)
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+
+        awaitUntil(retry = {
+            simulateFrame(
+                """{"type":"AGENT_PROFILE","skills":[{"name":"explain","description":"No description"},""" +
+                    """{"name":"explain","description":"Explain a snippet of code"}]}"""
+            )
+        }) { repository.agentProfile.value != null }
+        val skills = repository.agentProfile.value!!.skills
 
         assertEquals("one entry per name", listOf("explain"), skills.map { it.name })
         assertTrue("placeholder description kept: $skills", skills.none { it.description == "No description" })
-    }
-
-    @Test
-    fun `a balance the agent published survives the directory filling in its skills`() = runTest(testDispatcher) {
-        val server = directory("""{"profile":{"skills":[{"name":"explain"}]}}""")
-        val repo = repositoryWithDirectory(server)
-
-        repo.connect(publishedAgent)
-        awaitUntil(retry = { simulateFrame("""{"type":"AGENT_PROFILE","name":"low-funds","skills":[],"balance_usd":0.42}""") }) {
-            repo.agentProfile.value != null
-        }
-        awaitUntil(retry = { simulateConnected() }) { repo.agentProfile.value?.skills?.isNotEmpty() == true }
-
-        assertEquals(0.42, repo.agentProfile.value?.balanceUsd)
     }
 
     @Test

@@ -3,8 +3,9 @@ package ai.openonion.oochat.domain.model
 /**
  * A skill the connected agent publishes — the candidate set for the
  * composer's `/` palette, which shows [description] under the name. It comes
- * from the relay's directory, or from an `AGENT_PROFILE` frame; both go
- * through [cleaned], so the palette sees the same shape from either.
+ * only from the `AGENT_PROFILE` frame the Host sends once it has let the user
+ * in, never the relay's public directory (W16AAPPLE-71), and goes through
+ * [cleaned] on the way.
  *
  * [description] is null when the agent has nothing useful to say about the
  * skill: absent, empty, or the `"No description"` placeholder the host emits
@@ -20,13 +21,13 @@ data class AgentSkill(
         private const val NO_DESCRIPTION_PLACEHOLDER = "No description"
 
         /**
-         * Raw skills, from whichever source, as the palette's candidates.
+         * An `AGENT_PROFILE` frame's raw skills as the palette's candidates.
          * Nameless entries are dropped: there is no command to complete
          * without one. A description that says nothing becomes null.
          *
          * One entry per name, the first winning: the palette keys its list on
          * the name, and a `LazyColumn` throws on a repeated key. Nothing on
-         * the wire or in the directory promises names are unique, so an agent
+         * the wire promises names are unique, so an agent
          * that registers the same skill twice would otherwise reach the UI
          * with two (W16AAPPLE-65).
          */

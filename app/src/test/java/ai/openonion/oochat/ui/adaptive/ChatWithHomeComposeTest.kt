@@ -56,7 +56,7 @@ class ChatWithHomeComposeTest {
 
     private fun show(initial: HomePlacement) {
         placement = initial
-        composeRule.setContent { ChatWithHome(placement = placement, chat = chat, home = home) }
+        composeRule.setContent { ChatWithHome(placement = placement, tab = HomeTab.CHAT, onTabChange = {}, homeLabel = "Home", chat = chat, home = home) }
     }
 
     @Test

@@ -1,6 +1,8 @@
 package ai.openonion.oochat.ui.agent
 
+import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentProfile
+import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
@@ -40,12 +42,17 @@ class AgentFormScreenComposeTest {
         createdAt = 0L
     )
 
-    private fun setScreen(existingAgent: AgentProfile?, onSave: (AgentProfile) -> Unit = {}) {
+    private fun setScreen(
+        existingAgent: AgentProfile?,
+        liveProfile: AgentLiveProfile? = null,
+        onSave: (AgentProfile) -> Unit = {}
+    ) {
         composeRule.setContent {
             ConnectOnionTheme {
                 AgentFormScreen(
                     existingAgent = existingAgent,
                     savedAgents = listOf(saved),
+                    liveProfile = liveProfile,
                     onSave = onSave,
                     onCancel = {}
                 )
@@ -119,5 +126,35 @@ class AgentFormScreenComposeTest {
         assertEquals("direct", agent.connectionMode)
         assertEquals("https://agent.example.com", agent.serverUrl)
         assertEquals(address, agent.address)
+    }
+
+    // ── skills only after the Host lets the user in (W16AAPPLE-71) ──────
+
+    @Test
+    fun `before the Host lets the user in, the agent screen says why there are no skills`() {
+        setScreen(existingAgent = saved, liveProfile = null)
+
+        composeRule.onNodeWithText(SKILLS_AWAITING_ADMISSION).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("What this agent can do", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `once admitted, skills sit collapsed behind a count until asked for`() {
+        val profile = AgentLiveProfile(
+            sessionId = "s1",
+            name = "Saved Bot",
+            address = saved.address,
+            model = null,
+            skills = listOf(AgentSkill("explain"), AgentSkill("translate"))
+        )
+        setScreen(existingAgent = saved, liveProfile = profile)
+
+        composeRule.onNodeWithText(SKILLS_AWAITING_ADMISSION).assertDoesNotExist()
+        composeRule.onNodeWithText("explain").assertDoesNotExist()
+
+        composeRule.onNodeWithText("What this agent can do (2)").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("explain").assertIsDisplayed()
+        composeRule.onNodeWithText("translate").assertIsDisplayed()
     }
 }

@@ -227,6 +227,28 @@ class ConversationHistoryUseCaseTest {
     }
 
     @Test
+    fun `ensureActiveSession keeps but does not reopen a synced chat with no local messages`() = runTest(testDispatcher) {
+        agentRepo.agents += testAgent()
+        val synced = ChatSession(
+            id = "remote-session",
+            agentId = "agent-1",
+            title = "New conversation",
+            createdAt = 1L,
+            updatedAt = 2L,
+            messageCount = 0,
+            remoteRevision = 4L
+        )
+        sessionRepo.sessions[synced.id] = synced
+        sessionRepo.sessionsByAgent["agent-1"] = MutableStateFlow(listOf(synced))
+
+        useCase.ensureActiveSession("0xabc", scope = backgroundScope)
+        advanceUntilIdle()
+
+        assertEquals(synced, sessionRepo.sessions[synced.id])
+        assertNull(useCase.activeSessionId.value)
+    }
+
+    @Test
     fun `ensureActiveSession resumes the most recent existing session instead of creating a new one`() = runTest(testDispatcher) {
         agentRepo.agents += testAgent()
         val existing = sessionRepo.createSession("agent-1", "Existing conversation")
@@ -1270,6 +1292,7 @@ class FakeDatabaseForTest : ai.openonion.oochat.data.local.db.AppDatabase() {
     override fun sessionDao(): ai.openonion.oochat.data.local.db.dao.SessionDao = NoOpSessionDao
     override fun messageDao(): ai.openonion.oochat.data.local.db.dao.MessageDao = NoOpMessageDao
     override fun sessionStateDao() = throw NotImplementedError()
+    override fun sessionSyncDao() = throw NotImplementedError()
     override fun pendingMessageDao() = throw NotImplementedError()
     override fun clearAllTables() = throw NotImplementedError()
     // RoomDatabase's own constructor eagerly assigns `invalidationTracker = createInvalidationTracker()`

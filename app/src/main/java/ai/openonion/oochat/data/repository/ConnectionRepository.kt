@@ -13,6 +13,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.UNKNOWN_SESSION_STATUS
@@ -176,6 +177,12 @@ interface ConnectionRepository {
      * whose final state became unknown after transmission.
      */
     suspend fun executeTool(request: ExecRequest): ExecOutcome
+
+    /**
+     * Read the connected agent's Rem notebook (W16AAPPLE-69). Owner-only on
+     * the Host; anyone else gets [RemOutcome.NotOwner] and no content.
+     */
+    suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
 
     /**
      * Respond to ask_user event.

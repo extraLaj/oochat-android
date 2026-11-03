@@ -14,6 +14,7 @@ import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.network.AgentConnection
@@ -64,8 +65,7 @@ class ConnectToAgentUseCase(
             relayUrl,
             sessionStore,
             pendingMessageSink,
-            isAppVisible = isAppVisible,
-            agentDiscovery = agentDiscovery
+            isAppVisible = isAppVisible
         )
     }
 ) : ConnectToAgentUseCaseContract {
@@ -248,6 +248,8 @@ class ConnectToAgentUseCase(
     override suspend fun executeTool(request: ExecRequest): ExecOutcome {
         return getOrCreateRepository().executeTool(request)
     }
+
+    override suspend fun readRem(): RemOutcome = getOrCreateRepository().readRem()
 
     override fun observeEvents(): Flow<ChatEvent> {
         return getOrCreateRepository().observeEvents()

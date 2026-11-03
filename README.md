@@ -23,9 +23,10 @@ answer; this exists for when the default is not enough.
 ### Slash-command palette
 
 Type `/` in the composer and the agent's published skills appear as a list, each
-with the description the agent gave it, if any. The list comes from the agent itself — an
-agent that publishes nothing shows an empty palette rather than a stale or
-invented one.
+with the description the agent gave it, if any. The list comes from the agent itself, and only
+once its Host has let you in, so an agent's skills are never shown to someone
+without access. An agent that publishes nothing shows an empty palette rather
+than a stale or invented one.
 
 <img src="screenshots/slash-command-palette.png" alt="Typing a slash in the composer lists the agent's published skills with their descriptions" width="320">
 
@@ -65,6 +66,8 @@ A notification arrives when a reply lands and the app is in the background.
 
 - Multiple sessions per agent, in a drawer, renameable
 - Agent discovery and invite-code onboarding
+- The agent owner's **Rem** notebook, read-only, as readable Markdown on phone
+  and tablet
 - **BIP39 recovery phrase** — generated the same way as the web client, so a
   phrase created in one restores the identical identity in the other
 - Ed25519 signing via lazysodium; credentials in EncryptedSharedPreferences

@@ -79,7 +79,10 @@ Some agents publish named skills. Type `/` to see them.
 Each entry shows the description the agent gave it, so you do not have to guess
 what a command does or how it is spelled. A skill the agent did not describe
 shows its name alone. **An empty palette is not a fault** —
-it means this agent publishes no skills, which many do not.
+it means this agent publishes no skills, which many do not, or that it has not
+let you in yet. Skills only appear once you are in, for example after entering
+an invite code. The agent's Edit screen lists them under **What this agent can
+do**.
 
 ---
 
@@ -118,29 +121,62 @@ before they are sent.
 ## 5a. An agent's own Home page
 
 Some agents send the app a page of their own — a status board, a form, a set of
-shortcuts, whatever their author built. When one does, a **grid icon appears in
-the top bar** beside the agent's name; tap it to open the page, and use back to
-return to the chat.
+shortcuts, whatever their author built. When one does, a tab named **Dashboard**
+or, for a Control Center, **Control Center** appears next to **Chat** at the top of
+the screen; tap it to open the page, and tap **Chat** or use back to return to the
+conversation.
 
 The page is the agent's, not the app's, so what it contains is up to whoever
 wrote the agent. It is displayed in a locked-down view: it cannot reach the
-network, cannot store anything, and cannot navigate anywhere. If no icon
-appears, this agent has not sent one.
+network, cannot store anything, and cannot navigate anywhere. If there is neither
+a tab nor an icon, this agent has not sent one.
 
 Some agents publish a full **Control Center** instead: a reviewed web app that
-can show live information and act for you. The same icon opens it. Anything it
+can show live information and act for you. The same tab opens it. Anything it
 does for you, such as sending a message or running a skill, appears in the chat
 as a message from you, so you can always see it. It cannot use your camera,
 microphone or location, read your clipboard, or open other sites. Going back to
 the chat while it is working leaves the work running. If it stops unexpectedly,
 the screen says so; tap **Reload** to start it again.
 
-On a tablet, or a foldable that is open, the page does not replace the chat: it
-sits beside it, so you can use both at once. The icon and the back arrow are not
+Switching between the tabs loses nothing: the chat keeps what you had typed and
+how far you had scrolled, and the page keeps whatever it was showing. The
+keyboard closes when you switch. Running a skill from the page's tab sends its
+message and takes you to the Chat tab, where the turn it started is.
+
+On a tablet, or a foldable that is open, the page does not get a tab: it sits
+beside the chat, so you can use both at once. The tabs and the back arrow are not
 shown then, because the page is already open. Running a skill from the page sends
 its message and leaves the page where it is. Fold the device and the page goes
-back behind the icon, and whatever you had typed in the chat is still there. A
-phone, even turned on its side, keeps the full-screen page.
+back to its tab, and whatever you had typed in the chat is still there. A phone,
+even turned on its side, uses the tabs.
+
+A device that cannot show a Control Center app has no tab for it. A grid icon in
+the chat's top bar opens a screen that says so.
+
+The page is only open while the chat is. Go from the chat to Settings, Logs or the
+agent list and it is closed; when you come back it is loaded again from the start.
+A Control Center app starts afresh too, so whatever you had open or half-filled in
+it is gone, though anything it already did shows in the chat as before.
+
+## 5b. Your agent's Rem notebook
+
+If you own the agent, it keeps a notebook called **Rem** about your people,
+projects and tools. Open it from the chat's **⋮** menu, then **Rem**. Pages are
+grouped by kind (People, Projects and so on); tap one to read it. A link to
+another person or project opens that page. On a tablet the list and the page sit
+side by side.
+
+Rem is read-only here, and only the agent's owner can open it. Anyone else sees
+**Only the owner can read this Rem**, with the command the owner would run on
+the agent's computer to add you. Other messages tell you when the agent has no
+notebook yet (`co rem init` creates one), when it is too large to open on a
+phone, or when the agent did not answer. **Try again** appears only where
+reading again could help.
+
+Passwords, keys and tokens in a page show as `[redacted]`. Locations on the
+owner's computer show as `[path removed]`, or as `~` for their home folder, and
+the notebook's own location is never shown.
 
 ---
 

@@ -28,6 +28,8 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.UserProfile
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.PersistenceTransaction
+import ai.openonion.oochat.domain.usecase.RecentChatsSync
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.RecognizerReadiness
 import ai.openonion.oochat.network.SpeechRecognitionEvent
@@ -81,6 +83,9 @@ class FakeAppContainer(
     override val speechRecognitionService: SpeechRecognitionService = FakeSpeechRecognitionService(),
     override val appSettings: AppSettings = FakeAppSettings(),
     override val persistenceTransaction: PersistenceTransaction = FakePersistenceTransaction(context),
+    override val recentChatsSync: RecentChatsSync = RecentChatsSync { _, _, _ ->
+        RecentChatsSyncResult.Unsupported
+    },
     override val agentReplyNotifier: AgentReplyNotifier = FakeAgentReplyNotifier(),
     override val isSecureStorage: Boolean = true,
     override val isIdentityStorageSecure: Boolean = true,

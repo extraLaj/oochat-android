@@ -9,8 +9,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -98,21 +96,6 @@ class ControlCenterScreenComposeTest {
         composeRule.onNodeWithText("Reload").performClick()
 
         assertEquals(1, reloads)
-    }
-
-    @Test
-    fun `Home opens the Control Center where it can be hosted, or where there is nothing else`() {
-        var asked = 0
-        val supported = { asked++; true }
-        val unsupported = { false }
-
-        assertTrue(homeOpensControlCenter(hasApp = true, hasDashboard = true, supported = supported))
-        assertFalse(homeOpensControlCenter(hasApp = true, hasDashboard = true, supported = unsupported))
-        // Without a legacy page, the screen is the only place to say the WebView is too old.
-        assertTrue(homeOpensControlCenter(hasApp = true, hasDashboard = false, supported = unsupported))
-        assertFalse(homeOpensControlCenter(hasApp = false, hasDashboard = true, supported = supported))
-        assertFalse(homeOpensControlCenter(hasApp = false, hasDashboard = false, supported = supported))
-        assertEquals("the WebView was loaded when no choice needed it", 1, asked)
     }
 
     @Test

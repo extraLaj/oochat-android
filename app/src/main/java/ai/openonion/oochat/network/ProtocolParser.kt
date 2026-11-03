@@ -561,6 +561,21 @@ object ProtocolParser {
                 )
             }
 
+            // The answer to a WIKI_READ (W16AAPPLE-69). Like EXEC_RESULT it
+            // settles one waiting request and is not a chat item.
+            "WIKI_RESULT" -> {
+                val requestId = event.requestId?.takeIf { it.isNotBlank() }
+                    ?: return ParseResult(event = ConnectionEvent.Unknown)
+                ParseResult(
+                    event = ConnectionEvent.RemResultReceived(
+                        requestId = requestId,
+                        ok = event.ok == true,
+                        html = event.html,
+                        error = event.error
+                    )
+                )
+            }
+
             "OUTPUT" -> {
                 val isForUs = isDirect || event.inputId == null || event.inputId in outstandingInputIds
                 if (isForUs) {
@@ -926,9 +941,8 @@ object ProtocolParser {
     }
 
     /**
-     * Wire skills to domain skills, cleaned by [AgentSkill.cleaned] exactly as
-     * the relay directory's are. [keepUsable] runs first only so a nameless
-     * entry is logged as dropped.
+     * Wire skills to domain skills, cleaned by [AgentSkill.cleaned].
+     * [keepUsable] runs first only so a nameless entry is logged as dropped.
      */
     private fun List<SkillWire>?.toAgentSkills(): List<AgentSkill> =
         AgentSkill.cleaned(
@@ -1049,6 +1063,18 @@ sealed class ConnectionEvent {
         val error: String? = null,
         val tool: String? = null,
         val durationMs: Double? = null
+    ) : ConnectionEvent()
+
+    /**
+     * A `WIKI_RESULT`: the Host's answer to the Rem read with [requestId].
+     * [html] is the whole reader page and stays inside the network layer,
+     * which turns it into a [ai.openonion.oochat.domain.model.RemOutcome].
+     */
+    data class RemResultReceived(
+        val requestId: String,
+        val ok: Boolean,
+        val html: String? = null,
+        val error: String? = null
     ) : ConnectionEvent()
 
     /**

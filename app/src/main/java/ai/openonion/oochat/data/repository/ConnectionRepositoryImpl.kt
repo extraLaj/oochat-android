@@ -6,7 +6,6 @@ import ai.openonion.oochat.data.protocol.OipProtocol
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.toDomain
 import ai.openonion.oochat.domain.model.AgentLiveProfile
-import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ChatEvent
 import ai.openonion.oochat.domain.model.ChatItem
@@ -17,12 +16,12 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
-import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.ConnectionEvent
 import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
@@ -77,10 +76,7 @@ class ConnectionRepositoryImpl(
     private val isAppVisible: () -> Boolean = { true },
     private val agentConnectionFactory: (KeyManager, String) -> AgentConnection = { km, url ->
         AgentConnection(km, url, pendingMessageSink = pendingMessageSink, isAppVisible = isAppVisible)
-    },
-    // Reads the relay's directory for the agent's published skills. Defaults to
-    // null so the existing tests construct this unchanged and make no HTTP call.
-    private val agentDiscovery: AgentDiscoveryService? = null
+    }
 ) : ConnectionRepository {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -255,7 +251,6 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.Connected -> {
                         FileLogger.i(LogTags.CONN_REPO, "→ Connected: ${event.address.take(16)}")
                         hasConnectedThisAttempt = true
-                        fetchPublishedProfile()
                         // Before the state below: a screen reacting to Connected
                         // must already see the Host's mode, not the reset default.
                         event.modes?.let { applyHostModes(it) }
@@ -317,6 +312,7 @@ class ConnectionRepositoryImpl(
                             // Rate-limited: the reconnect ladder replays the
                             // same rejection once per rung.
                             FileLogger.eRepeating(LogTags.CONN_REPO, "→ Error (never connected this attempt): ${event.message}")
+                            dropAdmittedState()
                             _connectionState.value = ConnectionState.Error(message = shown)
                         }
                     }
@@ -326,6 +322,7 @@ class ConnectionRepositoryImpl(
                         // CONNECT that is refused. retryable = false is what
                         // stops ConnectToAgentUseCase spending its second attempt.
                         FileLogger.e(LogTags.CONN_REPO, "→ Error (OIP version rejected, host=${event.hostProtocol ?: "<undeclared>"})")
+                        dropAdmittedState()
                         _connectionState.value = ConnectionState.Error(
                             message = ServerErrorText.incompatibleProtocol(
                                 hostProtocol = event.hostProtocol,
@@ -340,10 +337,12 @@ class ConnectionRepositoryImpl(
                         // was resuming is gone and only the user can try again
                         // (W16AAPPLE-82). Retryable, so Reconnect is offered.
                         FileLogger.e(LogTags.CONN_REPO, "→ Error (reconnect refused): ${event.message}")
+                        dropAdmittedState()
                         _connectionState.value = ConnectionState.Error(message = ServerErrorText.humanize(event.message))
                     }
                     is ConnectionEvent.Disconnected -> {
                         FileLogger.i(LogTags.CONN_REPO, "→ Disconnected")
+                        dropAdmittedState()
                         _connectionState.value = ConnectionState.Disconnected
                     }
                     is ConnectionEvent.Reconnecting -> {
@@ -367,6 +366,10 @@ class ConnectionRepositoryImpl(
                         _plan.value = event.entries
                     }
                     is ConnectionEvent.ChatItemReceived -> {
+                        // The Host is asking for an invite code again, so this
+                        // user is not admitted (any more): an operator who has
+                        // just blocked them gates the reconnect this way.
+                        if (event.item is ChatItem.OnboardRequired) dropAdmittedState()
                         // The one frame that is both a chat entry and connection
                         // state. Applied for replayed snapshot items too: the
                         // server's session mode survives a dropped socket, so
@@ -408,7 +411,14 @@ class ConnectionRepositoryImpl(
                     }
                     is ConnectionEvent.AgentProfileReceived -> {
                         FileLogger.i(LogTags.CONN_REPO, "→ AgentProfile: model=${event.profile.model}, tools=${event.profile.tools.size}, skills=${event.profile.skills.size}")
-                        _agentProfile.value = event.profile
+                        // The only source of skills (W16AAPPLE-71). The Host sends this
+                        // only once CONNECT has passed its trust gate, so skills never
+                        // show before the user is let in. The relay's public profile
+                        // also lists skills but needs no admission, so it is not read.
+                        // Stamped with the address this connection dialled: the frame's
+                        // own is written by the agent, and older Hosts leave it out,
+                        // which would leave the agent screen waiting forever.
+                        _agentProfile.value = event.profile.copy(address = currentAgentAddress ?: event.profile.address)
                     }
                     is ConnectionEvent.DashboardSnapshotReceived -> {
                         FileLogger.i(LogTags.CONN_REPO, "→ DashboardSnapshot: ${event.html.length} chars")
@@ -724,6 +734,9 @@ class ConnectionRepositoryImpl(
             )
         }
 
+    override suspend fun readRem(): RemOutcome =
+        withContext(Dispatchers.IO) { connection?.readRem() ?: RemOutcome.NotConnected }
+
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {
             connection?.interrupt()
@@ -837,6 +850,7 @@ class ConnectionRepositoryImpl(
 
             if (keepOutbox) connection?.teardown() else connection?.disconnect()
             connection = null
+            dropAdmittedState()
             _connectionState.value = ConnectionState.Disconnected
         }
     }
@@ -856,6 +870,18 @@ class ConnectionRepositoryImpl(
         sessionStore?.getSession(conversationId)?.sessionId
     }
 
+    /**
+     * Forget what only an admitted connection may show (W16AAPPLE-71). Called
+     * whenever this connection stops being one: ended, refused, or gated
+     * again. Not on Reconnecting: a relay reattach does not necessarily resend
+     * AGENT_PROFILE, so clearing there could hide skills on a connection that
+     * comes straight back. The dashboard needs no clearing of its own: its
+     * skill buttons are checked against this profile and refused without it.
+     */
+    private fun dropAdmittedState() {
+        _agentProfile.value = null
+    }
+
     override fun liveSessionIdFor(agentAddress: String): String? {
         if (agentAddress != currentAgentAddress || connection?.isConnected() != true) return null
         return connection?.currentSession?.sessionId
@@ -863,44 +889,6 @@ class ConnectionRepositoryImpl(
 
     override fun getCurrentSession(): SessionState? {
         return connection?.currentSession
-    }
-
-    /**
-     * Fills [agentProfile] from the relay's directory, because nothing ever
-     * pushes an `AGENT_PROFILE` frame — see [AgentDiscoveryService.fetchPublishedProfile].
-     *
-     * A pushed frame still wins: this only writes when the slot is empty or
-     * holds a profile with no skills, so if the relay ever starts sending one
-     * this becomes a harmless prefetch rather than something to unwind.
-     */
-    private fun fetchPublishedProfile() {
-        val discovery = agentDiscovery ?: return
-        // Deliberately not ConnectionEvent.Connected.address: that field carries
-        // the identity the relay authenticated — this device's own address, not
-        // the agent's. Looking that up returns our own directory row, whose
-        // profile is null, and the palette stays empty for a second reason.
-        val address = currentAgentAddress ?: return
-        scope.launch {
-            val published = discovery.fetchPublishedProfile(address, relayUrl) ?: return@launch
-            val existing = _agentProfile.value
-            if (existing != null && existing.skills.isNotEmpty()) return@launch
-
-            _agentProfile.value = AgentLiveProfile(
-                sessionId = existing?.sessionId,
-                name = existing?.name ?: published.alias,
-                address = address,
-                model = existing?.model ?: published.model,
-                tools = existing?.tools?.takeIf { it.isNotEmpty() } ?: published.tools,
-                // Cleaned as an AGENT_PROFILE frame's are: the directory does
-                // not promise unique names or useful descriptions either.
-                skills = AgentSkill.cleaned(published.skills, name = { it.name }, description = { it.description }),
-                balanceUsd = existing?.balanceUsd
-            )
-            FileLogger.i(
-                LogTags.CONN_REPO,
-                "→ Published profile: ${published.skills.size} skill(s) from the relay directory"
-            )
-        }
     }
 
     companion object {

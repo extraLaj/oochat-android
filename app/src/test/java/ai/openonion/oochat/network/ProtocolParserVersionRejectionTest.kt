@@ -1,8 +1,10 @@
 package ai.openonion.oochat.network
 
 import ai.openonion.oochat.data.protocol.OipProtocol
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -196,5 +198,24 @@ class ProtocolParserVersionRejectionTest {
     fun `a JSON null descriptor counts as missing`() {
         // The parser already reads a null field as missing; the check agrees for any other caller.
         assertTrue(OipProtocol.supports(JsonNull))
+    }
+
+    @Test
+    fun `Session Sync is enabled only when CONNECTED selects its exact extension version`() {
+        assertTrue(
+            OipProtocol.supportsSessionSync(
+                Json.parseToJsonElement(
+                    """{"name":"oip","version":"0.1","extensions":{"session-sync":"0.1"}}"""
+                )
+            )
+        )
+        listOf(
+            """{"name":"oip","version":"0.1"}""",
+            """{"name":"oip","version":"0.1","extensions":{"session-sync":"0.2"}}""",
+            """{"name":"oip","version":"0.1","extensions":{"session-sync":["0.1"]}}""",
+            """{"name":"oip","version":"0.1","extensions":"session-sync/0.1"}"""
+        ).forEach { descriptor ->
+            assertFalse(descriptor, OipProtocol.supportsSessionSync(Json.parseToJsonElement(descriptor)))
+        }
     }
 }

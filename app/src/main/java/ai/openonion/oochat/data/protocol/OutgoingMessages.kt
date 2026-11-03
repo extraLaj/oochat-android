@@ -44,7 +44,9 @@ data class ConnectPayload(
     val timestamp: Long,
     val to: String? = null,
     val nonce: String,
-    @SerialName("signed_commands") val signedCommands: Int = SignedCommand.CAPABILITY
+    @SerialName("signed_commands") val signedCommands: Int = SignedCommand.CAPABILITY,
+    val extensions: Map<String, List<String>>? = null,
+    @SerialName("session_sync_only") val sessionSyncOnly: Int? = null
 )
 
 @Serializable
@@ -89,6 +91,19 @@ data class ExecMessage(
     val args: JsonObject,
     val to: String,
     val type: String = "EXEC"
+)
+
+/**
+ * Ask the Host for its owner's Rem notebook (W16AAPPLE-69). Answered by a
+ * `WIKI_RESULT` carrying the same [requestId] — ws_router/rem.py
+ * `handle_rem_read`. Still `WIKI_READ` on the wire: Rem was Wiki until
+ * connectonion 1.9.0, and the Host kept the frame's name. Signed like every
+ * other command; the Host refuses an unsigned one.
+ */
+@Serializable
+data class RemReadMessage(
+    @SerialName("request_id") val requestId: String,
+    val type: String = "WIKI_READ"
 )
 
 @Serializable

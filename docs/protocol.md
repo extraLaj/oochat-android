@@ -35,6 +35,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `CONNECT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `INPUT` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `EXEC` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `WIKI_READ` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `PONG` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ASK_USER_RESPONSE` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `APPROVAL_RESPONSE` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
@@ -44,6 +45,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
 
 ### Server-to-client frame checklist
@@ -65,6 +67,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `session_sync` | Partial | [`ProtocolParserSessionSyncTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserSessionSyncTest.kt); assistant messages are replayed, while other session entries are not rendered as separate items |
+| `SESSION_SYNC_RESULT` index response | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt); pages are combined and revision-aware changes plus the final cursor are committed to Room together |
 | `user_input` | Partial by design | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt); ignored because the local user message is authoritative |
 | `ask_user` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -83,6 +86,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `RUNTIME_INPUT_ACK` | Supported | [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `OUTPUT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `EXEC_RESULT` | Supported | [`ProtocolParserExecTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserExecTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `WIKI_RESULT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`RemNotebookTest`](../app/src/test/java/ai/openonion/oochat/domain/model/RemNotebookTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ERROR` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`ProtocolParserVersionRejectionTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserVersionRejectionTest.kt), [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt) |
 | `SESSION_STATUS` response | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 
@@ -99,6 +103,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `last_msg_id` is sent for replay recovery | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ProtocolParserLiveFlowTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserLiveFlowTest.kt) |
 | `session_modes` on `CONNECTED` sets the mode and the modes on offer | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `server_newer` session data is merged | Supported | [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
+| Recent Chat index refreshes on connect and reconnect | Supported | [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
 | Reconnect retries use bounded backoff and stop after the attempt limit | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | Runtime input acknowledgement is handled without ending the turn | Supported | [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt) |
 | OIP 0.2 negotiation and frame compatibility | Missing / deferred | No Android implementation or compatibility test |
@@ -160,7 +165,7 @@ They are `@Serializable` Kotlin data classes and are encoded with
 | --- | --- |
 | `type` | Always `"CONNECT"`. |
 | `protocol` | The OIP protocol descriptor, `OipProtocol.DESCRIPTOR`. See below. |
-| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. See [Signed commands](#signed-commands). |
+| `payload` | `ConnectPayload(timestamp, to, nonce, signed_commands, extensions, session_sync_only)`; this is the signed payload. `nonce` is a fresh random UUID; `signed_commands` is always `1`. The final two fields are absent on ordinary chat connections and reserved for an index-only Session Sync connection. See [Signed commands](#signed-commands). |
 | `from` | The local Ed25519 address. |
 | `signature` | Hex Ed25519 signature over the canonical payload JSON. |
 | `timestamp` | Unix time in seconds. The same value is used in `payload`. |
@@ -320,7 +325,7 @@ The Host's checks, in `authenticated_command_payload` in
 | Signature never used before (a shared, persistent ledger) | `unauthorized: signed command already used` |
 
 Signed: `INPUT`, `EXEC`, `ASK_USER_RESPONSE`, `APPROVAL_RESPONSE`, `INTERRUPT`,
-`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE` and `mode_change`. These are the frames
+`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change` and `WIKI_READ`. These are the frames
 the Host leaves unsigned on purpose (`SignedCommand.EXEMPT_TYPES`, matching
 `exempt` in `ws_router/session.py`):
 
@@ -461,6 +466,85 @@ waiting EXEC card at once instead of leaving it to time out:
 Any other refusal, such as a signed-command `unauthorized: …`, could belong to
 an `INPUT` instead, so a waiting EXEC is left to its timeout.
 
+### `WIKI_READ` — `RemReadMessage` (Rem)
+
+`WIKI_READ` asks the Host for its owner's Rem notebook (W16AAPPLE-69), as O Chat's
+private Rem page does (oo-chat #246, renamed from Wiki in #267). Rem was called
+Wiki until connectonion 1.9.0; the frames kept the old name. The Host's handler
+is `ws_router/rem.py` `handle_rem_read`.
+
+```json
+{"type": "WIKI_READ", "request_id": "6f1c…"}
+{"type": "WIKI_RESULT", "request_id": "6f1c…", "ok": true, "html": "<!doctype html>…"}
+{"type": "WIKI_RESULT", "request_id": "6f1c…", "ok": false, "error": "co rem is available only to the Host owner"}
+```
+
+It is a signed command, sent only on a ready socket and never queued.
+`AgentConnection.readRem()` waits 25 seconds for the `WIKI_RESULT` with its
+`request_id`, the same wait as O Chat. The outcome is a `RemOutcome`:
+
+| Host answer | Outcome |
+|---|---|
+| `ok: true` with the reader page | `Loaded`, the pages taken out of the page (below) |
+| `co rem is available only to the Host owner` | `NotOwner` |
+| `co rem is not available on this Host` | `NoNotebook` |
+| `co rem reader exceeds the 16 MiB limit` | `TooLarge` |
+| `Authentication required` (the Host restarted, or its session crashed, while the relay kept the socket open) | `SessionLost`: the screen asks for a reconnect, since reading again cannot help |
+| `ERROR` `unknown message type: 'WIKI_READ'` (a Host older than Rem) | `HostTooOld`, and not shown again as a chat error |
+| Nothing within 25 s | `NoAnswer` |
+| The socket closes first | `NotConnected` |
+| Anything else | `Failed`; the Host's wording is logged, not shown |
+
+`html` is the Host's whole `rem/reader.py` page. The app does not display it.
+It reads the notebook snapshot embedded on the page's `const REM = {…};` line
+and keeps only each page's category, title, update time and Markdown text
+(`RemNotebook.parse`). The rest of that snapshot (the notebook's folder on the
+owner's machine, source folders, run logs, mail accounts) is dropped. The page itself
+is never logged. Parsing happens in `readRem()` once the answer is in, off the
+socket's thread, so a large notebook does not hold up chat frames.
+
+The contents list only the pages the Host reader lists (`listedRecords` in
+`rem/reader.html`). Pages held for review (`needs_review`), services still on a
+people page (`service`), duplicate skill catalog entries (`catalog_parent`),
+`skills/catalog/index.md` and the `notes` and `logs` categories are left off.
+They stay in the notebook, so a link still opens them (`RemPage.listed`).
+
+Rem labels a private sentence or clause with `[personal]` (family, home, trips)
+or `[sensitive]` (health, private money, legal, ID numbers), before its
+citations: `Recovering from knee surgery. [sensitive] [3]`. O Chat starts with
+these passages hidden, and the app has no way to show them, so
+`RemPassages.hide` drops each one, with its label and citations, using the same
+pattern as the Host reader's `privatePassages` (connectonion 1.9.3rc30): labels
+in either ASCII or full-width brackets (`［sensitive］［2］`) and in any case,
+clauses ending in `.!?;:,` or their Chinese forms with or without a space after,
+and no break at a dot inside a word or number (`harbour.com`, `120.5k`), inside
+quotes or inside code and links. A line left with nothing but labelled
+passages reads *Hidden labelled passage*. A list item left empty is removed.
+A label the pattern cannot cut around hides its whole line. Code blocks are
+left alone.
+
+Each kept title and page body then goes through `RemPrivacy.sanitize`, since
+pages are written from the owner's mail, chats and files:
+
+- Private key blocks, credentials in URLs (`https://user:…@host`), and token
+  shapes (Anthropic/OpenAI `sk-…`, GitHub `ghp_…`/`github_pat_…`, Slack `xox…`,
+  AWS `AKIA…`, Google `AIza…`, JWTs, `Bearer …`) become `[redacted]`.
+- So does the value of a named secret written with `:` or `=` (`password: …`,
+  `api key = …`, `invite code: …`, `OPENAI_API_KEY=…`). Prose such as "the token
+  expired" is left alone.
+- Home folders (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`) are shown as
+  `~`. Any other absolute path becomes `[path removed]`. Web addresses and the
+  relative links between pages are kept.
+
+A link to another page (`[Harbour](../orgs/harbour.md)`, resolved from the page
+it is on by `RemNotebook.pageLinkedFrom`) opens that page. Any other link stays
+plain text. Citation markers (`[1]`, `[W12]`) show as plain text; the Host
+reader shows them as chips.
+
+Retrying cannot change `TooLarge`, `SessionLost` or `HostTooOld`, so those screens
+offer no **Try again**.
+
+
 ### Control and response frames
 
 Every control frame below except `PONG` is a signed command.
@@ -503,7 +587,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | Server `type` | Fields used by this client | Client behaviour |
 | --- | --- | --- |
 | `PING` | — | Emits `Ping`; `AgentConnection` sends `PONG`. |
-| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. Skills go through `AgentSkill.cleaned()`, the same clean-up the relay directory's skills get: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
+| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. The Host sends this only once CONNECT has passed its trust gate, and it is the app's only source of skills: the relay's public profile (`/api/agents/<address>`) lists skills to anyone with the address, so it is never read (W16AAPPLE-71). Skills go through `AgentSkill.cleaned()`: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
 | `DASHBOARD_SNAPSHOT` | `html` | Emits `DashboardSnapshotReceived` for a non-blank dashboard within the size limit; oversized or blank content is ignored. |
 | `CONTROL_CENTER_APP` | `app.schema`, `app.sdk_version`, `app.revision`, `app.url`, `app.capabilities`, `app.review.status` | Emits `ControlCenterAppReceived`. The app is kept only when it is approved, speaks bridge version 1, is pinned to a `sha256:` revision and is served over `https` with no credentials, query or fragment; anything else, or `app: null`, reads as no app. See [Control Center](#control-center). |
 | `CONTROL_CENTER_STATE` | `state.status`, `state.error.code`, `state.error.message` | Emits `ControlCenterStateReceived`, which is logged: it is what explains an app that is missing. |
@@ -533,6 +617,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `RUNTIME_INPUT_ACK` | `session_id`, `id` | Emits `ConnectionEvent.RuntimeInputAcknowledged`: the host queued an `INPUT` that arrived mid-turn for the running turn's next iteration. `id` is the host's own UUID for the queued item, **not** the `input_id` we sent, so it cannot name the message it answers — see [Runtime input](#runtime-input). Not an `OUTPUT`: it does not end the turn. |
 | `OUTPUT` | `input_id`, `result`, `session` | Emits the final output when it belongs to the current input, or for any direct connection; updates the session snapshot. |
 | `EXEC_RESULT` | `exec_id`, `status`, `result`, `error`, `tool`, `duration_ms` | Completes the pending direct `EXEC` request with a success or error outcome. |
+| `WIKI_RESULT` | `request_id`, `ok`, `html`, `error` | Completes the pending Rem read with the same `request_id`; see [WIKI_READ](#wiki_read--remreadmessage-rem). Not a chat item. |
 | `mode_changed` | `id`, `mode`, `triggered_by`, `turns_left` | Creates a `ChatItem.ModeChangedItem` (a thin "Switched to … mode" divider) and sets the mode chip; authoritative whether it answers this client's `mode_change` or the agent switched on its own. See [Session mode](#session-mode). |
 | `mode_budget_changed` | `mode`, `turns_left` | Emits `ConnectionEvent.ModeBudgetChanged`: full access's turn budget counted down. Not a chat item. |
 | `SESSION_STATUS` | `session_id`, `status` | Emits `SessionStatusReceived`. Settles turns a drop failed, and sets the top bar's status line when it is about the session on screen. See [SESSION_STATUS](#session_status). |
@@ -782,6 +867,47 @@ saved SessionState -> SessionStore.getSession(agentAddress)
                    -> (a reconnect on the same AgentConnection also carries last_msg_id)
                    -> CONNECTED / OUTPUT / session_sync refresh local state
 ```
+
+### Session Sync retained-session index
+
+The experimental `session-sync/0.1` extension is a different protocol surface
+from the lower-case `session_sync` event above. `session_sync` carries one open
+conversation's current `SessionState`; the extension discovers the retained
+conversation summaries owned by the Ed25519 identity that signed `CONNECT`.
+
+An index connection offers the extension and asks not to create a chat inside
+the signed CONNECT payload:
+
+```json
+{
+  "extensions": {"session-sync": ["0.1"]},
+  "session_sync_only": 1
+}
+```
+
+It omits chat `session_id` and `session`. A supporting Host answers
+`CONNECTED` with `status: "index"` and selects
+`protocol.extensions["session-sync"] == "0.1"`. `OipProtocol.supportsSessionSync`
+checks that exact selection; absence or another version fails closed.
+
+`SESSION_SYNC` is a signed command. Omitting its opaque `cursor` requests a
+full snapshot; a final `SESSION_SYNC_RESULT` returns a new cursor for the next
+incremental request. Non-final pages return `next_page_token` instead, which
+must be drained before the cursor is replaced. Each result contains changed
+`sessions` and `removed_session_ids`. An `ERROR` with `code: "cursor_expired"`
+means the caller should discard the cursor and make one full request;
+`unsupported_extension` means an older Host remains local-only.
+
+`SessionSyncProtocol.kt` models and validates these frames. `SessionSyncClient`
+opens a separate, short-lived index socket, validates the exact negotiated
+extension, signs each request and drains every page before returning one
+snapshot. A partial fetch is never presented as authoritative state: timeout,
+premature close and malformed frames close the socket and fail the operation.
+`SessionSyncRepositoryImpl` then applies only newer revisions, explicit
+removals and the final identity-and-agent-scoped cursor in one Room transaction;
+existing message rows are preserved by targeted updates rather than parent-row
+replacement. The app refreshes this index when the agent connection is established.
+
 ### Reconnect and replay
 
 A dropped socket does not stop the agent. The Host keeps the running turn and a
@@ -1248,9 +1374,11 @@ conversation meanwhile. A failed send, an agent `ERROR`, Stop in the chat or a
 dropped connection end it with a refusal instead. `conversation: "new"` is refused
 for now. As in the React SDK, the app cancelling an action (it gave up, or timed
 out) interrupts the turn it started, as soon as it starts if its message is still
-being sent. Unlike the web O Chat, where the app sits beside the chat, here it
-replaces the chat on screen, so the page closing (the user going back to the chat
-to watch) only stops the wait and leaves the turn running.
+being sent. Unlike the web O Chat, where the app sits beside the chat, on a phone it
+is a tab next to the chat's, so the user can go to the chat to watch and the app
+keeps running. The page closing (the user leaving the chat for Settings, say) only
+stops the wait and leaves the turn running. On a tablet or an open foldable it sits
+beside the chat.
 
 **The snapshot** (`ChatViewModel.controlCenterSnapshot`) carries the agent's
 address, the session, its published skills (at most 2,000, names cut to 64
@@ -1263,10 +1391,11 @@ progress). Its chat items (`ControlCenterChatItems`) are the conversation in the
 React SDK's `ChatItem` shape, bounded as `boundControlSnapshot` does. Tool-call `args`
 and approval `arguments` go out with string values, as the app stores them.
 
-**The screen.** The chat's Home button opens `ControlCenterScreen` when the agent
-has an app and the device's WebView supports message listeners, and the legacy
-page otherwise. An agent with an app and no legacy page always gets the screen,
-which then says the WebView is too old. An app address with no origin the frame
+**The screen.** The agent's Home shows `ControlCenterScreen`, in its own tab on a
+phone and beside the chat on a tablet, when the agent has an app and the device's
+WebView supports message listeners, and the legacy page otherwise. An agent with an
+app and no legacy page always gets the screen. If the WebView is too old the screen
+says so, and, having no tab or pane, it is opened by the chat's Home button. An app address with no origin the frame
 can be pinned to (an IPv6 literal, say) is refused when the frame is parsed. The WebView loads our parent page at
 `https://appassets.androidplatform.net/control-center/host.html`, served by
 `WebViewAssetLoader`; any other path on that origin is a 404, never a network
@@ -1299,6 +1428,12 @@ If the WebView's renderer dies (a crash, or Android reclaiming its memory), the
 screen says the Control Center stopped and offers Reload rather than letting
 O Chat close with it, and does not reload by itself, so a crashing app cannot
 loop. While O Chat is in the background the WebView and its timers are paused.
+
+Beside the chat or in its tab, the app belongs to the chat's screen, which is only on
+screen while the user is in the chat. Switching between the chat and Home's tab keeps
+the app as it was. Leaving the chat for Settings, Logs or the agent list removes the
+pane or tab and its WebView, and coming back loads the app again from its URL, so
+whatever it held only in the page is lost.
 
 ## HTTP exception
 
