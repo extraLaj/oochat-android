@@ -450,6 +450,14 @@ val regressionSuite = mapOf(
     "low-balance bar" to listOf(
         "ui.chat.components.LowBalanceBarComposeTest",
     ),
+    "TalkBack labels and roles" to listOf(
+        "ui.chat.ChatControlsLabelledComposeTest",
+        "ui.chat.components.ControlRolesComposeTest",
+        "ui.chat.components.ApprovalModeControlsComposeTest",
+        "ui.chat.components.FailedMessagesBarComposeTest",
+        "ui.SelectedSemanticsComposeTest",
+        "ui.PillTextFieldAccessibilityTest",
+    ),
     "session resume" to listOf(
         "ui.chat.ProcessDeathResumeTest",
         "ui.chat.ForegroundReturnTest",

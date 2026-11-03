@@ -3,11 +3,21 @@ package ai.openonion.oochat.ui.chat.components
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -208,5 +218,102 @@ class ApprovalModeControlsComposeTest {
         // Its turn budget is its explicit step; the full access question is not added to it.
         composeRule.onNodeWithText("Start ultra work").performScrollTo().performClick()
         assertEquals(ApprovalMode.ULW to 100, picked)
+    }
+
+    // ── TalkBack (W16AAPPLE-48) ────────────────────────────────────────
+
+    private fun chip(
+        mode: ApprovalMode,
+        turnsLeft: Int? = null,
+        visibleText: String,
+        enabled: Boolean = true,
+        onCycle: () -> Unit = {}
+    ) {
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ApprovalModeChip(
+                    mode = mode,
+                    enabled = enabled,
+                    turnsLeft = turnsLeft,
+                    onCycle = onCycle,
+                    onOpenSheet = {}
+                )
+            }
+        }
+        composeRule.onNode(hasText(visibleText)).assertExists()
+    }
+
+    private fun described(text: String) = SemanticsMatcher("is described as \"$text\"") {
+        it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(text) == true
+    }
+
+    /** What TalkBack adds after the role: "double-tap to <label>". */
+    private fun tapDoes(label: String) = SemanticsMatcher("a tap does \"$label\"") {
+        it.config.getOrNull(SemanticsActions.OnClick)?.label == label
+    }
+
+    @Test
+    fun `the chip is announced as a button`() {
+        chip(ApprovalMode.SAFE, visibleText = "safe")
+
+        composeRule.onNode(hasClickAction() and hasText("safe"))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+    }
+
+    @Test
+    fun `the chip says it is the approval mode, and its click says it changes the mode`() {
+        chip(ApprovalMode.SAFE, visibleText = "safe")
+
+        composeRule.onNode(hasClickAction() and hasText("safe"))
+            .assert(described("Approval mode: safe"))
+            .assert(tapDoes("change mode"))
+    }
+
+    @Test
+    fun `a full access chip says how many turns are left, and its click says it exits`() {
+        chip(ApprovalMode.FULL_ACCESS, turnsLeft = 3, visibleText = "full access · 3 left · exit")
+
+        composeRule.onNode(hasClickAction() and hasText("full access · 3 left · exit"))
+            .assert(described("Approval mode: full access, 3 turns left"))
+            .assert(tapDoes("exit"))
+    }
+
+    @Test
+    fun `one turn left is not plural`() {
+        chip(ApprovalMode.FULL_ACCESS, turnsLeft = 1, visibleText = "full access · 1 left · exit")
+
+        composeRule.onNode(hasClickAction() and hasText("full access · 1 left · exit"))
+            .assert(described("Approval mode: full access, 1 turn left"))
+    }
+
+    @Test
+    fun `an unattended chip with no turn count still has a click that exits`() {
+        chip(ApprovalMode.ULW, visibleText = "ultra · exit")
+
+        composeRule.onNode(hasClickAction() and hasText("ultra · exit"))
+            .assert(described("Approval mode: ultra"))
+            .assert(tapDoes("exit"))
+    }
+
+    @Test
+    fun `the double-tap TalkBack sends changes the mode`() {
+        var cycled = 0
+        chip(ApprovalMode.SAFE, visibleText = "safe", onCycle = { cycled++ })
+
+        // The action TalkBack calls for a double-tap, which performClick (a touch) does not exercise.
+        composeRule.onNode(hasClickAction() and hasText("safe")).performSemanticsAction(SemanticsActions.OnClick)
+
+        assertEquals(1, cycled)
+    }
+
+    @Test
+    fun `a disabled chip still says what it is, and is announced as disabled`() {
+        var cycled = 0
+        chip(ApprovalMode.SAFE, visibleText = "safe", enabled = false, onCycle = { cycled++ })
+
+        composeRule.onNode(hasText("safe"))
+            .assert(described("Approval mode: safe"))
+            .assertIsNotEnabled()
+        assertEquals(0, cycled)
     }
 }
