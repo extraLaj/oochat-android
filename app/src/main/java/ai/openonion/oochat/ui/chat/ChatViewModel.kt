@@ -574,12 +574,18 @@ open class ChatViewModel @JvmOverloads constructor(
     // and connectToAgent(). It can also see a second Connected value when the
     // Host status is consumed. This stays true until an actual non-connected
     // transition, preventing duplicate index sockets for the same connection.
-    private var syncedCurrentConnection = false
+    // Keyed by agent: a sync already run for agent A must not suppress agent
+    // B's first sync after the user switches, and a non-connected transition
+    // clears it so the next connection syncs again.
+    private var syncedAgentAddress: String? = null
 
     // An explicit agent selection may refresh Recent Chats on an already-live
     // socket. Keep that refresh from overlapping the Connected callback's
-    // automatic sync.
+    // automatic sync. [recentChatsSyncJobAddress] records which agent that
+    // job is for, so switching agents cancels the old sync instead of letting
+    // it silently swallow the new agent's only sync (which never retried).
     private var recentChatsSyncJob: Job? = null
+    private var recentChatsSyncJobAddress: String? = null
 
     /**
      * Blocking cards the user has already answered, so [ChatEventReducer] can
@@ -851,7 +857,7 @@ open class ChatViewModel @JvmOverloads constructor(
             connectionState.collect { state ->
                 val atCreation = alreadyCurrent
                 alreadyCurrent = false
-                if (state !is ConnectionState.Connected) syncedCurrentConnection = false
+                if (state !is ConnectionState.Connected) syncedAgentAddress = null
                 when (state) {
                     is ConnectionState.Connected -> {
                         FileLogger.i(LogTags.CHAT_VM, "Connected to ${state.addressOrNull()?.take(16)}")
@@ -917,6 +923,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         // socket, and whether the host queued it is unknown.
                         // Say it did not go, and let the user resend it.
                         answerPendingRuntimeInput(RuntimeInputReply.CONNECTION_LOST)
+
+                        recentChatsSyncJob?.cancel()
+                        recentChatsSyncJob = null
+                        recentChatsSyncJobAddress = null
+                        syncedAgentAddress = null
                     }
                     else -> {}
                 }
@@ -1242,16 +1253,25 @@ open class ChatViewModel @JvmOverloads constructor(
         directUrl: String?,
         force: Boolean = false
     ) {
-        if (!force && syncedCurrentConnection) return
-        if (recentChatsSyncJob?.isActive == true) return
-        val agent = agentRepository.getAgentByAddress(canonicalAgentAddress(agentAddress)) ?: return
-        syncedCurrentConnection = true
+        val agentKey = canonicalAgentAddress(agentAddress)
+        // Already synced this exact agent on this connection: nothing to do
+        // (unless the caller is an explicit refresh, e.g. re-selecting it).
+        if (!force && syncedAgentAddress == agentKey) return
+        if (recentChatsSyncJob?.isActive == true) {
+            if (recentChatsSyncJobAddress == agentKey) return
+            recentChatsSyncJob?.cancel()
+            recentChatsSyncJob = null
+            recentChatsSyncJobAddress = null
+        }
+        val agent = agentRepository.getAgentByAddress(agentKey) ?: return
+        syncedAgentAddress = agentKey
         val effectiveDirectUrl = directUrl
             ?: agent.serverUrl.takeIf { !Constants.isDefaultServerUrl(it) }
 
         // This is deliberately detached from the connection setup. An older
         // Host, a timeout, or an index failure must not hold the chat screen
         // closed; Room keeps showing the last safe local list.
+        recentChatsSyncJobAddress = agentKey
         recentChatsSyncJob = viewModelScope.launch {
             when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl)) {
                 RecentChatsSyncResult.Synced ->
@@ -2752,7 +2772,7 @@ open class ChatViewModel @JvmOverloads constructor(
             launchScoped {
                 startRecentChatsSync(
                     agentAddress = _targetAgentAddress,
-                    directUrl = null,
+                    directUrl = targetDirectUrl,
                     force = true
                 )
             }
