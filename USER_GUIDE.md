@@ -79,7 +79,10 @@ Some agents publish named skills. Type `/` to see them.
 Each entry shows the description the agent gave it, so you do not have to guess
 what a command does or how it is spelled. A skill the agent did not describe
 shows its name alone. **An empty palette is not a fault** —
-it means this agent publishes no skills, which many do not.
+it means this agent publishes no skills, which many do not, or that it has not
+let you in yet. Skills only appear once you are in, for example after entering
+an invite code. The agent's Edit screen lists them under **What this agent can
+do**.
 
 ---
 
@@ -141,6 +144,11 @@ shown then, because the page is already open. Running a skill from the page send
 its message and leaves the page where it is. Fold the device and the page goes
 back behind the icon, and whatever you had typed in the chat is still there. A
 phone, even turned on its side, keeps the full-screen page.
+
+The page is only open while the chat is. Go from the chat to Settings, Logs or the
+agent list and it is closed; when you come back it is loaded again from the start.
+A Control Center app starts afresh too, so whatever you had open or half-filled in
+it is gone, though anything it already did shows in the chat as before.
 
 ---
 

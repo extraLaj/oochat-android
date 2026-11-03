@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ChatMessage
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
+import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
@@ -23,6 +24,8 @@ import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.ConversationHistoryUseCase
+import ai.openonion.oochat.domain.usecase.RecentChatsSync
+import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.NetworkMonitor
 import ai.openonion.oochat.ui.perf.BodyExecutionProbe
@@ -148,6 +151,9 @@ class ChatScreenRecompositionTest {
                 agentRepo, sessionRepo, messageRepo,
                 FakePersistenceTransaction(messageRepo, sessionRepo)
             ),
+            // Session Sync has its own integration tests. This suite measures
+            // Compose invalidation and must not load production identity crypto.
+            recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
             initialMyAddress = "0xTEST",
             networkMonitor = RecompFakeNetworkMonitor(),
         )
@@ -336,7 +342,10 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override val agentProfile: StateFlow<AgentLiveProfile?> = MutableStateFlow(null)
     override val approvalMode: StateFlow<ApprovalMode> = MutableStateFlow(ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
-    override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
+    val dashboard = MutableStateFlow<String?>(null)
+    override val dashboardHtml: StateFlow<String?> = dashboard
+    val controlCenter = MutableStateFlow<ControlCenterApp?>(null)
+    override val controlCenterApp: StateFlow<ControlCenterApp?> = controlCenter
 
     private val events = MutableSharedFlow<ChatEvent>(
         extraBufferCapacity = 64,

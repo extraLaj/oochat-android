@@ -19,11 +19,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -96,18 +93,12 @@ class AgentViewModel @JvmOverloads constructor(
     val uiState: StateFlow<AgentUiState> = _uiState.asStateFlow()
 
     /**
-     * The address of the agent the app is currently connected to, or null.
-     * Combined with [liveAgentProfile] by [AgentEditScreenWrapper] to decide
-     * whether the agent being edited is the live one — see
+     * The connected agent's own name card, if any. [AgentEditScreenWrapper]
+     * shows it only for the agent whose address it carries — see
      * [ai.openonion.oochat.domain.model.AgentLiveProfile]'s doc for
      * why this is live connection state, not something this ViewModel
      * fetches on its own.
      */
-    val connectedAgentAddress: StateFlow<String?> = connectToAgentUseCase.connectionState
-        .map { it.addressOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /** The connected agent's own name card, if any — see [connectedAgentAddress]. */
     val liveAgentProfile: StateFlow<AgentLiveProfile?> = connectToAgentUseCase.agentProfile
 
     init {

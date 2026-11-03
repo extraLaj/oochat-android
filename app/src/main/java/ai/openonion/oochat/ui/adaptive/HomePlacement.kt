@@ -23,4 +23,3 @@ internal fun homePlacementFor(windowSize: WindowSizeClass, hasHome: Boolean): Ho
     )
     return if (hasHome && roomForTwoPanes) HomePlacement.BESIDE_CHAT else HomePlacement.OWN_SCREEN
 }
-

@@ -1,7 +1,7 @@
 package ai.openonion.oochat.ui.dashboard
 
-import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.EmptyStateMessage
+import ai.openonion.oochat.ui.home.HomeTopBar
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
@@ -21,15 +21,12 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,8 +61,10 @@ import kotlinx.coroutines.withContext
  * @param agentName Titles the bar. This is *an agent's* page, and its name is
  *   the only thing that can say which — "Home" alone named nothing.
  * @param chatAwaitsUser The conversation is parked on something only the user
- *   can answer. This screen replaces the chat, so without saying so the run
- *   stalls out of sight — see [ChatViewModel.chatAwaitsUser].
+ *   can answer. On a screen of its own this replaces the chat, so without
+ *   saying so the run stalls out of sight — see [ChatViewModel.chatAwaitsUser].
+ * @param besideChat The page is next to the chat, not in place of it. There is
+ *   then no way back to show, and no waiting notice, since the chat is in view.
  * @param buildDispatcher Where a snapshot is wrapped. For tests, which hold
  *   it back to see the screen draw before the document is ready.
  */
@@ -206,21 +205,6 @@ internal fun DashboardScreenContent(
                 )
             }
         }
-    }
-}
-
-/**
- * The Home page's title bar. On its own screen it has the way back to the chat; beside the chat
- * there is nothing to go back to, so it is only the title.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun HomeTopBar(title: String, besideChat: Boolean, onNavigateBack: () -> Unit) {
-    val colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-    if (besideChat) {
-        TopAppBar(title = { Text(title) }, colors = colors)
-    } else {
-        BackTopAppBar(title = title, onNavigateBack = onNavigateBack, colors = colors)
     }
 }
 

@@ -430,6 +430,7 @@ val regressionSuite = mapOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",
         "ui.chat.components.InputBarOfflineComposeTest",
+        "ui.agent.LiveProfileMatchTest",
     ),
     "dictation" to listOf(
         "ui.chat.components.DictationMergeTest",
@@ -509,6 +510,11 @@ val regressionSuite = mapOf(
         "ui.adaptive.PaneComposeTest",
         "ui.adaptive.HomeScreenRouteComposeTest",
         "ui.adaptive.HomeBesideChatComposeTest",
+        "ui.chat.ChatHomeButtonComposeTest",
+        "ui.navigation.ChatWithHomePanesComposeTest",
+        "ui.controlcenter.HomeScreenWrappersComposeTest",
+        "ui.dashboard.RunSkillFromHomeTest",
+        "ui.home.AgentHomeTest",
     ),
 )
 val regressionOnly = providers.gradleProperty("regression").isPresent

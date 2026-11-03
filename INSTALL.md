@@ -229,11 +229,11 @@ if a card asks for an invite code, the code is `OpenOnion`.
 
 Two things that are working as intended and can read as faults:
 
-- **The `/` command palette stays empty on both.** It lists the skills an agent
-  publishes to the relay's directory, fetched from `/api/agents/<address>` on
-  connect. Both of these agents publish an empty `skills` list — verified
-  against the live directory on 2026-08-09 — so there is nothing for the palette
-  to show. An agent that publishes skills will populate it.
+- **The `/` command palette stays empty on both.** It lists the skills the
+  agent's Host sends in `AGENT_PROFILE` once it has let you in, never the
+  relay's public directory. Both of these agents have an empty `skills` list —
+  verified against the live directory on 2026-08-09 — so there is nothing for
+  the palette to show. An agent with skills will populate it once you are in.
 - **Dictation may pause for a couple of seconds the first time**, showing
   "Preparing…". On a device with no usable speech recogniser the app spends that
   window proving the recogniser is dead before falling back to server
