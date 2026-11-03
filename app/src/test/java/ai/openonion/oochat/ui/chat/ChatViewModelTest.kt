@@ -4030,9 +4030,7 @@ class ChatViewModelTest {
     fun `a cold start reaches the agent on the same server the chat used`() = runTest(testDispatcher) {
         savedFromOnboarding(validHexAddress(0xA))
         val opened = validHexAddress(0xB)
-        agentRepo.createAgent(
-            AgentProfile(id = "agent-b", address = opened, name = "Own server", serverUrl = "https://custom.example.com", createdAt = 0L)
-        )
+        ownServerAgent(opened)
 
         connectUseCase.markConnected(opened)
         vm.connectToAgent(opened)
@@ -4083,6 +4081,21 @@ class ChatViewModelTest {
         val target = configRepo.configValue!!.toConnectTarget()
         assertEquals(opened, target.agentAddress)
         assertEquals("https://custom.example.com", target.directUrl)
+    }
+
+    @Test
+    fun `a reconnect keeps the server the agent was opened at, not its saved row's`() = runTest(testDispatcher) {
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened, directUrl = "https://other.example.com")
+        testScheduler.runCurrent()
+
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        assertEquals("https://other.example.com", configRepo.configValue!!.toConnectTarget().directUrl)
     }
 
     @Test

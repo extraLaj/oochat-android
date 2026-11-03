@@ -439,6 +439,9 @@ open class ChatViewModel @JvmOverloads constructor(
     // Backing var kept for the many internal reads below (unchanged call
     // sites); mirrored into a StateFlow so NavDrawer's mini account card
     // can show which agent this session is connected to.
+    /** The server [connectToAgent] dialled the target at, for a later Connected to use too. */
+    private var targetDirectUrl: String? = null
+
     private var _targetAgentAddress: String = ""
         set(value) {
             field = value
@@ -852,7 +855,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // opened it), i.e. before ChatScreen has said which
                         // agent we're for — connectToAgent() runs this itself
                         // once the target is known.
-                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, null)
+                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, targetDirectUrl)
                         settleOutboxedMessages()
                         // Only fires when the previous Disconnected transition
                         // force-failed a still-in-flight Thinking item (see
@@ -1142,6 +1145,7 @@ open class ChatViewModel @JvmOverloads constructor(
             val previousAddress = _targetAgentAddress
             _targetAgentAddress = resolved.address
             val effectiveDirectUrl = resolved.directUrl ?: savedServerUrl
+            targetDirectUrl = effectiveDirectUrl
             FileLogger.i(LogTags.CHAT_VM, "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}")
 
             // Local history first, and awaited: an unreachable server must
@@ -1692,7 +1696,7 @@ open class ChatViewModel @JvmOverloads constructor(
             val address = canonicalAgentAddress(agentAddress)
             val saved = configRepository.getConfig()
             val agent = agentRepository.getAgentByAddress(address)
-            // The state listener passes no URL: use the agent's own server.
+            // No URL before connectToAgent has dialled: use the agent's own server.
             val serverUrl = directUrl
                 ?: agent?.serverUrl?.takeIf { !Constants.isDefaultServerUrl(it) }
                 ?: Constants.DEFAULT_SERVER_URL
