@@ -12,6 +12,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.UNKNOWN_SESSION_STATUS
@@ -145,6 +146,9 @@ interface ConnectToAgentUseCaseContract {
      * Send a direct tool command and wait for the corresponding EXEC_RESULT.
      */
     suspend fun executeTool(request: ExecRequest): ExecOutcome
+
+    /** The connected agent's Rem notebook — see ConnectionRepository.readRem. */
+    suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
 
     /**
      * Reply to an `ask_user` event.

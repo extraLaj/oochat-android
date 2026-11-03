@@ -25,21 +25,22 @@ class HomePlacementTest {
     }
 
     @Test
-    fun `a narrower window keeps Home on its own screen`() {
+    fun `a narrower window puts Home in a tab`() {
         // A phone, or a foldable that is still folded.
         listOf(320, 360, 411, 599).forEach { width ->
-            assertEquals("$width dp wide", HomePlacement.OWN_SCREEN, homePlacementFor(window(width), hasHome = true))
+            assertEquals("$width dp wide", HomePlacement.TABBED, homePlacementFor(window(width), hasHome = true))
         }
     }
 
     @Test
-    fun `a wide but short window, a phone on its side, keeps Home on its own screen`() {
-        assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(915, heightDp = 412), hasHome = true))
-        assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(900, heightDp = 479), hasHome = true))
+    fun `a wide but short window, a phone on its side, puts Home in a tab`() {
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(915, heightDp = 412), hasHome = true))
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(900, heightDp = 479), hasHome = true))
     }
 
     @Test
-    fun `with no Home to show nothing is put beside the chat`() {
+    fun `with no Home to show there is no pane and no tab`() {
         assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(1280), hasHome = false))
+        assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(360), hasHome = false))
     }
 }

@@ -293,8 +293,15 @@ class ConnectionRepositoryImplTest {
 
         repository.switchConversation("conv-B")
 
-        val connected = repository.connectionState.value as ConnectionState.Connected
-        assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, connected.status)
+        // Moving conversation reopens the socket, and its Reconnecting reaches
+        // the state on the collector's own time: either is right here, as long
+        // as conv-A's RUNNING is not still showing.
+        when (val state = repository.connectionState.value) {
+            is ConnectionState.Connected ->
+                assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, state.status)
+            ConnectionState.Reconnecting -> Unit
+            else -> fail("expected Connected or Reconnecting after the switch, was $state")
+        }
     }
 
     @Test

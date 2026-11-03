@@ -6,6 +6,7 @@ import ai.openonion.oochat.data.protocol.ProtocolDescriptor
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.knownIssue
 import androidx.test.core.app.ApplicationProvider
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -157,7 +160,12 @@ class AgentConnectionRobolectricTest {
         // the native libsodium binary and throws UnsatisfiedLinkError on a
         // host JVM/Robolectric. Inject a fake signer so the respondToOnboard
         // tests below can exercise the real wire-format/queuing logic.
-        connection = AgentConnection(keyManager, webSocketFactory = factory, signer = { _, _ -> "fake-signature" })
+        connection = AgentConnection(
+            keyManager,
+            webSocketFactory = factory,
+            signer = { _, _ -> "fake-signature" },
+            remParseDispatcher = Dispatchers.Unconfined
+        )
     }
 
     @After
@@ -222,6 +230,18 @@ class AgentConnectionRobolectricTest {
     private suspend fun awaitSockets(expected: Int) {
         awaitOn("socket #$expected to open", factory.createCount) { it >= expected }
         assertEquals("expected $expected socket(s)", expected, factory.socketCount)
+    }
+
+    /**
+     * Waits for [AgentConnection.isConnected] after a replacement socket's CONNECTED.
+     * The factory counts a socket inside `create()`, but the connection only takes
+     * it as its own once `create()` returns, on the IO thread [awaitSockets] waited
+     * on, so a CONNECTED sent straight after can land before that.
+     */
+    private suspend fun awaitConnected() {
+        if (withTimeoutOrNull(AWAIT_TIMEOUT_MS) { while (!connection.isConnected()) delay(1) } == null) {
+            fail("timed out after ${AWAIT_TIMEOUT_MS}ms waiting for the connection to be ready")
+        }
     }
 
     /** Everything one subscriber saw on [AgentConnection.events], as a flow so waits on it are event-driven. */
@@ -1337,7 +1357,7 @@ class AgentConnectionRobolectricTest {
 
         // Completing the handshake this time recovers the connection.
         simulateConnected("sess-new")
-        assertTrue(connection.isConnected())
+        awaitConnected()
     }
 
     @Test
@@ -2807,6 +2827,98 @@ class AgentConnectionRobolectricTest {
         // thread went idle, before the collector had caught up.
         withContext(Dispatchers.Default) { events.awaitDrained() }
         assertTrue(events.seen.none { it is ConnectionEvent.ConnectionError })
+    }
+
+    // ── Rem (W16AAPPLE-69) ──────────────────────────────────────────
+
+    private val remPage = "<script>\nconst REM = {\"categories\":[\"notes\"],\"records\":[" +
+        "{\"path\":\"notes/a.md\",\"category\":\"notes\",\"title\":\"A\",\"text\":\"# A\"}]};\n</script>"
+
+    @Test
+    fun `readRem sends a signed WIKI_READ and returns the notebook it answers with`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+
+        val sent = factory.lastWebSocket!!.sentMessages.single()
+        val command = signedCommand(sent)
+        assertEquals("WIKI_READ", command.getValue("type").jsonPrimitive.content)
+        val requestId = command.getValue("request_id").jsonPrimitive.content
+        assertEquals("fake-signature", Json.parseToJsonElement(sent).jsonObject.getValue("signature").jsonPrimitive.content)
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            Json.encodeToString(
+                JsonObject.serializer(),
+                JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("WIKI_RESULT"),
+                        "request_id" to JsonPrimitive(requestId),
+                        "ok" to JsonPrimitive(true),
+                        "html" to JsonPrimitive(remPage)
+                    )
+                )
+            )
+        )
+
+        val outcome = withTimeoutOrNull(1_000) { pending.await() }
+        assertEquals(listOf("A"), (outcome as RemOutcome.Loaded).notebook.pages.map { it.title })
+    }
+
+    @Test
+    fun `a result for another request does not settle this one`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+
+        val pending = async { connection.readRem(timeoutMs = 200) }
+        runCurrent()
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"WIKI_RESULT","request_id":"someone-else","ok":false,"error":"co rem is not available on this Host"}"""
+        )
+
+        assertEquals(RemOutcome.NoAnswer, pending.await())
+    }
+
+    @Test
+    fun `a Host older than Rem is told apart, and the chat is not shown its error`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"ERROR","message":"unknown message type: 'WIKI_READ'"}"""
+        )
+
+        assertEquals(RemOutcome.HostTooOld, withTimeoutOrNull(1_000) { pending.await() })
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+        assertTrue(events.seen.none { it is ConnectionEvent.ConnectionError })
+    }
+
+    @Test
+    fun `a Rem read is settled when the connection is torn down`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        connection.teardown()
+
+        assertEquals(RemOutcome.NotConnected, withTimeoutOrNull(1_000) { pending.await() })
+    }
+
+    @Test
+    fun `no Rem read goes out before the connection is ready`() = runTest {
+        connection.connect("0xAGENT")
+
+        assertEquals(RemOutcome.NotConnected, connection.readRem())
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("WIKI_READ") })
     }
 
     @Test

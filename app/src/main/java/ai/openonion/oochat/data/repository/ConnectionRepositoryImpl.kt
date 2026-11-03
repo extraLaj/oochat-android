@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.SessionModes
@@ -729,6 +730,9 @@ class ConnectionRepositoryImpl(
                 recipient = request.agentAddress
             )
         }
+
+    override suspend fun readRem(): RemOutcome =
+        withContext(Dispatchers.IO) { connection?.readRem() ?: RemOutcome.NotConnected }
 
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {
