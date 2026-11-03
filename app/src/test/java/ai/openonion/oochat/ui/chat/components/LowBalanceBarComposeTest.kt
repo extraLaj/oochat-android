@@ -1,6 +1,5 @@
 package ai.openonion.oochat.ui.chat.components
 
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import android.app.Application
 import android.content.Intent
@@ -102,6 +101,22 @@ class LowBalanceBarComposeTest {
     }
 
     @Test
+    fun `a balance too small to print as anything but zeros reads as out of credits`() {
+        setBar(balanceUsd = 0.00004)
+
+        composeRule.onNodeWithText("Out of credits", substring = true).assertExists()
+        composeRule.onNodeWithText("$0.0", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a sub-cent balance keeps enough places to stay non-zero`() {
+        // Two decimal places read "$0.00 left" here, the very thing the zero wording avoids.
+        setBar(balanceUsd = 0.003)
+
+        composeRule.onNodeWithText("Running low — $0.0030 left").assertExists()
+    }
+
+    @Test
     fun `low but non-zero shows the figure`() {
         setBar(balanceUsd = 0.42)
 
@@ -132,15 +147,14 @@ class LowBalanceBarComposeTest {
     }
 
     @Test
-    fun `known issue - the figure follows the phone's locale, not the dollar sign in front of it`() {
+    fun `the figure takes a decimal point whatever the phone's locale`() {
+        // A German phone used to read "$0,42" (W16AAPPLE-67).
         val original = Locale.getDefault()
         Locale.setDefault(Locale.GERMANY)
         try {
             setBar(balanceUsd = 0.42)
 
-            knownIssue("\"%.2f\".format uses the default locale, so a German phone reads \"$0,42\"") {
-                composeRule.onNodeWithText("$0.42", substring = true).assertExists()
-            }
+            composeRule.onNodeWithText("Running low — $0.42 left").assertExists()
         } finally {
             Locale.setDefault(original)
         }
