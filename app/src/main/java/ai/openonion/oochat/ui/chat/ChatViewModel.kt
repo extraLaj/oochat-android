@@ -1011,6 +1011,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // was not runtime input at all: it reached an agent that
                         // had just gone idle and started a turn of its own.
                         is ChatEvent.OutputReceived -> answerPendingRuntimeInput(RuntimeInputReply.TURN_ENDED)
+                        is ChatEvent.AnswerRefused -> markAnswerRefused(event.requestId)
                         // A generic ERROR frame is deliberately not handled: it
                         // says nothing about whether the host took our message,
                         // and the host's own refusal arrives as its own event.
@@ -2697,8 +2698,24 @@ open class ChatViewModel @JvmOverloads constructor(
         agentReplyNotifier.clearReplyNotifications()
     }
 
-    fun respond(answer: String) {
-        launchScoped { connectUseCase.respond(answer) }
+    /**
+     * Answer the ask_user card [itemId], with that card's own request id. An
+     * older question can still be on screen after another device answered it,
+     * and its answer must not be sent as one to the newer question.
+     */
+    fun respond(itemId: String, answer: String) {
+        val question = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.AskUser>()
+            .firstOrNull { it.id == itemId }
+        if (question == null || question.answer != null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring duplicate/unknown ask_user answer for $itemId")
+            return
+        }
+        val answered = question.copy(answer = answer)
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == itemId) answered else it })
+        }
+        launchScoped { connectUseCase.respond(answer, question.requestId) }
     }
 
     /**
@@ -2819,12 +2836,46 @@ open class ChatViewModel @JvmOverloads constructor(
             state.copy(chatItems = state.chatItems.map { if (it.id == itemId) decided else it })
         }
         launchScoped {
-            connectUseCase.respondToApproval(approved, scope, mode, feedback)
+            connectUseCase.respondToApproval(approved, scope, mode, feedback, gate.requestId)
             // Persisted only now that it's answered: an open gate replayed from
             // history would offer buttons for a question the server has closed,
             // but the record of what was approved belongs in the transcript.
             conversationHistory.persistMessage(decided)
         }
+    }
+
+    /**
+     * The Host refused this device's answer: it was no longer waiting for one
+     * (another device answered first, or the turn ended). The card says so
+     * instead of keeping an answer that was never applied. Nothing is re-sent.
+     * Matched by id; with none, only if exactly one answered card was sent
+     * without an id, since otherwise there is no telling which was refused.
+     */
+    private fun markAnswerRefused(requestId: String?) {
+        val answered = _uiState.value.chatItems.filter {
+            (it is ChatItem.ApprovalNeeded && it.decision != null) || (it is ChatItem.AskUser && it.answer != null)
+        }
+        val card = if (requestId != null) {
+            answered.lastOrNull { it.answerRequestId() == requestId }
+        } else {
+            answered.filter { it.answerRequestId() == null }.singleOrNull()
+        } ?: return
+        val refused = when (card) {
+            is ChatItem.ApprovalNeeded -> card.copy(decision = card.decision?.copy(refused = true))
+            is ChatItem.AskUser -> card.copy(refused = true)
+            else -> return
+        }
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == card.id) refused else it })
+        }
+        // Ask_user cards are not saved (see TranscriptItemPayload).
+        if (refused is ChatItem.ApprovalNeeded) launchScoped { conversationHistory.persistMessage(refused) }
+    }
+
+    private fun ChatItem.answerRequestId(): String? = when (this) {
+        is ChatItem.ApprovalNeeded -> requestId
+        is ChatItem.AskUser -> requestId
+        else -> null
     }
 
     /**

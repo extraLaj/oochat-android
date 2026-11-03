@@ -453,6 +453,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.RuntimeInputAcknowledged -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputAcknowledged(event.sessionId))
                     }
+                    is ConnectionEvent.AnswerRefused -> {
+                        _chatEvents.tryEmit(ChatEvent.AnswerRefused(event.requestId))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
@@ -740,15 +743,15 @@ class ConnectionRepositoryImpl(
         }
     }
 
-    override suspend fun respond(answer: String) {
+    override suspend fun respond(answer: String, requestId: String?) {
         withContext(Dispatchers.IO) {
-            connection?.respond(answer)
+            connection?.respond(answer, requestId)
         }
     }
 
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
         withContext(Dispatchers.IO) {
-            connection?.respondToApproval(approved, scope, mode, feedback)
+            connection?.respondToApproval(approved, scope, mode, feedback, requestId)
         }
     }
 

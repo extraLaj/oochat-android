@@ -226,7 +226,13 @@ class ChatViewModelTest {
         var onSend: (() -> Unit)? = null
 
         var lastRespond: String? = null
-        override suspend fun respond(answer: String) { lastRespond = answer }
+        var lastRespondRequestId: String? = null
+        var respondCount = 0
+        override suspend fun respond(answer: String, requestId: String?) {
+            lastRespond = answer
+            lastRespondRequestId = requestId
+            respondCount++
+        }
 
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
@@ -235,7 +241,7 @@ class ChatViewModelTest {
         var lastApprovalScope: String? = null
         var lastApprovalMode: String? = null
         var lastApprovalFeedback: String? = null
-        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
+        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
             lastApproval = approved
             lastApprovalScope = scope
             lastApprovalMode = mode
@@ -3301,9 +3307,12 @@ class ChatViewModelTest {
 
     @Test
     fun `respond forwards answer to the use case`() = runTest(testDispatcher) {
-        vm.respond("my answer")
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+        vm.respond("q-1", "my answer")
         testScheduler.runCurrent()
         assertEquals("my answer", connectUseCase.lastRespond)
+        assertEquals("ask-1", connectUseCase.lastRespondRequestId)
     }
 
     @Test
@@ -3426,6 +3435,122 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals(false, vm.isAgentWorking.value)
+    }
+
+    private suspend fun askUser(id: String, requestId: String?) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.AskUser(id = id, text = "Which branch?", options = listOf("main", "dev"), multiSelect = false, requestId = requestId)
+            )
+        )
+    }
+
+    private fun question(id: String) =
+        vm.uiState.value.chatItems.filterIsInstance<ChatItem.AskUser>().single { it.id == id }
+
+    // ── which card an answer, and a refusal, belongs to (W16AAPPLE-107) ──
+
+    @Test
+    fun `answering an older question sends that question's id, not the newest one's`() = runTest(testDispatcher) {
+        // Another device answered question 1 and the Host asked question 2;
+        // question 1 is still on this screen with its buttons.
+        askUser("q-1", requestId = "ask-1")
+        askUser("q-2", requestId = "ask-2")
+        testScheduler.runCurrent()
+
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals("ask-1", connectUseCase.lastRespondRequestId)
+        assertEquals("dev", question("q-1").answer)
+        assertNull("the newer question is still open", question("q-2").answer)
+    }
+
+    @Test
+    fun `a question is answered once`() = runTest(testDispatcher) {
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+
+        vm.respond("q-1", "main")
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals(1, connectUseCase.respondCount)
+        assertEquals("main", question("q-1").answer)
+    }
+
+    @Test
+    fun `a question with no id from the Host is answered without one`() = runTest(testDispatcher) {
+        askUser("local-7", requestId = null)
+        testScheduler.runCurrent()
+
+        vm.respond("local-7", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals("dev", connectUseCase.lastRespond)
+        assertNull("neither an app-made id nor the card's own id may be sent", connectUseCase.lastRespondRequestId)
+    }
+
+    @Test
+    fun `a refused ask_user answer marks its question as no longer waiting`() = runTest(testDispatcher) {
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused("ask-1"))
+        testScheduler.runCurrent()
+
+        assertTrue(question("q-1").refused)
+        assertEquals("only one answer was ever sent", 1, connectUseCase.respondCount)
+    }
+
+    @Test
+    fun `a refusal touches only the approval it names`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "a", tool = "bash", arguments = emptyMap(), requestId = "req-a")))
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "b", tool = "edit", arguments = emptyMap(), requestId = "req-b")))
+        testScheduler.runCurrent()
+        vm.respondToApproval("a", true)
+        vm.respondToApproval("b", true)
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused("req-a"))
+        testScheduler.runCurrent()
+
+        assertEquals(true, gate("a")?.decision?.refused)
+        assertEquals(false, gate("b")?.decision?.refused)
+    }
+
+    @Test
+    fun `a refusal with no id marks nothing when it could mean either of two cards`() = runTest(testDispatcher) {
+        raiseGate("gate-1")
+        askUser("q-1", requestId = null)
+        testScheduler.runCurrent()
+        vm.respondToApproval("gate-1", true)
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused(null))
+        testScheduler.runCurrent()
+
+        assertEquals(false, gate("gate-1")?.decision?.refused)
+        assertFalse(question("q-1").refused)
+    }
+
+    @Test
+    fun `a refusal with no id marks the one card answered without an id`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "named", tool = "bash", arguments = emptyMap(), requestId = "req-1")))
+        askUser("q-1", requestId = null)
+        testScheduler.runCurrent()
+        vm.respondToApproval("named", true)
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused(null))
+        testScheduler.runCurrent()
+
+        assertTrue("the only answer that went out without an id", question("q-1").refused)
+        assertEquals("an answer that named its request would have been named back", false, gate("named")?.decision?.refused)
     }
 
     /** respondToApproval now needs the gate present in chatItems to answer it. */

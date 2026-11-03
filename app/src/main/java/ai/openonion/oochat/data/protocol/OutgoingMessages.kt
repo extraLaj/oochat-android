@@ -125,7 +125,9 @@ data class InterruptMessage(
 @Serializable
 data class AskUserResponse(
     val type: String = "ASK_USER_RESPONSE",
-    val answer: String
+    val answer: String,
+    // The ask_user event's id. The Host refuses an answer without it when the session is open on two devices.
+    @SerialName("request_id") val requestId: String? = null
 )
 
 @Serializable
@@ -144,7 +146,9 @@ data class ApprovalResponse(
     // examples all carry this field. Only meaningful when approved == false;
     // the encoder (explicitNulls = false) drops it from the frame entirely
     // when null, matching the reference's conditional-spread behavior.
-    val feedback: String? = null
+    val feedback: String? = null,
+    // The approval_needed event's id, as for AskUserResponse.
+    @SerialName("request_id") val requestId: String? = null
 )
 
 /**

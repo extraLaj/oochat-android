@@ -2,7 +2,6 @@ package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ChatItem
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.testing.FakeOipHost.Companion.string
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -134,24 +133,68 @@ class ApprovalResponseTest : RelayResumeTestBase() {
     @Test
     fun `the answer names the request it answers`() = runBlocking {
         val frame = answer(approved = true, scope = "once")
-        knownIssue("W16AAPPLE-107: APPROVAL_RESPONSE has no request_id, so a second device makes the Host refuse it") {
-            assertEquals("the id of the approval_needed being answered", "req-1", frame.string("request_id"))
-        }
+        assertEquals("the id of the approval_needed being answered", "req-1", frame.string("request_id"))
+        assertEquals("and it is signed", "req-1", frame["payload"]?.jsonObject?.string("request_id"))
+    }
+
+    @Test
+    fun `an approval with no id from the Host is answered without a request id`() = runBlocking {
+        val (app, _) = connectedMidTurn()
+        relay.emit("""{"type":"approval_needed","tool":"bash","arguments":{"command":"ls"}}""")
+        pumpUntil("the approval card to show") { app.items.any { it is ChatItem.ApprovalNeeded } }
+
+        app.vm.respondToApproval(app.card().id, approved = true, scope = "once")
+        pumpUntil("the answer to reach the socket") { sent("APPROVAL_RESPONSE").isNotEmpty() }
+
+        assertTrue("a locally made-up id must not be sent", !sent("APPROVAL_RESPONSE").single().containsKey("request_id"))
     }
 
     @Test
     fun `an ask_user answer names the question it answers`() = runBlocking {
         val (app, _) = connectedMidTurn()
-        relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which branch?","options":["main","dev"]}""")
+        relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which day?","options":["Mon","Tue"]}""")
         pumpUntil("the question to show") { app.items.any { it is ChatItem.AskUser } }
 
-        app.vm.respond("dev")
+        app.vm.respond(app.items.filterIsInstance<ChatItem.AskUser>().single().id, "Tue")
         pumpUntil("the answer to reach the socket") { sent("ASK_USER_RESPONSE").isNotEmpty() }
+
         val frame = sent("ASK_USER_RESPONSE").single()
-        assertEquals("dev", frame.string("answer"))
-        knownIssue("W16AAPPLE-107: ASK_USER_RESPONSE has no request_id, so a second device makes the Host refuse it") {
-            assertEquals("the id of the ask_user being answered", "ask-1", frame.string("request_id"))
-        }
+        assertEquals("Tue", frame.string("answer"))
+        assertEquals("ask-1", frame.string("request_id"))
+    }
+
+    @Test
+    fun `an answer to an older question still on screen names that question`() = runBlocking {
+        val (app, _) = connectedMidTurn()
+        // Another device answered ask-1, and the Host asked ask-2 on both.
+        relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which day?","options":["Mon","Tue"]}""")
+        relay.emit("""{"type":"ask_user","id":"ask-2","question":"Which time?","options":["9am","5pm"]}""")
+        pumpUntil("both questions to show") { app.items.count { it is ChatItem.AskUser } == 2 }
+
+        val older = app.items.filterIsInstance<ChatItem.AskUser>().single { it.requestId == "ask-1" }
+        app.vm.respond(older.id, "Tue")
+        pumpUntil("the answer to reach the socket") { sent("ASK_USER_RESPONSE").isNotEmpty() }
+
+        assertEquals("never applied to a question the user did not see", "ask-1", sent("ASK_USER_RESPONSE").single().string("request_id"))
+    }
+
+    @Test
+    fun `an answer the Host refused shows as answered elsewhere, and nothing is re-sent or reconnected`() = runBlocking {
+        val app = awaitingApproval()
+        app.vm.respondToApproval(app.card().id, approved = true, scope = "once")
+        pumpUntil("the answer to reach the socket") { sent("APPROVAL_RESPONSE").isNotEmpty() }
+
+        // The STALE_ANSWER docs/network/websocket-protocol.md describes, for another device answering first.
+        relay.emit(
+            """{"type":"ERROR","code":"STALE_ANSWER","reason":"stale","request_id":"req-1",""" +
+                """"message":"that request is no longer waiting for an answer"}"""
+        )
+        pumpUntil("the card to say it was answered elsewhere") { app.card().decision?.refused == true }
+        pumpFor(2_000L)
+
+        assertEquals("never re-sent", 1, sent("APPROVAL_RESPONSE").size)
+        assertEquals("the socket is fine, so no reconnect", 1, relay.connects.size)
+        assertTrue("and no error is shown: ${app.vm.uiState.value.error}", app.vm.uiState.value.error == null)
     }
 
     // ── Ultra work's budget ─────────────────────────────────────────────
