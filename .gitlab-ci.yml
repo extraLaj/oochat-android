@@ -139,7 +139,15 @@ unit-tests:
     policy: $CACHE_POLICY
     when: always
   script:
-    - ./gradlew :app:testDebugUnitTest
+    # Compile and test in two invocations. In one, the Gradle JVM still holds
+    # what it used to compile (about 2.6 GB) while the test JVM runs (about
+    # 1.4 GB), more than the machine's 3.8 GB: memory ran out a minute into the
+    # tests, and the job either thrashed until the runner killed it or starved
+    # timing-sensitive tests until they failed. With no daemon, the second
+    # invocation is a fresh JVM that only has to run the test task, so it gets a
+    # small heap; the test phase peaks at about 2 GB.
+    - ./gradlew :app:compileDebugUnitTestKotlin
+    - ./gradlew -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m -XX:+UseSerialGC -Dfile.encoding=UTF-8" :app:testDebugUnitTest
     # testDebugUnitTest and the Roborazzi tasks reconfigure the same Gradle
     # task with a screenshot-only filter; run in one invocation, the filter wins
     # and most of the suite silently never runs. Same guard as GitHub's.
