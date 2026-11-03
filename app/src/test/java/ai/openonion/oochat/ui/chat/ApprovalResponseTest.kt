@@ -139,6 +139,21 @@ class ApprovalResponseTest : RelayResumeTestBase() {
         }
     }
 
+    @Test
+    fun `an ask_user answer names the question it answers`() = runBlocking {
+        val (app, _) = connectedMidTurn()
+        relay.emit("""{"type":"ask_user","id":"ask-1","question":"Which branch?","options":["main","dev"]}""")
+        pumpUntil("the question to show") { app.items.any { it is ChatItem.AskUser } }
+
+        app.vm.respond("dev")
+        pumpUntil("the answer to reach the socket") { sent("ASK_USER_RESPONSE").isNotEmpty() }
+        val frame = sent("ASK_USER_RESPONSE").single()
+        assertEquals("dev", frame.string("answer"))
+        knownIssue("W16AAPPLE-107: ASK_USER_RESPONSE has no request_id, so a second device makes the Host refuse it") {
+            assertEquals("the id of the ask_user being answered", "ask-1", frame.string("request_id"))
+        }
+    }
+
     // ── Ultra work's budget ─────────────────────────────────────────────
 
     @Test

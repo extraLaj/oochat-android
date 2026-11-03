@@ -79,8 +79,9 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
         return first to conversation
     }
 
-    private suspend fun relaunch(): App {
+    private suspend fun relaunch(newChat: Boolean = false): App {
         val next = App().also { launches += it }
+        if (newChat) next.vm.markStartNewSessionOnConnect()
         next.vm.connectToAgent(agent)
         return next
     }
@@ -90,8 +91,20 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
         val (first, conversation) = queueWhileOffline()
         first.kill()
 
+        // Back in a different chat, so a message that lost its conversation
+        // would go out here instead of waiting for its own.
         restoreNetwork()
-        val second = relaunch()
+        val second = relaunch(newChat = true)
+        pumpUntil("the new chat to connect") {
+            relay.connects.size == 2 && second.connection.isConnected() && second.connectCalls.finished.get() == 1
+        }
+        val otherChat = relay.connects.last().string("session_id")
+        assertTrue("the relaunch must be on another conversation", otherChat != null && otherChat != conversation)
+        pumpFor(5_000L)
+        assertTrue("it must not go out on another conversation: ${relay.inputs}", relay.inputs.isEmpty())
+        assertEquals("so the outbox still holds it", 1, second.outboxSize())
+
+        second.vm.switchToSession(conversation)
         pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
         // Time for a duplicate send to show up.
         pumpFor(5_000L)
@@ -101,18 +114,15 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
             listOf(queued),
             relay.inputs.map { it.string("prompt") }
         )
-        assertEquals(
-            "it must go out on the conversation it was written in",
-            conversation,
-            relay.connects.last().string("session_id")
-        )
+        assertEquals("on the conversation it was written in", listOf(conversation), relay.inputSessions)
         assertEquals("the outbox is empty once it has gone", 0, second.outboxSize())
 
         val rows = second.rows(conversation).filter { it.role == Role.USER }
         assertEquals("the message is saved once", listOf(queued), rows.map { it.content })
         val bubbles = second.items.filterIsInstance<ChatItem.User>().filter { it.content == queued }
         assertEquals("and shown once", 1, bubbles.size)
-        assertEquals(UserMessageState.SENT, bubbles.single().state)
+        // Not checking the bubble's state: after a restart it shows as sent
+        // even before it has gone (W16AAPPLE-106, the test below).
     }
 
     @Test

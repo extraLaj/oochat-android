@@ -91,6 +91,13 @@ class SavedSchema private constructor(val version: Int, private val database: Js
     }
 }
 
+/** The app's own tables, leaving out SQLite's, Android's and Room's bookkeeping ones. */
+fun SupportSQLiteDatabase.tableNames(): Set<String> =
+    query(
+        "SELECT name FROM sqlite_master WHERE type = 'table' " +
+            "AND name NOT LIKE 'sqlite_%' AND name NOT IN ('android_metadata', 'room_master_table')"
+    ).use { c -> generateSequence { if (c.moveToNext()) c.getString(0) else null }.toSet() }
+
 /** [table]'s columns from `PRAGMA table_info`, in the form [SavedSchema.columns] uses. */
 fun SupportSQLiteDatabase.columnsOf(table: String): Set<String> =
     query("PRAGMA table_info(`$table`)").use { c ->

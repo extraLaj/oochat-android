@@ -58,17 +58,18 @@ class MigrationChainTest {
             val migration = AppDatabase.ALL_MIGRATIONS.single { it.startVersion == from }
             val next = SavedSchema.of(to)
 
-            val actual = openAt(to) { db, oldVersion ->
+            val (tables, actual) = openAt(to) { db, oldVersion ->
                 assertEquals(from, oldVersion)
                 migration.migrate(db)
             }.let { db ->
                 try {
-                    next.tables.associateWith { db.columnsOf(it) }
+                    db.tableNames() to next.tables.associateWith { db.columnsOf(it) }
                 } finally {
                     db.close()
                 }
             }
 
+            assertEquals("tables after $from -> $to", next.tables, tables)
             next.tables.forEach { table ->
                 assertEquals("columns of $table after $from -> $to", next.columns(table), actual.getValue(table))
             }
