@@ -438,8 +438,9 @@ fun ChatScreen(
 
 // ── Navigation drawer ───────────────────────────────────────────
 
+// Internal for SessionDrawerComposeTest.
 @Composable
-private fun ChatNavDrawerContent(
+internal fun ChatNavDrawerContent(
     agentSections: List<DrawerAgentSection>,
     activeSessionId: String?,
     targetAgentAddress: String?,
