@@ -10,6 +10,7 @@ import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.StoredImage
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
+import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.data.repository.AgentRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
@@ -4002,6 +4003,72 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals("https://explicit.example.com", connectUseCase.lastConnectDirectUrl)
+    }
+
+    // ── which agent a cold start reconnects to (W16AAPPLE-77) ──────────
+
+    /** The agent onboarding or the agent list saved before the user went elsewhere. */
+    private fun savedFromOnboarding(address: String) {
+        configRepo.configValue = ConnectionConfig(serverUrl = "https://oo.openonion.ai", agentAddress = address, apiKey = "key-1")
+    }
+
+    @Test
+    fun `an agent opened from a link or the drawer becomes the one a cold start reconnects to`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertNull("on the default relay, as the chat dialled it", target.directUrl)
+    }
+
+    @Test
+    fun `a cold start reaches the agent on the same server the chat used`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        agentRepo.createAgent(
+            AgentProfile(id = "agent-b", address = opened, name = "Own server", serverUrl = "https://custom.example.com", createdAt = 0L)
+        )
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertEquals(connectUseCase.lastConnectDirectUrl, target.directUrl)
+        assertEquals("https://custom.example.com", target.directUrl)
+    }
+
+    @Test
+    fun `an agent that could not be reached does not replace the saved one`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        savedFromOnboarding(onboarded)
+        connectUseCase.connectResult = false
+
+        vm.connectToAgent(validHexAddress(0xB))
+        testScheduler.runCurrent()
+
+        assertEquals(onboarded, configRepo.configValue?.agentAddress)
+    }
+
+    @Test
+    fun `reconnecting to the saved agent keeps its config as it was`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        savedFromOnboarding(onboarded)
+
+        connectUseCase.markConnected(onboarded)
+        vm.connectToAgent(onboarded)
+        testScheduler.runCurrent()
+
+        assertEquals(
+            ConnectionConfig(serverUrl = "https://oo.openonion.ai", agentAddress = onboarded, apiKey = "key-1"),
+            configRepo.configValue
+        )
     }
 
     @Test
