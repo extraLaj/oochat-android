@@ -5,6 +5,9 @@ import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.RecordingResult
+import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
+import ai.openonion.oochat.data.local.CONNECTION_MODE_RELAY
+import ai.openonion.oochat.data.local.resolveServerRoute
 import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.di.appContainer
@@ -1101,10 +1104,15 @@ open class ChatViewModel @JvmOverloads constructor(
             val config = configRepository.getConfig()
             if (config != null && config.isValid && !config.agentAddress.isNullOrBlank()) {
                 val target = config.toConnectTarget()
-                FileLogger.i(LogTags.CHAT_VM, "Auto-connect: agent=${target.agentAddress.take(16)}, direct=${target.isDirect}")
+                FileLogger.i(
+                    LogTags.CHAT_VM,
+                    "Auto-connect: agent=${target.agentAddress.take(16)}, direct=${target.isDirect}, " +
+                        "selfHostedRelay=${target.relayUrl != null}"
+                )
                 connectToAgent(
                     address = target.agentAddress,
-                    directUrl = target.directUrl
+                    directUrl = target.directUrl,
+                    relayUrl = target.relayUrl
                 )
             } else {
                 // Reachable after Settings -> "Clear connection data": Reconnect
@@ -1117,11 +1125,13 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Connect to an agent by address or URL. Falls back to the per-agent
-     * saved serverUrl (not just the default relay) when directUrl isn't
-     * passed, mirroring toConnectTarget's default-vs-direct check.
+     * Connect to an agent by address or URL. When neither [directUrl] nor
+     * [relayUrl] is passed, the agent's saved serverUrl and connectionMode
+     * decide the route (resolveServerRoute, the same rule toConnectTarget
+     * uses): a relay-mode agent on a self-hosted relay goes through that
+     * relay, not direct to it (W16AAPPLE-56).
      */
-    fun connectToAgent(address: String, directUrl: String? = null) {
+    fun connectToAgent(address: String, directUrl: String? = null, relayUrl: String? = null) {
         if (address.isBlank()) {
             FileLogger.w(LogTags.CHAT_VM, "Connect attempt with blank address")
             return
@@ -1131,16 +1141,25 @@ open class ChatViewModel @JvmOverloads constructor(
 
         connectJob?.cancel()
         connectJob = launchScoped {
-            val savedServerUrl = directUrl
-                ?: agentRepository.getAgentByAddress(address)?.serverUrl
-                    ?.takeIf { !Constants.isDefaultServerUrl(it) }
+            val savedRoute = if (directUrl != null || relayUrl != null) {
+                null
+            } else {
+                agentRepository.getAgentByAddress(address)
+                    ?.let { resolveServerRoute(it.serverUrl, it.connectionMode) }
+            }
+            val savedServerUrl = directUrl ?: savedRoute?.directUrl
+            val effectiveRelayUrl = relayUrl ?: savedRoute?.relayUrl
 
             // Resolve address via discovery before connecting
             val resolved = agentDiscovery.resolveAgentAddress(address)
             val previousAddress = _targetAgentAddress
             _targetAgentAddress = resolved.address
             val effectiveDirectUrl = resolved.directUrl ?: savedServerUrl
-            FileLogger.i(LogTags.CHAT_VM, "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}")
+            FileLogger.i(
+                LogTags.CHAT_VM,
+                "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}, " +
+                    "selfHostedRelay=${effectiveDirectUrl == null && effectiveRelayUrl != null}"
+            )
 
             // Local history first, and awaited: an unreachable server must
             // still show the previous conversation, and resolving the session
@@ -1164,7 +1183,8 @@ open class ChatViewModel @JvmOverloads constructor(
             val success = connectUseCase.connect(
                 resolved.address,
                 conversationHistory.conversationId,
-                effectiveDirectUrl
+                effectiveDirectUrl,
+                effectiveRelayUrl
             )
             if (success) {
                 // Also run here, not only from the state collector: joining an
@@ -1694,7 +1714,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         name = "Agent ${address.take(8)}...",
                         serverUrl = directUrl ?: Constants.DEFAULT_SERVER_URL,
                         createdAt = System.currentTimeMillis(),
-                        isActive = true
+                        isActive = true,
+                        // Reached direct, so it must be saved as direct: a
+                        // custom serverUrl under the "relay" default would be
+                        // dialled as a self-hosted relay next time.
+                        connectionMode = if (directUrl != null) CONNECTION_MODE_DIRECT else CONNECTION_MODE_RELAY
                     )
                 )
             }

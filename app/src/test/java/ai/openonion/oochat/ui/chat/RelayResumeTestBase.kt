@@ -217,7 +217,7 @@ abstract class RelayResumeTestBase {
         private val inner: ConnectToAgentUseCase
     ) : ConnectToAgentUseCaseContract by inner {
         val finished = java.util.concurrent.atomic.AtomicInteger()
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean =
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean =
             inner.connect(agentAddress, conversationId, directUrl).also { finished.incrementAndGet() }
     }
 

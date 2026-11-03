@@ -96,7 +96,8 @@ fun AgentListScreenWrapper(
                     scope.launch {
                         val config = ConnectionConfig(
                             serverUrl = agent.serverUrl,
-                            agentAddress = agent.address
+                            agentAddress = agent.address,
+                            connectionMode = agent.connectionMode
                         )
                         configRepository.saveConfig(config)
                         onAgentSelect(agentAddress)

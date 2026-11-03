@@ -58,7 +58,7 @@ class ConnectToAgentUseCaseTest {
         override suspend fun switchConversation(conversationId: String?) { switchedConversations += conversationId }
         override fun liveSessionIdFor(agentAddress: String): String? = null
 
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) {
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?) {
             connectCount++
             connectedAddresses += agentAddress
             connectedConversations += conversationId

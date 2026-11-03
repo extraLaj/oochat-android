@@ -41,7 +41,6 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSync
 import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.OFFLINE_GRACE_MS
 import ai.openonion.oochat.network.RecognizerReadiness
@@ -152,6 +151,7 @@ class ChatViewModelTest {
         var connectInvocations = 0
         var lastConnectAddress: String? = null
         var lastConnectDirectUrl: String? = null
+        var lastConnectRelayUrl: String? = null
         var lastConnectConversationId: String? = null
         val switchedConversations = mutableListOf<String?>()
         /**
@@ -164,11 +164,12 @@ class ChatViewModelTest {
         /** Ordered record of what was asked of the connection, for ordering assertions. */
         val interactions = mutableListOf<String>()
 
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean {
             connectInvocations++
             lastConnectAddress = agentAddress
             lastConnectConversationId = conversationId
             lastConnectDirectUrl = directUrl
+            lastConnectRelayUrl = relayUrl
             if (connectResult) connectedConversationId = conversationId
             interactions += "connect:$conversationId"
             return connectResult
@@ -3814,7 +3815,7 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `known issue - an agent saved as relay-mode on a self-hosted relay is dialled as a direct agent`() =
+    fun `an agent saved as relay-mode on a self-hosted relay is dialled through that relay`() =
         runTest(testDispatcher) {
             // What discovery saves for every agent found on a relay the user
             // typed in: connectionMode "relay", serverUrl = that relay.
@@ -3833,12 +3834,9 @@ class ChatViewModelTest {
             vm.connectToAgent(address)
             testScheduler.runCurrent()
 
-            knownIssue(
-                "the saved connectionMode is never read; any non-default server URL is dialled direct, " +
-                    "so a relay-mode agent is reached at <relay>/ws instead of through the relay"
-            ) {
-                assertNull(connectUseCase.lastConnectDirectUrl)
-            }
+            // W16AAPPLE-56: through the relay's /ws/input, not direct at <relay>/ws.
+            assertNull(connectUseCase.lastConnectDirectUrl)
+            assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
         }
 
     @Test
@@ -3904,6 +3902,36 @@ class ChatViewModelTest {
             1,
             connectUseCase.connectInvocations
         )
+    }
+
+    @Test
+    fun `connectToAgentByConfig forwards a self-hosted relay saved in relay mode as the relay`() = runTest(testDispatcher) {
+        configRepo.configValue = ConnectionConfig(
+            serverUrl = "https://relay.example.com",
+            agentAddress = validHexAddress(),
+            connectionMode = "relay"
+        )
+        vm.connectToAgentByConfig()
+        testScheduler.runCurrent()
+
+        assertNull(connectUseCase.lastConnectDirectUrl)
+        assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
+    }
+
+    @Test
+    fun `an agent first reached direct is saved as direct so it is dialled direct again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address, directUrl = "https://agent.example.com")
+        testScheduler.runCurrent()
+
+        val saved = agentRepo.getAgentByAddress(address)
+        assertEquals("direct", saved?.connectionMode)
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals("https://agent.example.com", connectUseCase.lastConnectDirectUrl)
+        assertNull(connectUseCase.lastConnectRelayUrl)
     }
 
     @Test

@@ -59,7 +59,7 @@ class LoadingViewModelTest {
 
         override fun liveSessionIdFor(agentAddress: String): String? = null
 
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean {
             connectInvocations++
             lastAddress = agentAddress
             lastConversationId = conversationId

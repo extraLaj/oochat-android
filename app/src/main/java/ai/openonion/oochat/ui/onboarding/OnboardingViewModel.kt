@@ -1,5 +1,7 @@
 package ai.openonion.oochat.ui.onboarding
 
+import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
+import ai.openonion.oochat.data.local.CONNECTION_MODE_RELAY
 import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
 import ai.openonion.oochat.di.appContainer
@@ -85,7 +87,10 @@ class OnboardingViewModel @JvmOverloads constructor(
             val config = ConnectionConfig(
                 serverUrl = trimmedUrl,
                 apiKey = trimmedApiKey,
-                agentAddress = trimmedAddress.takeIf { it.isNotBlank() }
+                agentAddress = trimmedAddress.takeIf { it.isNotBlank() },
+                // The mode the user picked, so a custom relay is gone through
+                // rather than dialled direct (W16AAPPLE-56).
+                connectionMode = if (formState.useDirectConnection) CONNECTION_MODE_DIRECT else CONNECTION_MODE_RELAY
             )
             configRepository.saveConfig(config)
             onSaved()

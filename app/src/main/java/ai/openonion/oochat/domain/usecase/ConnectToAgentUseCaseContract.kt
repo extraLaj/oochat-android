@@ -115,9 +115,16 @@ interface ConnectToAgentUseCaseContract {
      *
      * @param conversationId Local conversation to resume the server session
      *   of; null when it has no persisted row yet, which starts a fresh one
+     * @param relayUrl Relay to go through when not direct (a self-hosted one);
+     *   null for the default relay
      * @return true if connected successfully, false on failure/timeout
      */
-    suspend fun connect(agentAddress: String, conversationId: String? = null, directUrl: String? = null): Boolean
+    suspend fun connect(
+        agentAddress: String,
+        conversationId: String? = null,
+        directUrl: String? = null,
+        relayUrl: String? = null
+    ): Boolean
 
     /**
      * Move the live connection onto another conversation's server session —

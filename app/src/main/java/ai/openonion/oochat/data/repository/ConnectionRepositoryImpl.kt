@@ -568,7 +568,14 @@ class ConnectionRepositoryImpl(
         return stored ?: SessionState(sessionId = conversationId)
     }
 
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) {
+    override suspend fun connect(
+        agentAddress: String,
+        conversationId: String?,
+        directUrl: String?,
+        relayUrl: String?
+    ) {
+        // A self-hosted relay is per agent; everything else uses this repository's own.
+        val effectiveRelayUrl = relayUrl ?: this.relayUrl
         withContext(Dispatchers.IO) {
             connectMutex.withLock {
                 // One socket per agent. The Loading probe and ChatViewModel now
@@ -647,7 +654,7 @@ class ConnectionRepositoryImpl(
 
                     val newConnection = agentConnectionFactory(
                         keyManager ?: error("keyManager is required to connect"),
-                        relayUrl
+                        effectiveRelayUrl
                     ).also { it.setSession(restoredSession) }
                     connection = newConnection
 

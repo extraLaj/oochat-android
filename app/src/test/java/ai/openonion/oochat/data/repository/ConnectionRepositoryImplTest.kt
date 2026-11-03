@@ -211,6 +211,25 @@ class ConnectionRepositoryImplTest {
     }
 
     @Test
+    fun `connect builds the connection on the agent's self-hosted relay when one is passed`() = runTest(testDispatcher) {
+        val relays = mutableListOf<String>()
+        val repo = ConnectionRepositoryImpl(
+            keyManager = keyManager,
+            relayUrl = "ws://default.invalid",
+            pendingMessageSink = sink,
+            agentConnectionFactory = { km, url ->
+                relays += url
+                AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = sink)
+            }
+        )
+
+        repo.connect("0xAGENT", relayUrl = "https://relay.example.com")
+        repo.connect("0xOTHER")
+
+        assertEquals(listOf("https://relay.example.com", "ws://default.invalid"), relays)
+    }
+
+    @Test
     fun `a CONNECTED frame from the underlying AgentConnection updates connectionState to Connected`() = runTest(testDispatcher) {
         repository.connect("0xAGENT")
 

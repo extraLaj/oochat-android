@@ -279,7 +279,8 @@ class AgentViewModel @JvmOverloads constructor(
             configRepository.saveConfig(
                 ConnectionConfig(
                     serverUrl = agent.serverUrl,
-                    agentAddress = agent.address
+                    agentAddress = agent.address,
+                    connectionMode = agent.connectionMode
                 )
             )
             onSaved()
@@ -377,7 +378,8 @@ class AgentViewModel @JvmOverloads constructor(
                 ConnectionConfig(
                     serverUrl = agent.serverUrl,
                     agentAddress = canonicalAgentAddress(agent.address),
-                    apiKey = agent.apiKey
+                    apiKey = agent.apiKey,
+                    connectionMode = agent.connectionMode
                 )
             )
             onSaved()
