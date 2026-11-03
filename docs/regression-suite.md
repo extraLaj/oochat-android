@@ -25,6 +25,7 @@ belongs in one of those classes, or its class belongs in that list.
 | Dictation | `DictationMergeTest`, `InputBarDictationComposeTest`, `ChatViewModelTest`, `SpeechRecognizerIntentTest`, `SpeechRecognitionLevelTest`, `VoiceTranscriptionInstructionTest`, `VoiceTranscriptionServiceTest`, `VoiceRecorderStoreTest` | Nothing is ever sent on its own, including when the fallback path fails; a recording under a second says "Recording too short" instead of vanishing, while an unusable one is dropped quietly (W16AAPPLE-103); one token refresh after a 401 |
 | Rem notebook | `RemNotebookTest`, `RemScreenComposeTest`, `RemViewModelTest` (plus `ProtocolParserTest`, `AgentConnectionRobolectricTest`) | Pages come out of the Host's reader page with only category, title, date and Markdown; the notebook's folder, logs and mail accounts are dropped, credentials (keys, tokens, named secrets, URL passwords) become `[redacted]`, absolute paths become `[path removed]` and home folders `~`, passages Rem labels `[personal]` or `[sensitive]` are hidden; the contents leave off held, service, duplicate-catalog, notes and logs pages, which links still open; all checked on page text written the way Rem writes it; a refresh keeps the open page; links between pages open the linked page; each Host refusal has its own message, an older Host is told apart, Try again only where reading again can help, and the Host's own wording is never shown; the screen says Rem, never Wiki, and names `co rem` commands (W16AAPPLE-69) |
 | Low-balance bar | `LowBalanceBarComposeTest` (plus `ConnectionRepositoryImplTest`) | Threshold, wording at zero and below, the tap opening the purchase page, the balance reaching the live profile |
+| TalkBack labels and roles | `ChatControlsLabelledComposeTest`, `ControlRolesComposeTest`, `ApprovalModeControlsComposeTest`, `FailedMessagesBarComposeTest`, `SelectedSemanticsComposeTest`, `PillTextFieldAccessibilityTest` | Every control in the transcript (one of each kind of chat item), the composer and the approval controls has text or a content description once its children are merged, so none is read out unlabelled; the approval mode chip, Stop, the "Not sent" row and every expandable card announce as buttons; the chip says which setting it is and what a tap does, and an expandable card says whether it is open; the current mode and option announce as selected (W16AAPPLE-48) |
 | Session resume | `ProcessDeathResumeTest`, `ForegroundReturnTest`, `ConnectionRepositorySessionPersistenceTest`, `SessionPersistsToRoomTest`, `ColdStartConnectionTest`, `SharedConnectionTest`, `ConnectToAgentUseCaseStaleSessionTest`, `SessionFreshnessTest` | Killed mid-stream: the relaunch CONNECTs on the same `session_id` with no `last_msg_id` and the replayed turn lands once in Room and on screen; a dropped socket names the last event it handled; a turn that finished while the app was dead arrives once, and a tool call it left running stops spinning; a dead socket is replaced on return to the app (W16AAPPLE-46); a cold start opens one socket |
 | CONNECTED status | `ProtocolParserTest`, `AgentConnectionRobolectricTest`, `ConnectionRepositoryImplTest`, `ChatViewModelTest`, `ProcessDeathResumeTest` | `status` (new, connected, running) and `server_newer` read off the frame and carried to the screen, which acts on each once: running holds the composer and un-fails a dropped turn, connected settles cards left spinning, new fails a lost turn and leaves a brand-new conversation alone, a failed turn stays failed; a message typed offline is marked sent when the connection returns; the Host's newer transcript merges once, without touching a message not yet sent (W16AAPPLE-22) |
 | Wrong clock and failed reconnects | `HostClockTest`, `AgentConnectionRobolectricTest`, `ConnectionRepositoryImplTest`, `ServerErrorTextTest`, `ChatViewModelTest` | Signatures carry the server's time from the upgrade's `Date` (CONNECT, commands, invite codes), the device clock with no header or past the 30-minute bound, a fresh reading per socket, and a clock put right is followed; `signature expired` is shown as advice to check the date and time; a reconnect answered with ERROR ends in Error with Reconnect, an unanswered one climbs the ladder after 15 s, and the relay's offline verdict is a rung; an offline agent is tried every minute after the ladder while the app is on screen; a recreated chat screen does not re-add an old error; a session the Host lost (`authenticate first`, Rem's `Authentication required`) reconnects by itself and reads Rem again, sends nothing again by itself but shows a lost message failed with Retry, at most once a minute before Reconnect is offered (W16AAPPLE-90, -82, -79, -74, -108) |
@@ -114,3 +115,29 @@ purpose. At that point, remove the wrapper, and the test guards the fix.
 - **The live relay.** `RelayFailoverTest` fakes it at the `WebSocketFactory`
   seam instead of reaching `oo.openonion.ai` from CI. The restart tests use the
   standard close codes 1012 and 1001.
+- **What TalkBack actually says.** The tests check the semantics TalkBack is given
+  (names, roles, states), not its speech, which depends on its version and settings.
+  So the spoken result is checked by hand, on a phone or on an emulator image with
+  Google Play (Settings, Accessibility, TalkBack). Swipe right through each screen
+  and listen for a name and a role on every control:
+  - Chat top bar: "Open menu, button", the agent's name, "More options, button",
+    and, when a Control Center cannot be shown, "Open agent home, button".
+  - Composer: "Open attachment menu, button", "Dictate a message, button", "Send,
+    button" (and "disabled" while the field is empty), and the approval chip as
+    "Approval mode: safe, button, double-tap to change mode" (and "double-tap to exit"
+    on full access, which also says how many turns are left). Double-tap changes the
+    mode; "Approval mode options, button" opens the sheet, whose rows announce as
+    radio buttons with the current one selected. While a change is pending the chip
+    also says "Mode change pending".
+  - While the agent works: "Stop, button".
+  - An approval card: the tool and what it wants to do are read before "Allow
+    once", "Trust for this session", "Reject" and "Explain", each as a button.
+  - A tool, plan or diff card: "..., button, Collapsed"; a double tap says
+    "Expanded".
+  - A message that was not sent: "Not sent. Tap to try again., button", and in the
+    bar above the composer "Retry sending: <the message>" for each one.
+  - Attachments: "Selected image 1 of 2" then "Remove image 1 of 2" (or "Remove
+    <file name>" for a file), and "Add more images".
+  - On a phone with tabs (W16AAPPLE-32): open Home once, return to Chat, and swipe
+    through the whole chat. It must never read anything from the hidden Home page.
+  - Work Rooms are not built yet; add them to this list when they are.
