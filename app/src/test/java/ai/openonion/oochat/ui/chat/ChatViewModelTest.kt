@@ -4044,6 +4044,60 @@ class ChatViewModelTest {
         assertEquals("https://custom.example.com", target.directUrl)
     }
 
+    private suspend fun ownServerAgent(address: String) {
+        agentRepo.createAgent(
+            AgentProfile(id = "agent-b", address = address, name = "Own server", serverUrl = "https://custom.example.com", createdAt = 0L)
+        )
+    }
+
+    @Test
+    fun `a reconnect after a drop keeps the agent on its own server`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        // The state listener's Connected carries no URL.
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        assertEquals("https://custom.example.com", configRepo.configValue!!.toConnectTarget().directUrl)
+    }
+
+    @Test
+    fun `an agent let in after the onboarding gate is saved on its own server`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        // connect() returns true on ONBOARD_REQUIRED, before the user is let in.
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertEquals("https://custom.example.com", target.directUrl)
+    }
+
+    @Test
+    fun `a saved relay URL written another way is not rewritten`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        val saved = ConnectionConfig(serverUrl = "wss://oo.openonion.ai/", agentAddress = onboarded, apiKey = "key-1")
+        configRepo.configValue = saved
+
+        connectUseCase.markConnected(onboarded)
+        vm.connectToAgent(onboarded)
+        testScheduler.runCurrent()
+
+        assertEquals(saved, configRepo.configValue)
+    }
+
     @Test
     fun `an agent that could not be reached does not replace the saved one`() = runTest(testDispatcher) {
         val onboarded = validHexAddress(0xA)

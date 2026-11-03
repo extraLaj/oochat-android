@@ -1691,9 +1691,15 @@ open class ChatViewModel @JvmOverloads constructor(
         runCatchingCancellable {
             val address = canonicalAgentAddress(agentAddress)
             val saved = configRepository.getConfig()
-            val serverUrl = directUrl ?: Constants.DEFAULT_SERVER_URL
-            if (saved?.agentAddress == address && saved.serverUrl == serverUrl) return@runCatchingCancellable
-            val apiKey = if (saved?.agentAddress == address) saved.apiKey else agentRepository.getAgentByAddress(address)?.apiKey
+            val agent = agentRepository.getAgentByAddress(address)
+            // The state listener passes no URL: use the agent's own server.
+            val serverUrl = directUrl
+                ?: agent?.serverUrl?.takeIf { !Constants.isDefaultServerUrl(it) }
+                ?: Constants.DEFAULT_SERVER_URL
+            val sameServer = saved?.serverUrl == serverUrl ||
+                (saved != null && Constants.isDefaultServerUrl(saved.serverUrl) && Constants.isDefaultServerUrl(serverUrl))
+            if (saved?.agentAddress == address && sameServer) return@runCatchingCancellable
+            val apiKey = if (saved?.agentAddress == address) saved.apiKey else agent?.apiKey
             configRepository.saveConfig(
                 (saved ?: ConnectionConfig.default()).copy(serverUrl = serverUrl, agentAddress = address, apiKey = apiKey)
             )
