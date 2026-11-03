@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -73,7 +74,7 @@ internal fun UserBubble(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs),
                 modifier = Modifier
                     .padding(top = MaterialTheme.spacing.xs)
-                    .then(if (onResend != null) Modifier.clickable(onClick = onResend) else Modifier)
+                    .then(if (onResend != null) Modifier.clickable(role = Role.Button, onClick = onResend) else Modifier)
                     .semantics { contentDescription = "Not sent. Tap to try again." }
             ) {
                 Icon(

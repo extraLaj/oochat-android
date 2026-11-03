@@ -59,6 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -123,6 +127,13 @@ fun ApprovalModeChip(
         Surface(
             onClick = onCycle,
             enabled = enabled,
+            // The visible words are the mode alone, and a tap on an unattended one exits it.
+            // The click's label is what TalkBack says after "button": "double-tap to exit".
+            modifier = Modifier.semantics {
+                role = Role.Button
+                contentDescription = approvalChipDescription(mode, turnsLeft)
+                onClick(label = if (isUnattended) "exit" else "change mode", action = null)
+            },
             shape = RoundedCornerShape(50),
             color = containerColor,
             contentColor = contentColor,
@@ -517,6 +528,16 @@ private fun UnattendedBlock(
  * value here — the user picks the real number.
  */
 private const val ULW_DEFAULT_TURNS = 100
+
+/** What TalkBack says for the chip: which setting it is, and for a budgeted one how much is left. */
+internal fun approvalChipDescription(mode: ApprovalMode, turnsLeft: Int?): String {
+    val setting = "Approval mode: ${mode.shortLabel}"
+    return when {
+        !mode.isUnattended || turnsLeft == null -> setting
+        turnsLeft == 1 -> "$setting, 1 turn left"
+        else -> "$setting, $turnsLeft turns left"
+    }
+}
 
 private val ApprovalMode.shortLabel: String
     get() = when (this) {

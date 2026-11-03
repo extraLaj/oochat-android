@@ -1,5 +1,6 @@
 package ai.openonion.oochat.network
 
+import ai.openonion.oochat.domain.model.ChatItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -108,10 +109,10 @@ class ProtocolParserRuntimeInputTest {
     @Test
     fun `an ERROR with a different code is still a ConnectionError`() {
         val result = parse(
-            """{"type":"ERROR","code":"STALE_ANSWER","reason":"stale","message":"answer expired"}"""
+            """{"type":"ERROR","code":"provider_station_only","message":"provider sessions need a station"}"""
         )
 
-        assertEquals("answer expired", (result.event as ConnectionEvent.ConnectionError).message)
+        assertEquals("provider sessions need a station", (result.event as ConnectionEvent.ConnectionError).message)
     }
 
     @Test
@@ -124,5 +125,40 @@ class ProtocolParserRuntimeInputTest {
 
         assertEquals("boom", (numeric.event as ConnectionEvent.ConnectionError).message)
         assertEquals("boom", (nested.event as ConnectionEvent.ConnectionError).message)
+    }
+
+    // ── ERROR / STALE_ANSWER ─────────────────────────────────────────
+
+    @Test
+    fun `STALE_ANSWER maps to AnswerRefused, not a ConnectionError`() {
+        val result = parse(
+            """{"type":"ERROR","code":"STALE_ANSWER","reason":"stale","request_id":"req-1",""" +
+                """"session_id":"sess-1","message":"that request is no longer waiting for an answer"}"""
+        )
+
+        assertEquals(ConnectionEvent.AnswerRefused(requestId = "req-1"), result.event)
+    }
+
+    @Test
+    fun `STALE_ANSWER for an answer that named no request has no request id`() {
+        val result = parse("""{"type":"ERROR","code":"STALE_ANSWER","reason":"request_id_required","request_id":null}""")
+
+        assertEquals(ConnectionEvent.AnswerRefused(requestId = null), result.event)
+    }
+
+    @Test
+    fun `approval_needed and ask_user keep the Host's id as their request id`() {
+        val approval = parse("""{"type":"approval_needed","id":"req-1","tool":"bash","arguments":{}}""")
+        val question = parse("""{"type":"ask_user","id":"ask-1","question":"Which day?","options":["Mon"]}""")
+
+        assertEquals("req-1", ((approval.event as ConnectionEvent.ChatItemReceived).item as ChatItem.ApprovalNeeded).requestId)
+        assertEquals("ask-1", ((question.event as ConnectionEvent.ChatItemReceived).item as ChatItem.AskUser).requestId)
+    }
+
+    @Test
+    fun `an event with no id gets no request id, so a made-up one is never sent`() {
+        val result = parse("""{"type":"approval_needed","tool":"bash","arguments":{}}""")
+
+        assertNull(((result.event as ConnectionEvent.ChatItemReceived).item as ChatItem.ApprovalNeeded).requestId)
     }
 }
