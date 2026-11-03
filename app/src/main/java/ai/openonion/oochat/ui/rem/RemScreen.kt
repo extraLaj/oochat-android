@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -175,7 +174,7 @@ private fun Contents(notebook: RemNotebook, selectedId: String?, onOpenPage: (St
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .padding(horizontal = MaterialTheme.spacing.sm)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(MaterialTheme.shapes.large)
                         .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
                         .clickable { onOpenPage(page.id) }
                         .padding(horizontal = MaterialTheme.spacing.sm, vertical = MaterialTheme.spacing.sm),
@@ -330,14 +329,14 @@ private fun StateCard(message: RemMessage, onRetry: (() -> Unit)?) {
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(MaterialTheme.shapes.medium)
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.sm)
                     )
                 }
             }
             if (onRetry != null) {
-                Button(onClick = onRetry) { Text("Try again") }
+                Button(onClick = onRetry, shape = MaterialTheme.shapes.large) { Text("Try again") }
             }
         }
     }

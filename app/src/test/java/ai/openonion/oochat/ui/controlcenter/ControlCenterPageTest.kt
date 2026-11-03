@@ -258,4 +258,11 @@ class ControlCenterPageTest {
             ControlCenterPage.hostDocument("https://a.example.net", "red; } body { x")
         }
     }
+
+    @Test
+    fun `the parent page declares both colour schemes, so the frame is the only thing a dark theme darkens`() {
+        val html = ControlCenterPage.hostDocument("https://r-1.apps.example.net", "#1c1917")
+
+        assertTrue(html.contains("<meta name=\"color-scheme\" content=\"light dark\">"))
+    }
 }

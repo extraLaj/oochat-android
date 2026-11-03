@@ -50,7 +50,7 @@ import java.time.format.DateTimeFormatter
 /**
  * Caps the chat column's width on tablets and unfolded foldables
  * instead of letting a line run edge-to-edge. chatBody is 15sp, and a
- * Manrope glyph there averages ~8dp, so 600dp of column holds roughly 70
+ * glyph there averages ~8dp, so 600dp of column holds roughly 70
  * characters once list/bubble padding is subtracted — the middle of the
  * 60-75 char comfortable-measure range. Any phone is narrower than this, so
  * widthIn is a no-op there. Shared with the composer, which has to line up

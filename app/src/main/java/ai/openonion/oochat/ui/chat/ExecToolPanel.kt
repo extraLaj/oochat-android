@@ -1,5 +1,7 @@
 package ai.openonion.oochat.ui.chat
 
+import ai.openonion.oochat.ui.theme.Elevation
+import ai.openonion.oochat.ui.theme.hairline
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -60,6 +63,7 @@ internal fun ExecToolPanel(
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = { toolMenuExpanded = true },
+                    shape = MaterialTheme.shapes.large,
                     enabled = tools.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -68,7 +72,9 @@ internal fun ExecToolPanel(
 
                 DropdownMenu(
                     expanded = toolMenuExpanded,
-                    onDismissRequest = { toolMenuExpanded = false }
+                    onDismissRequest = { toolMenuExpanded = false },
+                    shadowElevation = Elevation.hairline,
+                    border = MaterialTheme.hairline
                 ) {
                     tools.forEach { toolName ->
                         DropdownMenuItem(
@@ -94,6 +100,7 @@ internal fun ExecToolPanel(
             )
 
             Button(
+                shape = MaterialTheme.shapes.large,
                 enabled = selectedTool.isNotBlank() && argsError == null,
                 onClick = { onExecute(selectedTool, argsJson) }
             ) {

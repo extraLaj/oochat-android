@@ -12,6 +12,7 @@ import ai.openonion.oochat.ui.agent.components.formFieldColors
 import ai.openonion.oochat.ui.agent.components.formFieldTextStyle
 import ai.openonion.oochat.ui.chat.components.ExpandChevron
 import ai.openonion.oochat.ui.chat.components.ExpandableSection
+import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
@@ -33,14 +34,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -179,7 +178,7 @@ fun AgentFormScreen(
                     )
                 )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) }
+            snackbarHost = { AppSnackbarHost(snackbarHostState) }
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 Column(
@@ -283,7 +282,7 @@ fun AgentFormScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { AppSnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -483,7 +482,7 @@ private fun ProfileTagGroup(label: String, tags: List<String>) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
+                        .clip(MaterialTheme.shapes.large)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .padding(horizontal = MaterialTheme.spacing.sm, vertical = MaterialTheme.spacing.xs2)
                 )

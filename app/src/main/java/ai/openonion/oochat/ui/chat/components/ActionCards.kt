@@ -88,6 +88,7 @@ internal fun AskUserCard(
             if (index == 0) {
                 Button(
                     onClick = onClick,
+                    shape = MaterialTheme.shapes.large,
                     enabled = !submitted,
                     modifier = Modifier.fillMaxWidth().heightIn(min = ButtonToken.Compact)
                 ) {
@@ -188,7 +189,8 @@ internal fun ApprovalCard(
                     text = item.tool,
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.outline,
+                    // outline stops short of this container (3.9:1 in light), so a caption is onSurfaceVariant.
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
                         horizontal = MaterialTheme.spacing.xs,
                         vertical = MaterialTheme.spacing.xxs
@@ -343,6 +345,7 @@ private fun RejectFeedbackField(
             }
             Button(
                 onClick = onSend,
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier.weight(1f).heightIn(min = ButtonToken.Compact)
             ) {
                 Text("Reject")
@@ -388,7 +391,7 @@ private fun ApprovalBatchPreview(items: List<BatchToolPreview>) {
             Text(
                 text = "UP NEXT (${items.size})",
                 style = MaterialTheme.typography.sectionLabel,
-                color = MaterialTheme.colorScheme.outline
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(MaterialTheme.spacing.xxs))
             items.forEach { preview ->
@@ -408,7 +411,7 @@ private fun ApprovalBatchPreview(items: List<BatchToolPreview>) {
                         text = summarizeBatchTool(preview),
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)

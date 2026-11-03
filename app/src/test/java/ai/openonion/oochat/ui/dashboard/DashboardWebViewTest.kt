@@ -1,5 +1,7 @@
 package ai.openonion.oochat.ui.dashboard
 
+import ai.openonion.oochat.R
+import ai.openonion.oochat.domain.model.ThemeMode
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import android.net.Uri
 import android.os.Looper
@@ -7,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
@@ -318,5 +321,103 @@ class DashboardWebViewTest {
         val field = ShadowWebView::class.java.getDeclaredField("javascriptInterfaces")
         field.isAccessible = true
         return field.get(shadow) as Map<String, Any>
+    }
+
+    // ── Dark mode (W16AAPPLE-49) ───────────────────────────────────────
+    // The page is the agent's own and paints its own light background, so it goes dark only if the
+    // WebView is told the app is dark. WebView takes that from the theme it is created under, which
+    // has to follow the app's Light/Dark/System choice rather than the system's setting.
+
+    private fun isLightTheme(view: View): Boolean {
+        val attrs = view.context.theme.obtainStyledAttributes(intArrayOf(android.R.attr.isLightTheme))
+        try {
+            return attrs.getBoolean(0, true)
+        } finally {
+            attrs.recycle()
+        }
+    }
+
+    private fun showIn(mode: () -> ThemeMode) {
+        // The theme the app's activity wears on a device, which follows the system's dark setting.
+        composeRule.activity.setTheme(R.style.Theme_ConnectOnion)
+        composeRule.setContent {
+            ConnectOnionTheme(themeMode = mode()) {
+                DashboardWebView(document = document, onRunSkill = { _, _ -> }, onNavigationBlocked = {})
+            }
+        }
+        composeRule.waitForIdle()
+    }
+
+    @Test
+    fun `in the dark theme the page is told the app is dark, though the system is light`() {
+        showIn { ThemeMode.DARK }
+
+        assertFalse("the page would see prefers-color-scheme: light", isLightTheme(webView()))
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "night")
+    fun `in the light theme the page is told the app is light, though the system is dark`() {
+        showIn { ThemeMode.LIGHT }
+
+        assertTrue("the page would see prefers-color-scheme: dark", isLightTheme(webView()))
+    }
+
+    @Test
+    fun `switching the theme with the screen open gives the page the new one and loads the dashboard in it`() {
+        var mode by mutableStateOf(ThemeMode.LIGHT)
+        showIn { mode }
+        val light = webView()
+        assertTrue(isLightTheme(light))
+
+        composeRule.runOnIdle { mode = ThemeMode.DARK }
+        composeRule.waitForIdle()
+
+        // A WebView takes its scheme from the theme it is made under, so this is a new one.
+        val dark = webView()
+        assertNotSame(light, dark)
+        assertFalse(isLightTheme(dark))
+        assertEquals("<h1>Dashboard</h1>", loaded(dark))
+    }
+
+    @Test
+    fun `the page is allowed to be darkened, on the settings of the WebView it is shown in`() {
+        val asked = mutableListOf<WebSettings>()
+        composeRule.setContent {
+            DashboardWebView(
+                document = document,
+                onRunSkill = { _, _ -> },
+                onNavigationBlocked = {},
+                allowDarkening = { asked += it }
+            )
+        }
+        composeRule.waitForIdle()
+
+        assertEquals("asked once for the one WebView", 1, asked.size)
+        assertSame(webView().settings, asked.single())
+    }
+
+    @Test
+    fun `the WebView made for a theme change is allowed to be darkened too`() {
+        val asked = mutableListOf<WebSettings>()
+        var mode by mutableStateOf(ThemeMode.LIGHT)
+        composeRule.activity.setTheme(R.style.Theme_ConnectOnion)
+        composeRule.setContent {
+            ConnectOnionTheme(themeMode = mode) {
+                DashboardWebView(
+                    document = document,
+                    onRunSkill = { _, _ -> },
+                    onNavigationBlocked = {},
+                    allowDarkening = { asked += it }
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { mode = ThemeMode.DARK }
+        composeRule.waitForIdle()
+
+        assertEquals("once for each of the two WebViews", 2, asked.size)
+        assertSame(webView().settings, asked.last())
     }
 }
