@@ -904,4 +904,37 @@ class ProtocolParserTest {
 
         frames.forEach { frame -> assertNull(frame, parse(frame).dedupeKey) }
     }
+
+    // ── WIKI_RESULT (W16AAPPLE-69) ──────────────────────────────────
+
+    @Test
+    fun `WIKI_RESULT settles the Rem read it names`() {
+        val result = parse("""{"type":"WIKI_RESULT","request_id":"read-1","ok":true,"html":"<!doctype html>"}""")
+
+        assertEquals(
+            ConnectionEvent.RemResultReceived(requestId = "read-1", ok = true, html = "<!doctype html>"),
+            result.event
+        )
+    }
+
+    @Test
+    fun `a refused WIKI_RESULT keeps the Host's reason`() {
+        val result = parse(
+            """{"type":"WIKI_RESULT","request_id":"read-2","ok":false,"error":"co rem is available only to the Host owner"}"""
+        )
+
+        assertEquals(
+            ConnectionEvent.RemResultReceived(
+                requestId = "read-2",
+                ok = false,
+                error = "co rem is available only to the Host owner"
+            ),
+            result.event
+        )
+    }
+
+    @Test
+    fun `a WIKI_RESULT naming no request is ignored`() {
+        assertEquals(ConnectionEvent.Unknown, parse("""{"type":"WIKI_RESULT","ok":true,"html":"x"}""").event)
+    }
 }

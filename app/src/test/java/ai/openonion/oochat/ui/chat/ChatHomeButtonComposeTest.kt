@@ -36,13 +36,13 @@ class ChatHomeButtonComposeTest {
         viewModel = chatViewModelOver(connectUseCase)
     }
 
-    private fun showChat(homeBeside: Boolean) {
+    private fun showChat(homeInLayout: Boolean) {
         composeRule.setContent {
             ConnectOnionTheme {
                 ChatScreen(
                     connectToAgentId = "0x1a2b3c4d5e6f7a8b",
                     viewModel = viewModel,
-                    homeBeside = homeBeside
+                    homeInLayout = homeInLayout
                 )
             }
         }
@@ -50,17 +50,20 @@ class ChatHomeButtonComposeTest {
     }
 
     @Test
-    fun `an agent with a Home page gets the Home button`() {
+    fun `an agent with a Dashboard gets no Home button, as the Dashboard is always in the layout`() {
         connectUseCase.dashboard.value = "<p>home</p>"
-        showChat(homeBeside = false)
+        showChat(homeInLayout = false)
 
-        composeRule.onNodeWithContentDescription(homeButton).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(homeButton).assertDoesNotExist()
     }
 
     @Test
-    fun `the Home button is hidden when Home is already beside the chat`() {
-        connectUseCase.dashboard.value = "<p>home</p>"
-        showChat(homeBeside = true)
+    fun `the Home button is hidden when Home is already in the chat's layout`() {
+        connectUseCase.controlCenter.value = ControlCenterApp(
+            url = "https://r-1.apps.example.net/index.html",
+            revision = "sha256:" + "a".repeat(64)
+        )
+        showChat(homeInLayout = true)
 
         composeRule.onNodeWithContentDescription(homeButton).assertDoesNotExist()
     }
@@ -71,7 +74,7 @@ class ChatHomeButtonComposeTest {
             url = "https://r-1.apps.example.net/index.html",
             revision = "sha256:" + "a".repeat(64)
         )
-        showChat(homeBeside = false)
+        showChat(homeInLayout = false)
 
         // That screen is where the notice says why the app cannot be shown.
         composeRule.onNodeWithContentDescription(homeButton).assertIsDisplayed()
@@ -79,7 +82,7 @@ class ChatHomeButtonComposeTest {
 
     @Test
     fun `an agent with no Home page gets no Home button`() {
-        showChat(homeBeside = false)
+        showChat(homeInLayout = false)
 
         composeRule.onNodeWithContentDescription(homeButton).assertDoesNotExist()
     }

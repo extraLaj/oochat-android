@@ -15,6 +15,7 @@ import ai.openonion.oochat.data.protocol.OnboardSubmitMessage
 import ai.openonion.oochat.data.protocol.OnboardSubmitPayload
 import ai.openonion.oochat.data.protocol.PlanReviewResponse
 import ai.openonion.oochat.data.protocol.PongMessage
+import ai.openonion.oochat.data.protocol.RemReadMessage
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.SessionStatusQuery
 import ai.openonion.oochat.data.protocol.SessionStatusQuerySession
@@ -23,6 +24,7 @@ import ai.openonion.oochat.data.protocol.UlwResponse
 import ai.openonion.oochat.di.sharedHttpClient
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
 import ai.openonion.oochat.util.FileLogger
@@ -44,6 +46,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -86,7 +89,10 @@ class AgentConnection(
     // Whether the app is on screen. The slow retry against an offline agent
     // (W16AAPPLE-79) only runs while it is: in the background it waits for
     // retryNow(), which the chat screen calls when it comes back.
-    private val isAppVisible: () -> Boolean = { true }
+    private val isAppVisible: () -> Boolean = { true },
+    // Where a Rem reader page is parsed, off the socket's thread. A test
+    // passes one that runs inline, so its virtual clock is not outrun.
+    private val remParseDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     @Volatile private var webSocket: WebSocket? = null
 
@@ -130,6 +136,14 @@ class AgentConnection(
 
     /** EXEC calls waiting for the EXEC_RESULT carrying the same exec_id. */
     private val pendingExecs = ConcurrentHashMap<String, CompletableDeferred<ExecOutcome>>()
+
+    /**
+     * Rem reads waiting for the WIKI_RESULT carrying the same request_id. Each
+     * is completed with how to make its outcome, not the outcome itself: the
+     * reader page can be 16 MiB, and parsing it here would hold up every chat
+     * frame behind it on the socket's thread.
+     */
+    private val pendingRemReads = ConcurrentHashMap<String, CompletableDeferred<() -> RemOutcome>>()
     @Volatile private var isDirect: Boolean = false
     @Volatile private var agentAddress: String = ""
     @Volatile private var directUrl: String? = null
@@ -725,6 +739,71 @@ class AgentConnection(
             if (pendingExecs.remove(execId, waiter)) {
                 waiter.complete(unknown)
             }
+        }
+        // A Rem read is only a read, so unlike an EXEC nothing is left
+        // unknown: the socket it went out on is gone, and that is the answer.
+        settlePendingRemReads(RemOutcome.NotConnected)
+    }
+
+    /**
+     * Read the owner's Rem notebook (W16AAPPLE-69): a signed `WIKI_READ`, then
+     * the `WIKI_RESULT` with the same request id. Never queued: a read that
+     * cannot go out now has nothing to wait for.
+     */
+    suspend fun readRem(timeoutMs: Long = REM_TIMEOUT_MS): RemOutcome {
+        val socket = webSocket?.takeIf { isConnectionReady } ?: return RemOutcome.NotConnected
+        val requestId = java.util.UUID.randomUUID().toString()
+        val frame = signedCommand(RemReadMessage(requestId = requestId))
+            ?: return RemOutcome.Failed("No identity to sign the Rem read with")
+
+        val result = CompletableDeferred<() -> RemOutcome>()
+        pendingRemReads[requestId] = result
+        if (!socket.send(frame)) {
+            pendingRemReads.remove(requestId, result)
+            return RemOutcome.NotConnected
+        }
+        FileLogger.i(LogTags.AGENT_CONN, "WIKI_READ → request_id=${requestId.take(8)}")
+        val outcome = try {
+            withTimeoutOrNull(timeoutMs) { result.await() } ?: return RemOutcome.NoAnswer
+        } finally {
+            pendingRemReads.remove(requestId, result)
+        }
+        return withContext(remParseDispatcher) { outcome() }
+    }
+
+    private fun completeRemRead(event: ConnectionEvent.RemResultReceived) {
+        val waiter = pendingRemReads.remove(event.requestId)
+        if (waiter == null) {
+            FileLogger.w(LogTags.AGENT_CONN, "Ignoring WIKI_RESULT for unknown request_id=${event.requestId.take(8)}")
+            return
+        }
+        // The page itself is never logged: it is the owner's notebook. A
+        // refusal's reason is, since the screen deliberately does not show it.
+        if (event.ok) {
+            FileLogger.i(LogTags.AGENT_CONN, "WIKI_RESULT ✓ ${event.html?.length ?: 0} chars")
+        } else {
+            FileLogger.w(LogTags.AGENT_CONN, "WIKI_RESULT refused: ${event.error ?: "<no reason>"}")
+        }
+        waiter.complete { RemOutcome.fromResult(event.ok, event.html, event.error) }
+    }
+
+    /**
+     * A Host older than Rem answers `WIKI_READ` with a plain ERROR naming the
+     * frame and no request id (ws_router/session.py's unknown-type branch).
+     *
+     * @return true when this ERROR was that answer, so the chat need not show it.
+     */
+    private fun failPendingRemReadsForOldHost(event: ConnectionEvent.ConnectionError): Boolean {
+        val unknownFrame = event.message.contains("unknown message type", ignoreCase = true) &&
+            event.message.contains("WIKI_READ")
+        if (!unknownFrame || pendingRemReads.isEmpty()) return false
+        settlePendingRemReads(RemOutcome.HostTooOld)
+        return true
+    }
+
+    private fun settlePendingRemReads(outcome: RemOutcome) {
+        pendingRemReads.entries.forEach { (requestId, waiter) ->
+            if (pendingRemReads.remove(requestId, waiter)) waiter.complete { outcome }
         }
     }
 
@@ -1610,6 +1689,9 @@ class AgentConnection(
                 is ConnectionEvent.ExecResultReceived -> {
                     completeExecResult(event)
                 }
+                is ConnectionEvent.RemResultReceived -> {
+                    completeRemRead(event)
+                }
                 is ConnectionEvent.ProtocolRejected -> {
                     FileLogger.e(
                         LogTags.AGENT_CONN,
@@ -1625,6 +1707,7 @@ class AgentConnection(
                     // what filled app.log before the ladder was capped.
                     FileLogger.eRepeating(LogTags.AGENT_CONN, "ERROR: ${event.message}")
                     val execRefusalHandled = failPendingExecsForRefusal(event)
+                    val remRefusalHandled = failPendingRemReadsForOldHost(event)
                     // Kept only while the handshake has never landed, so it can
                     // only ever explain a connection that never worked.
                     if (!reachedAgentThisCycle) neverReachedReason = event.message
@@ -1674,10 +1757,10 @@ class AgentConnection(
                         // covered both responsibilities above and below.
                         schedulePostRejectionReconnect()
                         _events.tryEmit(ConnectionEvent.Reconnecting)
-                    } else if (execRefusalHandled) {
+                    } else if (execRefusalHandled || remRefusalHandled) {
                         // The refusal has already been delivered to the EXEC
-                        // card; emitting a second ConnectionError would show
-                        // the same failure in the generic chat error UI.
+                        // card or the Rem screen; emitting a second ConnectionError
+                        // would show the same failure in the generic chat error UI.
                     } else if (!staleSessionRecoveryAttempted && StaleSessionDetector.isStaleSessionError(event.message)) {
                         // See recoverFromStaleSession's doc: an older Host's
                         // "session already attached" rejection, recovered
@@ -1777,6 +1860,9 @@ class AgentConnection(
         const val PING_INTERVAL_SECONDS = 15L
         /** Maximum time to wait for a shell-capable Host to return EXEC_RESULT. */
         const val EXEC_TIMEOUT_MS = 60_000L
+
+        /** How long a Rem read waits for WIKI_RESULT; O Chat's wiki page waits the same 25 s. */
+        const val REM_TIMEOUT_MS = 25_000L
 
         /**
          * The WebSocket-tuned view of [sharedHttpClient], built once.

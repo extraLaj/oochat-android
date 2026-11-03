@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Menu
@@ -75,6 +76,9 @@ fun ChatTopBar(
     // control on every one of them is worse than no control.
     hasDashboard: Boolean = false,
     onOpenDashboard: () -> Unit = {},
+    // The owner's Rem notebook (W16AAPPLE-69). Offered on any live connection:
+    // only the Host knows who its owner is, and a non-owner is told so there.
+    onOpenRem: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -172,6 +176,16 @@ fun ChatTopBar(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 3.dp
             ) {
+                if (isConnected) {
+                    DropdownMenuItem(
+                        text = { Text("Rem") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenRem()
+                        }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("View logs") },
                     leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },

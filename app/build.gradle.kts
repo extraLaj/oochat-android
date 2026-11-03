@@ -426,6 +426,11 @@ val regressionSuite = mapOf(
         "domain.usecase.ConnectToAgentUseCaseTest",
         "ui.onboarding.OnboardingViewModelTest",
     ),
+    "rem notebook" to listOf(
+        "domain.model.RemNotebookTest",
+        "ui.rem.RemScreenComposeTest",
+        "ui.rem.RemViewModelTest",
+    ),
     "slash-command palette" to listOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",
@@ -503,10 +508,11 @@ val regressionSuite = mapOf(
         "ui.chat.components.InputBarInterjectComposeTest",
         "network.ProtocolParserRuntimeInputTest",
     ),
-    "Home beside the chat" to listOf(
+    "Home beside the chat or in a tab" to listOf(
         "ui.adaptive.HomePlacementTest",
         "ui.adaptive.HomePlacementWindowComposeTest",
         "ui.adaptive.ChatWithHomeComposeTest",
+        "ui.adaptive.ChatWithHomeTabsComposeTest",
         "ui.adaptive.PaneComposeTest",
         "ui.adaptive.HomeScreenRouteComposeTest",
         "ui.adaptive.HomeBesideChatComposeTest",
