@@ -3,6 +3,7 @@ package ai.openonion.oochat.ui.chat
 import ai.openonion.oochat.ConnectOnionApplication
 import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
+import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.toConnectTarget
@@ -438,6 +439,9 @@ open class ChatViewModel @JvmOverloads constructor(
     // Backing var kept for the many internal reads below (unchanged call
     // sites); mirrored into a StateFlow so NavDrawer's mini account card
     // can show which agent this session is connected to.
+    /** The server [connectToAgent] dialled the target at, for a later Connected to use too. */
+    private var targetDirectUrl: String? = null
+
     private var _targetAgentAddress: String = ""
         set(value) {
             field = value
@@ -517,11 +521,11 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /**
      * The conversation is parked on something only the user can answer, so the
-     * run cannot continue until they do. Read by the agent's Home page, which
-     * replaces the chat entirely: a gate opened while the reader is over there
-     * is otherwise invisible, and the turn simply stalls with nothing saying
-     * why. Onboarding is excluded — [awaitingOnboardCode] already owns it and
-     * its own card blocks the chat before a Home page can be reached.
+     * run cannot continue until they do. Read by the agent's Home page when it
+     * has a screen of its own and so replaces the chat: a gate opened while the
+     * reader is over there is otherwise invisible, and the turn simply stalls with
+     * nothing saying why. Onboarding is excluded — [awaitingOnboardCode] already owns
+     * it and its own card blocks the chat before a Home page can be reached.
      */
     val chatAwaitsUser: StateFlow<Boolean> = uiState
         .map { it.listFlags.hasPendingGate }
@@ -856,7 +860,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // opened it), i.e. before ChatScreen has said which
                         // agent we're for — connectToAgent() runs this itself
                         // once the target is known.
-                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, null)
+                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, targetDirectUrl)
                         settleOutboxedMessages()
                         // Only fires when the previous Disconnected transition
                         // force-failed a still-in-flight Thinking item (see
@@ -1016,6 +1020,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // was not runtime input at all: it reached an agent that
                         // had just gone idle and started a turn of its own.
                         is ChatEvent.OutputReceived -> answerPendingRuntimeInput(RuntimeInputReply.TURN_ENDED)
+                        is ChatEvent.AnswerRefused -> markAnswerRefused(event.requestId)
                         // A generic ERROR frame is deliberately not handled: it
                         // says nothing about whether the host took our message,
                         // and the host's own refusal arrives as its own event.
@@ -1145,6 +1150,7 @@ open class ChatViewModel @JvmOverloads constructor(
             val previousAddress = _targetAgentAddress
             _targetAgentAddress = resolved.address
             val effectiveDirectUrl = resolved.directUrl ?: savedServerUrl
+            targetDirectUrl = effectiveDirectUrl
             FileLogger.i(LogTags.CHAT_VM, "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}")
 
             // Local history first, and awaited: an unreachable server must
@@ -1697,6 +1703,30 @@ open class ChatViewModel @JvmOverloads constructor(
         )
         _uiState.update { it.copy(chatItems = it.chatItems + item) }
         launchScoped { conversationHistory.persistMessage(item) }
+    }
+
+    /**
+     * Makes [agentAddress] the agent a cold start reconnects to, however this
+     * screen reached it (a link, the drawer, the agent list). Saved with the
+     * resolved address and server this screen used, so Loading dials the same.
+     */
+    private suspend fun rememberForColdStart(agentAddress: String, directUrl: String?) {
+        runCatchingCancellable {
+            val address = canonicalAgentAddress(agentAddress)
+            val saved = configRepository.getConfig()
+            val agent = agentRepository.getAgentByAddress(address)
+            // No URL before connectToAgent has dialled: use the agent's own server.
+            val serverUrl = directUrl
+                ?: agent?.serverUrl?.takeIf { !Constants.isDefaultServerUrl(it) }
+                ?: Constants.DEFAULT_SERVER_URL
+            val sameServer = saved?.serverUrl == serverUrl ||
+                (saved != null && Constants.isDefaultServerUrl(saved.serverUrl) && Constants.isDefaultServerUrl(serverUrl))
+            if (saved?.agentAddress == address && sameServer) return@runCatchingCancellable
+            val apiKey = if (saved?.agentAddress == address) saved.apiKey else agent?.apiKey
+            configRepository.saveConfig(
+                (saved ?: ConnectionConfig.default()).copy(serverUrl = serverUrl, agentAddress = address, apiKey = apiKey)
+            )
+        }.onFailure { e -> FileLogger.w(LogTags.CHAT_VM, "Failed to save the cold-start agent: ${e.message}") }
     }
 
     private suspend fun saveAgentIfNeeded(agentAddress: String, directUrl: String?) {
@@ -2726,8 +2756,24 @@ open class ChatViewModel @JvmOverloads constructor(
         agentReplyNotifier.clearReplyNotifications()
     }
 
-    fun respond(answer: String) {
-        launchScoped { connectUseCase.respond(answer) }
+    /**
+     * Answer the ask_user card [itemId], with that card's own request id. An
+     * older question can still be on screen after another device answered it,
+     * and its answer must not be sent as one to the newer question.
+     */
+    fun respond(itemId: String, answer: String) {
+        val question = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.AskUser>()
+            .firstOrNull { it.id == itemId }
+        if (question == null || question.answer != null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring duplicate/unknown ask_user answer for $itemId")
+            return
+        }
+        val answered = question.copy(answer = answer)
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == itemId) answered else it })
+        }
+        launchScoped { connectUseCase.respond(answer, question.requestId) }
     }
 
     /**
@@ -2848,12 +2894,46 @@ open class ChatViewModel @JvmOverloads constructor(
             state.copy(chatItems = state.chatItems.map { if (it.id == itemId) decided else it })
         }
         launchScoped {
-            connectUseCase.respondToApproval(approved, scope, mode, feedback)
+            connectUseCase.respondToApproval(approved, scope, mode, feedback, gate.requestId)
             // Persisted only now that it's answered: an open gate replayed from
             // history would offer buttons for a question the server has closed,
             // but the record of what was approved belongs in the transcript.
             conversationHistory.persistMessage(decided)
         }
+    }
+
+    /**
+     * The Host refused this device's answer: it was no longer waiting for one
+     * (another device answered first, or the turn ended). The card says so
+     * instead of keeping an answer that was never applied. Nothing is re-sent.
+     * Matched by id; with none, only if exactly one answered card was sent
+     * without an id, since otherwise there is no telling which was refused.
+     */
+    private fun markAnswerRefused(requestId: String?) {
+        val answered = _uiState.value.chatItems.filter {
+            (it is ChatItem.ApprovalNeeded && it.decision != null) || (it is ChatItem.AskUser && it.answer != null)
+        }
+        val card = if (requestId != null) {
+            answered.lastOrNull { it.answerRequestId() == requestId }
+        } else {
+            answered.filter { it.answerRequestId() == null }.singleOrNull()
+        } ?: return
+        val refused = when (card) {
+            is ChatItem.ApprovalNeeded -> card.copy(decision = card.decision?.copy(refused = true))
+            is ChatItem.AskUser -> card.copy(refused = true)
+            else -> return
+        }
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == card.id) refused else it })
+        }
+        // Ask_user cards are not saved (see TranscriptItemPayload).
+        if (refused is ChatItem.ApprovalNeeded) launchScoped { conversationHistory.persistMessage(refused) }
+    }
+
+    private fun ChatItem.answerRequestId(): String? = when (this) {
+        is ChatItem.ApprovalNeeded -> requestId
+        is ChatItem.AskUser -> requestId
+        else -> null
     }
 
     /**

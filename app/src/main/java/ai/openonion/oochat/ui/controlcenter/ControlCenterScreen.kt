@@ -3,8 +3,8 @@ package ai.openonion.oochat.ui.controlcenter
 import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.ui.components.EmptyStateMessage
 import ai.openonion.oochat.ui.dashboard.ChatAwaitsUserBar
-import ai.openonion.oochat.ui.dashboard.HomeTopBar
 import ai.openonion.oochat.ui.dashboard.NavigationBlockedBar
+import ai.openonion.oochat.ui.home.HomeTopBar
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,10 +29,12 @@ import androidx.webkit.WebViewCompat
 
 /**
  * The agent's Home when it has published a Control Center app (W16AAPPLE-29). Built like
- * [ai.openonion.oochat.ui.dashboard.DashboardScreen], with the same bars: the app replaces the
- * chat on screen, so a conversation waiting on the user still has to say so here.
+ * [ai.openonion.oochat.ui.dashboard.DashboardScreen], with the same bars: on a screen of its own
+ * the app replaces the chat, so a conversation waiting on the user still has to say so here.
  *
  * @param app The published app, or null until the Host sends it for this connection.
+ * @param besideChat The app is next to the chat, not in place of it. There is then no way back to
+ *   show, and no waiting notice, since the chat is in view.
  * @param supported Whether this device's WebView can host it; see [controlCenterSupported].
  * @param addMessageListener For tests: Robolectric's WebView cannot register one.
  */
@@ -155,10 +157,3 @@ private fun ControlCenterNotice(title: String, body: String, action: (@Composabl
         action = action
     )
 }
-
-/**
- * Whether Home opens the Control Center rather than the legacy Home page: wherever the device can
- * host the app, and also when there is no legacy page, so the screen can say why it cannot.
- */
-internal fun homeOpensControlCenter(hasApp: Boolean, hasDashboard: Boolean, supported: () -> Boolean): Boolean =
-    hasApp && (!hasDashboard || supported())

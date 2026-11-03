@@ -1,13 +1,17 @@
 package ai.openonion.oochat.ui.controlcenter
 
 import ai.openonion.oochat.domain.model.ControlCenterApp
+import ai.openonion.oochat.ui.components.allowAlgorithmicDarkening
+import ai.openonion.oochat.ui.components.webViewTheme
 import ai.openonion.oochat.ui.dashboard.toCssHex
+import ai.openonion.oochat.ui.theme.LocalDarkTheme
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import android.annotation.SuppressLint
 import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.ContextThemeWrapper
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -19,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +54,8 @@ fun controlCenterSupported(): Boolean =
  *
  * @param onStopped The WebView's renderer died; this WebView is unusable and must leave composition.
  * @param onUnavailable The message channel could not be set up, so the app could never connect.
+ * @param allowDarkening Lets an app with no dark theme be darkened, on the settings of each WebView made.
+ *   A test passes its own to see the call, since Robolectric's WebView refuses the real feature.
  * @param interceptAppRequest For instrumented tests: serves addresses outside our page's origin,
  *   so a fake app can load at an https origin with no network. Null lets a request through.
  */
@@ -62,10 +69,12 @@ fun ControlCenterWebView(
     onUnavailable: () -> Unit,
     modifier: Modifier = Modifier,
     addMessageListener: (WebView, WebViewCompat.WebMessageListener) -> Unit = ::addPageListener,
-    interceptAppRequest: (Uri) -> WebResourceResponse? = { null }
+    interceptAppRequest: (Uri) -> WebResourceResponse? = { null },
+    allowDarkening: (WebSettings) -> Unit = WebSettings::allowAlgorithmicDarkening
 ) {
     val scope = rememberCoroutineScope()
     val surface = MaterialTheme.colorScheme.surface
+    val dark = LocalDarkTheme.current
     val background by rememberUpdatedState(surface.toCssHex())
     val currentSnapshot by rememberUpdatedState(snapshot)
     val currentBlocked by rememberUpdatedState(onNavigationBlocked)
@@ -88,55 +97,63 @@ fun ControlCenterWebView(
     LaunchedEffect(page, snapshot) { page.publish(snapshot) }
     PausedInBackground(view)
 
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            WebView(context).apply {
-                view.webView = this
-                configureForApp()
-                val loader = WebViewAssetLoader.Builder()
-                    .addPathHandler(ControlCenterPage.PAGE_PATH, PageHandler(context.assets) { currentPage to background })
-                    .build()
-                webViewClient = AppClient(
-                    loader,
-                    page = { currentPage },
-                    onBlocked = { currentBlocked() },
-                    interceptAppRequest = interceptAppRequest,
-                    onRendererGone = {
-                        view.proxy = null
-                        currentPage.dispose()
-                        currentStopped()
-                    }
-                )
-                runCatching {
-                    addMessageListener(this) { _, message, sourceOrigin, isMainFrame, proxy ->
-                        if (isMainFrame && ControlCenterPage.isPageOrigin(sourceOrigin.toString())) {
-                            view.proxy = proxy
-                            message.data?.let { currentPage.onPageMessage(it) }
+    // Keyed on the theme: a WebView takes its light/dark from the theme it is made under, so a change
+    // of theme is a new WebView, and the app in it starts again.
+    key(dark) {
+        AndroidView(
+            modifier = modifier,
+            factory = { context ->
+                WebView(ContextThemeWrapper(context, webViewTheme(dark))).apply {
+                    view.webView = this
+                    configureForApp(allowDarkening)
+                    val loader = WebViewAssetLoader.Builder()
+                        .addPathHandler(ControlCenterPage.PAGE_PATH, PageHandler(context.assets) { currentPage to background })
+                        .build()
+                    webViewClient = AppClient(
+                        loader,
+                        page = { currentPage },
+                        onBlocked = { currentBlocked() },
+                        interceptAppRequest = interceptAppRequest,
+                        onRendererGone = {
+                            view.proxy = null
+                            currentPage.dispose()
+                            currentStopped()
                         }
+                    )
+                    runCatching {
+                        addMessageListener(this) { _, message, sourceOrigin, isMainFrame, proxy ->
+                            if (isMainFrame && ControlCenterPage.isPageOrigin(sourceOrigin.toString())) {
+                                view.proxy = proxy
+                                message.data?.let { currentPage.onPageMessage(it) }
+                            }
+                        }
+                    }.onFailure {
+                        FileLogger.e(LogTags.CONTROL_CENTER, "Message listener unavailable: ${it.message}")
+                        currentUnavailable()
                     }
-                }.onFailure {
-                    FileLogger.e(LogTags.CONTROL_CENTER, "Message listener unavailable: ${it.message}")
-                    currentUnavailable()
                 }
+            },
+            update = { webView ->
+                // Painted before host.html loads, so a dark theme does not flash white.
+                webView.setBackgroundColor(surface.toArgb())
+                // Only for a new app; reloading on every recomposition would restart it.
+                if (webView.tag !== page) {
+                    webView.tag = page
+                    webView.loadUrl(ControlCenterPage.PAGE_URL)
+                }
+            },
+            onRelease = { webView ->
+                // When the theme changes a new WebView is made before this one is released, and what
+                // it set up is not this one's to clear.
+                if (view.webView === webView) {
+                    view.proxy = null
+                    view.webView = null
+                }
+                view.resumeTimers(webView)
+                webView.destroy()
             }
-        },
-        update = { webView ->
-            // Painted before host.html loads, so a dark theme does not flash white.
-            webView.setBackgroundColor(surface.toArgb())
-            // Only for a new app; reloading on every recomposition would restart it.
-            if (webView.tag !== page) {
-                webView.tag = page
-                webView.loadUrl(ControlCenterPage.PAGE_URL)
-            }
-        },
-        onRelease = { webView ->
-            view.proxy = null
-            view.webView = null
-            view.resumeTimers(webView)
-            webView.destroy()
-        }
-    )
+        )
+    }
 }
 
 /** Injects [ControlCenterPage.NATIVE_OBJECT] into our page's origin only. */
@@ -186,7 +203,7 @@ private fun PausedInBackground(view: ViewRefs) {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun WebView.configureForApp() {
+private fun WebView.configureForApp(allowDarkening: (WebSettings) -> Unit) {
     settings.apply {
         javaScriptEnabled = true
         // The app has storage of its own origin, as it does in the web O Chat.
@@ -200,6 +217,8 @@ private fun WebView.configureForApp() {
         javaScriptCanOpenWindowsAutomatically = false
         setSupportMultipleWindows(false)
     }
+    // An app with no dark theme of its own is darkened when the theme is dark.
+    allowDarkening(settings)
 }
 
 /** Serves the parent page (built for this app's origin) and host.js. */

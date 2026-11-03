@@ -35,6 +35,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `CONNECT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `INPUT` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `EXEC` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `WIKI_READ` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `PONG` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ASK_USER_RESPONSE` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `APPROVAL_RESPONSE` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
@@ -85,6 +86,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `RUNTIME_INPUT_ACK` | Supported | [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `OUTPUT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `EXEC_RESULT` | Supported | [`ProtocolParserExecTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserExecTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `WIKI_RESULT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`RemNotebookTest`](../app/src/test/java/ai/openonion/oochat/domain/model/RemNotebookTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ERROR` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`ProtocolParserVersionRejectionTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserVersionRejectionTest.kt), [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt) |
 | `SESSION_STATUS` response | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 
@@ -323,7 +325,7 @@ The Host's checks, in `authenticated_command_payload` in
 | Signature never used before (a shared, persistent ledger) | `unauthorized: signed command already used` |
 
 Signed: `INPUT`, `EXEC`, `ASK_USER_RESPONSE`, `APPROVAL_RESPONSE`, `INTERRUPT`,
-`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE` and `mode_change`. These are the frames
+`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change` and `WIKI_READ`. These are the frames
 the Host leaves unsigned on purpose (`SignedCommand.EXEMPT_TYPES`, matching
 `exempt` in `ws_router/session.py`):
 
@@ -458,11 +460,91 @@ waiting EXEC card at once instead of leaving it to time out:
 
 - `code: "provider_station_only"`: a Work Room Host takes no EXEC. It concerns
   EXEC alone, so it is shown on the cards only, not again as a chat error.
-- `"authenticate first"`: refuses every command on the socket, so it is still
-  reported in the chat as well, in case a message was refused alongside.
+- `"authenticate first"`: refuses every command on the socket. On a connected
+  socket it means the Host lost the session, so the client reconnects
+  ([below](#when-a-reconnect-fails)). Nothing is sent again by itself.
 
 Any other refusal, such as a signed-command `unauthorized: …`, could belong to
 an `INPUT` instead, so a waiting EXEC is left to its timeout.
+
+### `WIKI_READ` — `RemReadMessage` (Rem)
+
+`WIKI_READ` asks the Host for its owner's Rem notebook (W16AAPPLE-69), as O Chat's
+private Rem page does (oo-chat #246, renamed from Wiki in #267). Rem was called
+Wiki until connectonion 1.9.0; the frames kept the old name. The Host's handler
+is `ws_router/rem.py` `handle_rem_read`.
+
+```json
+{"type": "WIKI_READ", "request_id": "6f1c…"}
+{"type": "WIKI_RESULT", "request_id": "6f1c…", "ok": true, "html": "<!doctype html>…"}
+{"type": "WIKI_RESULT", "request_id": "6f1c…", "ok": false, "error": "co rem is available only to the Host owner"}
+```
+
+It is a signed command, sent only on a ready socket and never queued.
+`AgentConnection.readRem()` waits 25 seconds for the `WIKI_RESULT` with its
+`request_id`, the same wait as O Chat. The outcome is a `RemOutcome`:
+
+| Host answer | Outcome |
+|---|---|
+| `ok: true` with the reader page | `Loaded`, the pages taken out of the page (below) |
+| `co rem is available only to the Host owner` | `NotOwner` |
+| `co rem is not available on this Host` | `NoNotebook` |
+| `co rem reader exceeds the 16 MiB limit` | `TooLarge` |
+| `Authentication required` (the Host restarted, or its session crashed, while the relay kept the socket open) | The client reconnects and `readRem()` reads once more, within the same 25-second wait (W16AAPPLE-108). `SessionLost` when the app will not reconnect by itself (lost again within the minute) or that read is refused too, both leaving Reconnect offered; `NotConnected` if the reconnect does not land in time |
+| `ERROR` `unknown message type: 'WIKI_READ'` (a Host older than Rem) | `HostTooOld`, and not shown again as a chat error |
+| Nothing within 25 s | `NoAnswer` |
+| The socket closes first | `NotConnected` |
+| Anything else | `Failed`; the Host's wording is logged, not shown |
+
+`html` is the Host's whole `rem/reader.py` page. The app does not display it.
+It reads the notebook snapshot embedded on the page's `const REM = {…};` line
+and keeps only each page's category, title, update time and Markdown text
+(`RemNotebook.parse`). The rest of that snapshot (the notebook's folder on the
+owner's machine, source folders, run logs, mail accounts) is dropped. The page itself
+is never logged. Parsing happens in `readRem()` once the answer is in, off the
+socket's thread, so a large notebook does not hold up chat frames.
+
+The contents list only the pages the Host reader lists (`listedRecords` in
+`rem/reader.html`). Pages held for review (`needs_review`), services still on a
+people page (`service`), duplicate skill catalog entries (`catalog_parent`),
+`skills/catalog/index.md` and the `notes` and `logs` categories are left off.
+They stay in the notebook, so a link still opens them (`RemPage.listed`).
+
+Rem labels a private sentence or clause with `[personal]` (family, home, trips)
+or `[sensitive]` (health, private money, legal, ID numbers), before its
+citations: `Recovering from knee surgery. [sensitive] [3]`. O Chat starts with
+these passages hidden, and the app has no way to show them, so
+`RemPassages.hide` drops each one, with its label and citations, using the same
+pattern as the Host reader's `privatePassages` (connectonion 1.9.3rc30): labels
+in either ASCII or full-width brackets (`［sensitive］［2］`) and in any case,
+clauses ending in `.!?;:,` or their Chinese forms with or without a space after,
+and no break at a dot inside a word or number (`harbour.com`, `120.5k`), inside
+quotes or inside code and links. A line left with nothing but labelled
+passages reads *Hidden labelled passage*. A list item left empty is removed.
+A label the pattern cannot cut around hides its whole line. Code blocks are
+left alone.
+
+Each kept title and page body then goes through `RemPrivacy.sanitize`, since
+pages are written from the owner's mail, chats and files:
+
+- Private key blocks, credentials in URLs (`https://user:…@host`), and token
+  shapes (Anthropic/OpenAI `sk-…`, GitHub `ghp_…`/`github_pat_…`, Slack `xox…`,
+  AWS `AKIA…`, Google `AIza…`, JWTs, `Bearer …`) become `[redacted]`.
+- So does the value of a named secret written with `:` or `=` (`password: …`,
+  `api key = …`, `invite code: …`, `OPENAI_API_KEY=…`). Prose such as "the token
+  expired" is left alone.
+- Home folders (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`) are shown as
+  `~`. Any other absolute path becomes `[path removed]`. Web addresses and the
+  relative links between pages are kept.
+
+A link to another page (`[Harbour](../orgs/harbour.md)`, resolved from the page
+it is on by `RemNotebook.pageLinkedFrom`) opens that page. Any other link stays
+plain text. Citation markers (`[1]`, `[W12]`) show as plain text; the Host
+reader shows them as chips.
+
+Retrying cannot change `TooLarge`, `SessionLost` or `HostTooOld`, so those screens
+offer no **Try again**.
+
 
 ### Control and response frames
 
@@ -475,8 +557,8 @@ vocabularies. `SESSION_STATUS` (`SessionStatusQuery`) is unsigned; see
 | Frame model | Wire `type` | When it is sent |
 | --- | --- | --- |
 | `PongMessage` | `PONG` | Automatically after a server `PING`. |
-| `AskUserResponse` | `ASK_USER_RESPONSE` | The user answers an `ask_user` card. |
-| `ApprovalResponse` | `APPROVAL_RESPONSE` | The user allows or denies an `approval_needed` request. `scope` defaults to `"once"`; `mode` (`"reject_soft"`, `"reject_hard"`, or `"reject_explain"`) is only meaningful when `approved` is false. |
+| `AskUserResponse` | `ASK_USER_RESPONSE` | The user answers an `ask_user` card. `request_id` is that event's `id`. |
+| `ApprovalResponse` | `APPROVAL_RESPONSE` | The user allows or denies an `approval_needed` request. `scope` defaults to `"once"`; `mode` (`"reject_soft"`, `"reject_hard"`, or `"reject_explain"`) is only meaningful when `approved` is false. `request_id` is the event's `id`, left out when the event had none; the Host requires it when the session is open on more than one device. |
 | `InterruptMessage` | `INTERRUPT` | The user asks the agent to stop gracefully. No payload — the agent finishes the current step and returns a closing message rather than stopping mid-tool-call. |
 | `PlanReviewResponse` | `PLAN_REVIEW_RESPONSE` | The user answers a `plan_review` gate. Carries a single free-text `message`; the server treats it as a follow-up message, not a structured accept/reject verdict. |
 | `UlwResponse` | `ULW_RESPONSE` | The user answers a `ulw_turns_reached` checkpoint. `action` is `"continue"` or `"switch_mode"`; `turns` applies only when continuing, `mode` (`"safe"`, `"plan"`, `"accept_edits"`, or `"ulw"`) only when switching. |
@@ -536,10 +618,11 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `RUNTIME_INPUT_ACK` | `session_id`, `id` | Emits `ConnectionEvent.RuntimeInputAcknowledged`: the host queued an `INPUT` that arrived mid-turn for the running turn's next iteration. `id` is the host's own UUID for the queued item, **not** the `input_id` we sent, so it cannot name the message it answers — see [Runtime input](#runtime-input). Not an `OUTPUT`: it does not end the turn. |
 | `OUTPUT` | `input_id`, `result`, `session` | Emits the final output when it belongs to the current input, or for any direct connection; updates the session snapshot. |
 | `EXEC_RESULT` | `exec_id`, `status`, `result`, `error`, `tool`, `duration_ms` | Completes the pending direct `EXEC` request with a success or error outcome. |
+| `WIKI_RESULT` | `request_id`, `ok`, `html`, `error` | Completes the pending Rem read with the same `request_id`; see [WIKI_READ](#wiki_read--remreadmessage-rem). Not a chat item. |
 | `mode_changed` | `id`, `mode`, `triggered_by`, `turns_left` | Creates a `ChatItem.ModeChangedItem` (a thin "Switched to … mode" divider) and sets the mode chip; authoritative whether it answers this client's `mode_change` or the agent switched on its own. See [Session mode](#session-mode). |
 | `mode_budget_changed` | `mode`, `turns_left` | Emits `ConnectionEvent.ModeBudgetChanged`: full access's turn budget counted down. Not a chat item. |
 | `SESSION_STATUS` | `session_id`, `status` | Emits `SessionStatusReceived`. Settles turns a drop failed, and sets the top bar's status line when it is about the session on screen. See [SESSION_STATUS](#session_status). |
-| `ERROR` | `code`, `protocol`, `retryable`, `session_id`, `message`, `error` | With `code` `-32010`, emits `ProtocolRejected` (see [Incompatible protocol version](#incompatible-protocol-version)). With `code` `"RUNTIME_INPUT_REJECTED"`, emits `RuntimeInputRejected` instead of an error: the socket and the running turn are healthy, and `ConnectionError` could start the reconnect ladder (see [Runtime input](#runtime-input)). `retryable` is read as true only for a literal boolean `true`. Every other `ERROR` emits `ConnectionError` using `message`, then `error`, then `"Unknown error"`. |
+| `ERROR` | `code`, `protocol`, `retryable`, `session_id`, `request_id`, `message`, `error` | With `code` `-32010`, emits `ProtocolRejected` (see [Incompatible protocol version](#incompatible-protocol-version)). With `code` `"RUNTIME_INPUT_REJECTED"`, emits `RuntimeInputRejected` instead of an error: the socket and the running turn are healthy, and `ConnectionError` could start the reconnect ladder (see [Runtime input](#runtime-input)). With `code` `"STALE_ANSWER"` (the Host was no longer waiting on that request: another device answered first, or the turn ended), emits `AnswerRefused` with `request_id`, for the same reason; the approval or ask_user card with that id then says "No longer waiting for an answer", and nothing is re-sent. With no `request_id`, a card is marked only if it is the one answered card sent without an id. `retryable` is read as true only for a literal boolean `true`. Every other `ERROR` emits `ConnectionError` using `message`, then `error`, then `"Unknown error"`. |
 
 ### `EXEC_RESULT`
 
@@ -938,7 +1021,33 @@ ladder retry, `retryNow()`, or a conversation switch. The Host keeps a socket
 open after an `ERROR`, so before this (W16AAPPLE-82) no close arrived to climb
 the ladder, and the repository read the `ERROR` as a business error on a live
 session: the screen sat on "Reconnecting…" for good. An `ERROR` after
-`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`.
+`CONNECTED` is still a non-fatal `ConnectionErrorOccurred`, except the one below.
+
+**The Host losing the session (W16AAPPLE-108).** Through the relay the Host keeps
+one session per app connection. When it restarts, or that session's task
+crashes, the relay keeps the app's socket open, and the next frame reaches a
+new, unauthenticated session: a command is refused with `ERROR "authenticate
+first (send CONNECT)"` (ws_router/agent_io.py), a Rem read with `WIKI_RESULT`
+`error: "Authentication required"` (ws_router/rem.py). On a connected socket,
+either one makes `AgentConnection.recoverLostSession` reopen the socket under the
+same session, as a relay reattach would: the state shows `Reconnecting`, and the
+fresh `CONNECT` authenticates it again. `authenticate first` is matched only on
+an `ERROR`, and `Authentication required` only on a `WIKI_RESULT`.
+
+Nothing is sent again by itself: a turn the old session had taken may already
+have run tools, and sending it again would repeat them. If a message was still
+unanswered (no `OUTPUT` since), the client first emits a `ConnectionError` with
+its own wording (`LOST_SESSION_MESSAGE`), which the chat shows as a failed turn
+with Retry; a Retry tapped during the reconnect waits in the outbox. A turn that
+was running is failed by the chat on `Reconnecting` anyway, and un-failed if the
+new `CONNECTED` says it is still running. A Rem read waits for the reconnect and
+is sent once more, all within its one 25-second wait.
+
+At most one such reconnect a minute (`SESSION_RECOVERY_WINDOW_MS`, timed with
+`SystemClock.elapsedRealtime()`). A session lost again within the minute ends the
+way a refused reconnect does: `ReconnectRefused`, so `Error` with Reconnect, which
+the chat shows on the turn, and a Rem read returns `SessionLost`. Reconnect builds
+a new connection, so it gets its own minute.
 
 The exception is a cycle that has passed an onboarding gate (W16AAPPLE-83).
 `ConnectToAgentUseCase` stops its own timer once `ONBOARD_REQUIRED` arrives, so
@@ -969,9 +1078,12 @@ with no reconnect pending, `retryNow()` checks the socket instead: it sends
 not shown: the Host answers `not_found` for a session that has not run a turn since
 it started. Covered by `ForegroundReturnTest`.
 
-Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82 and -79
+Covered by `AgentConnectionRobolectricTest` (the W16AAPPLE-82, -79 and -108
 sections, on a virtual clock) and `ConnectionRepositoryImplTest` (a refused
-reconnect ends in `Error` although the attempt had connected).
+reconnect ends in `Error` although the attempt had connected; a lost session
+shows `Reconnecting` and connects again; Reconnect gets its own recovery), and
+`ChatViewModelTest` (a message lost with the session is failed with Retry and
+sent again only by Retry).
 
 ### CONNECTED status
 
@@ -1292,9 +1404,11 @@ conversation meanwhile. A failed send, an agent `ERROR`, Stop in the chat or a
 dropped connection end it with a refusal instead. `conversation: "new"` is refused
 for now. As in the React SDK, the app cancelling an action (it gave up, or timed
 out) interrupts the turn it started, as soon as it starts if its message is still
-being sent. Unlike the web O Chat, where the app sits beside the chat, here it
-replaces the chat on screen, so the page closing (the user going back to the chat
-to watch) only stops the wait and leaves the turn running.
+being sent. Unlike the web O Chat, where the app sits beside the chat, on a phone it
+is a tab next to the chat's, so the user can go to the chat to watch and the app
+keeps running. The page closing (the user leaving the chat for Settings, say) only
+stops the wait and leaves the turn running. On a tablet or an open foldable it sits
+beside the chat.
 
 **The snapshot** (`ChatViewModel.controlCenterSnapshot`) carries the agent's
 address, the session, its published skills (at most 2,000, names cut to 64
@@ -1307,10 +1421,11 @@ progress). Its chat items (`ControlCenterChatItems`) are the conversation in the
 React SDK's `ChatItem` shape, bounded as `boundControlSnapshot` does. Tool-call `args`
 and approval `arguments` go out with string values, as the app stores them.
 
-**The screen.** The chat's Home button opens `ControlCenterScreen` when the agent
-has an app and the device's WebView supports message listeners, and the legacy
-page otherwise. An agent with an app and no legacy page always gets the screen,
-which then says the WebView is too old. An app address with no origin the frame
+**The screen.** The agent's Home shows `ControlCenterScreen`, in its own tab on a
+phone and beside the chat on a tablet, when the agent has an app and the device's
+WebView supports message listeners, and the legacy page otherwise. An agent with an
+app and no legacy page always gets the screen. If the WebView is too old the screen
+says so, and, having no tab or pane, it is opened by the chat's Home button. An app address with no origin the frame
 can be pinned to (an IPv6 literal, say) is refused when the frame is parsed. The WebView loads our parent page at
 `https://appassets.androidplatform.net/control-center/host.html`, served by
 `WebViewAssetLoader`; any other path on that origin is a 404, never a network
@@ -1343,6 +1458,18 @@ If the WebView's renderer dies (a crash, or Android reclaiming its memory), the
 screen says the Control Center stopped and offers Reload rather than letting
 O Chat close with it, and does not reload by itself, so a crashing app cannot
 loop. While O Chat is in the background the WebView and its timers are paused.
+
+Beside the chat or in its tab, the app belongs to the chat's screen, which is only on
+screen while the user is in the chat. Switching between the chat and Home's tab keeps
+the app as it was. Leaving the chat for Settings, Logs or the agent list removes the
+pane or tab and its WebView, and coming back loads the app again from its URL, so
+whatever it held only in the page is lost.
+
+**Light and dark.** The app tells the page which theme it is in with the standard `prefers-color-scheme`
+media query, taken from the app's own Light, Dark or System setting and not the phone's, so an app
+written for both follows it. The Dashboard page gets the same. A page with no dark styles is darkened by
+the WebView where the phone's WebView supports it, unless the page opts out; one that uses
+`prefers-color-scheme` is left as it wrote it. A change of theme with the page open reloads it.
 
 ## HTTP exception
 

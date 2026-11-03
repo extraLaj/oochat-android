@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ChatMessage
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
+import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
@@ -341,7 +342,10 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override val agentProfile: StateFlow<AgentLiveProfile?> = MutableStateFlow(null)
     override val approvalMode: StateFlow<ApprovalMode> = MutableStateFlow(ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
-    override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
+    val dashboard = MutableStateFlow<String?>(null)
+    override val dashboardHtml: StateFlow<String?> = dashboard
+    val controlCenter = MutableStateFlow<ControlCenterApp?>(null)
+    override val controlCenterApp: StateFlow<ControlCenterApp?> = controlCenter
 
     private val events = MutableSharedFlow<ChatEvent>(
         extraBufferCapacity = 64,
@@ -361,9 +365,9 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override suspend fun switchConversation(conversationId: String?) { liveSessionId = conversationId }
     override suspend fun sendMessage(content: String, agentAddress: String, images: List<String>?, files: List<OutgoingFileAttachment>?) = Unit
     override suspend fun executeTool(request: ExecRequest): ExecOutcome = ExecOutcome.NotSent("Not used in recomposition tests")
-    override suspend fun respond(answer: String) = Unit
+    override suspend fun respond(answer: String, requestId: String?) = Unit
     override suspend fun interrupt() = Unit
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) = Unit
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) = Unit
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) = Unit
     override suspend fun respondToPlanReview(message: String) = Unit
     override suspend fun respondToUlwTurnsReached(action: String, turns: Int?, mode: String?) = Unit

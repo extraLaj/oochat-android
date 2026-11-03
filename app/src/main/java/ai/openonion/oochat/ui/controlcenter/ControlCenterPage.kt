@@ -146,6 +146,7 @@ class ControlCenterPage(
                 |<head>
                 |<meta charset="utf-8">
                 |<meta name="viewport" content="width=device-width, initial-scale=1">
+                |<meta name="color-scheme" content="light dark">
                 |<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src $appOrigin; base-uri 'none'; form-action 'none'">
                 |<style>html, body { margin: 0; height: 100%; background: $background; } iframe { border: 0; width: 100%; height: 100%; display: block; }</style>
                 |<script src="host.js" defer></script>

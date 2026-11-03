@@ -146,7 +146,8 @@ internal fun AccountSection(
     onBackupSeed: () -> Unit,
     onImportKey: () -> Unit,
     onReset: () -> Unit,
-    accountProblem: String? = null
+    accountProblem: String? = null,
+    identityWarning: String? = null
 ) {
     Column(modifier = Modifier.padding(horizontal = MaterialTheme.spacing.lg)) {
         Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = MaterialTheme.spacing.sm)) {
@@ -171,7 +172,8 @@ internal fun AccountSection(
             onBackupSeed = onBackupSeed,
             onImportKey = onImportKey,
             onReset = onReset,
-            accountProblem = accountProblem
+            accountProblem = accountProblem,
+            identityWarning = identityWarning
         )
     }
     // Wider than the gap between settings groups (`xl`), which is wider than
@@ -187,7 +189,8 @@ internal fun IdentityCard(
     onBackupSeed: () -> Unit,
     onImportKey: () -> Unit,
     onReset: () -> Unit,
-    accountProblem: String? = null
+    accountProblem: String? = null,
+    identityWarning: String? = null
 ) {
     val copyToClipboard = rememberClipboard()
 
@@ -203,6 +206,18 @@ internal fun IdentityCard(
             value = walletAddress.truncateMiddle(12, 6),
             onCopy = { copyToClipboard("Wallet address", walletAddress) }
         )
+        identityWarning?.let { warning ->
+            Text(
+                text = warning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(
+                    start = MaterialTheme.spacing.md2,
+                    end = MaterialTheme.spacing.md2,
+                    bottom = MaterialTheme.spacing.sm
+                )
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         IdentityRow(
             label = "API KEY",

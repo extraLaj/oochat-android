@@ -74,6 +74,9 @@ sealed class ChatEvent {
      * answers the oldest message still awaiting an answer.
      */
     data class RuntimeInputRejected(val sessionId: String?, val retryable: Boolean) : ChatEvent()
+
+    /** The Host refused this device's answer to [requestId]; another device answered first. */
+    data class AnswerRefused(val requestId: String?) : ChatEvent()
 }
 
 /**

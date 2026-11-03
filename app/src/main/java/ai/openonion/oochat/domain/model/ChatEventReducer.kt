@@ -250,6 +250,8 @@ object ChatEventReducer {
             // caller — see ChatEvent.RuntimeInputAcknowledged's own doc.
             is ChatEvent.RuntimeInputAcknowledged -> ReduceResult(current)
             is ChatEvent.RuntimeInputRejected -> ReduceResult(current)
+            // Handled by the ViewModel, which marks the card.
+            is ChatEvent.AnswerRefused -> ReduceResult(current)
 
             is ChatEvent.ConnectionErrorOccurred -> {
                 // Attach to whichever Turn/Thinking bubble was in flight —
