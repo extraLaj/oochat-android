@@ -291,6 +291,8 @@ sealed interface RemOutcome {
      * The Host has no authenticated session for this socket any more: it
      * restarted, or the session crashed, while the relay kept the app's socket
      * open. Only a fresh CONNECT fixes it, so reading again cannot.
+     * AgentConnection.readRem reconnects and reads once more by itself
+     * (W16AAPPLE-108), so this is only seen when that read was refused too.
      */
     data object SessionLost : RemOutcome
 

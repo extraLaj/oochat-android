@@ -305,6 +305,42 @@ class ConnectionRepositoryImplTest {
     }
 
     @Test
+    fun `a session the Host lost shows Reconnecting and connects again, leaving the message to Retry`() = runTest(testDispatcher) {
+        // W16AAPPLE-108: the Host restarted, or its session for this socket
+        // crashed, while the relay kept the socket open.
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+        repository.sendMessage("what's on today?", "0xAGENT")
+        val lostSocket = factory.lastWebSocket
+
+        simulateError("authenticate first (send CONNECT)")
+
+        awaitUntil { repository.connectionState.value == ConnectionState.Reconnecting && factory.lastWebSocket !== lostSocket }
+        assertTrue("nothing queued to go out again by itself", sink.enqueued.isEmpty())
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        assertTrue(repository.connectionState.value is ConnectionState.Connected)
+    }
+
+    @Test
+    fun `Reconnect after a refused recovery gets its own recovery`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        simulateError("authenticate first (send CONNECT)")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        // Lost again within the minute: Error, with Reconnect offered.
+        simulateError("authenticate first (send CONNECT)")
+        awaitUntil { repository.connectionState.value is ConnectionState.Error }
+
+        // The user taps Reconnect.
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        val beforeLoss = factory.lastWebSocket
+        simulateError("authenticate first (send CONNECT)")
+
+        awaitUntil { repository.connectionState.value == ConnectionState.Reconnecting && factory.lastWebSocket !== beforeLoss }
+    }
+
+    @Test
     fun `staying on the same conversation keeps the status`() = runTest(testDispatcher) {
         repository.connect("0xAGENT", conversationId = "conv-A")
         awaitRunning()
