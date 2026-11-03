@@ -159,6 +159,25 @@ agent list and it is closed; when you come back it is loaded again from the star
 A Control Center app starts afresh too, so whatever you had open or half-filled in
 it is gone, though anything it already did shows in the chat as before.
 
+## 5b. Your agent's Rem notebook
+
+If you own the agent, it keeps a notebook called **Rem** about your people,
+projects and tools. Open it from the chat's **⋮** menu, then **Rem**. Pages are
+grouped by kind (People, Projects and so on); tap one to read it. A link to
+another person or project opens that page. On a tablet the list and the page sit
+side by side.
+
+Rem is read-only here, and only the agent's owner can open it. Anyone else sees
+**Only the owner can read this Rem**, with the command the owner would run on
+the agent's computer to add you. Other messages tell you when the agent has no
+notebook yet (`co rem init` creates one), when it is too large to open on a
+phone, or when the agent did not answer. **Try again** appears only where
+reading again could help.
+
+Passwords, keys and tokens in a page show as `[redacted]`. Locations on the
+owner's computer show as `[path removed]`, or as `~` for their home folder, and
+the notebook's own location is never shown.
+
 ---
 
 ## 6. Deciding what the agent may do

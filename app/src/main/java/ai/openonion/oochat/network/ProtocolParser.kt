@@ -559,6 +559,21 @@ object ProtocolParser {
                 )
             }
 
+            // The answer to a WIKI_READ (W16AAPPLE-69). Like EXEC_RESULT it
+            // settles one waiting request and is not a chat item.
+            "WIKI_RESULT" -> {
+                val requestId = event.requestId?.takeIf { it.isNotBlank() }
+                    ?: return ParseResult(event = ConnectionEvent.Unknown)
+                ParseResult(
+                    event = ConnectionEvent.RemResultReceived(
+                        requestId = requestId,
+                        ok = event.ok == true,
+                        html = event.html,
+                        error = event.error
+                    )
+                )
+            }
+
             "OUTPUT" -> {
                 val isForUs = isDirect || event.inputId == null || event.inputId in outstandingInputIds
                 if (isForUs) {
@@ -1037,6 +1052,18 @@ sealed class ConnectionEvent {
         val error: String? = null,
         val tool: String? = null,
         val durationMs: Double? = null
+    ) : ConnectionEvent()
+
+    /**
+     * A `WIKI_RESULT`: the Host's answer to the Rem read with [requestId].
+     * [html] is the whole reader page and stays inside the network layer,
+     * which turns it into a [ai.openonion.oochat.domain.model.RemOutcome].
+     */
+    data class RemResultReceived(
+        val requestId: String,
+        val ok: Boolean,
+        val html: String? = null,
+        val error: String? = null
     ) : ConnectionEvent()
 
     /**

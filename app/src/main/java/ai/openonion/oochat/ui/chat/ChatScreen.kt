@@ -93,6 +93,7 @@ fun ChatScreen(
     startNewSessionOnConnect: Boolean = false,
     onNavigateToSettings: () -> Unit = {},
     onNavigateToLogs: () -> Unit = {},
+    onNavigateToRem: () -> Unit = {},
     onNavigateToAgentList: () -> Unit = {},
     onNavigateToControlCenter: () -> Unit = {},
     // Home is already part of this layout, beside the chat or as a tab, so the top bar's button to
@@ -334,7 +335,8 @@ fun ChatScreen(
                 // Only a Control Center the device cannot host has a screen of its own; any other
                 // Home is in the layout.
                 hasDashboard = !homeInLayout && agentHome.opensControlCenter,
-                onOpenDashboard = onNavigateToControlCenter
+                onOpenDashboard = onNavigateToControlCenter,
+                onOpenRem = onNavigateToRem
             )
 
             ConnectionBanner(

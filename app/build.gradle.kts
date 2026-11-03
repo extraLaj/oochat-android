@@ -416,6 +416,11 @@ val regressionSuite = mapOf(
         "domain.usecase.ConnectToAgentUseCaseTest",
         "ui.onboarding.OnboardingViewModelTest",
     ),
+    "rem notebook" to listOf(
+        "domain.model.RemNotebookTest",
+        "ui.rem.RemScreenComposeTest",
+        "ui.rem.RemViewModelTest",
+    ),
     "slash-command palette" to listOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",
