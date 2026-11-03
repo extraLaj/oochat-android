@@ -10,7 +10,6 @@ import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.controlcenter.ControlCenterScreenWrapper
 import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
-import ai.openonion.oochat.ui.dashboard.DashboardScreenWrapper
 import ai.openonion.oochat.ui.loading.LoadingScreen
 import ai.openonion.oochat.ui.logs.LogsScreen
 import ai.openonion.oochat.ui.onboarding.OnboardingScreen
@@ -62,7 +61,6 @@ object Routes {
     const val AGENT_DISCOVERY = "agent_discovery"
     const val SETTINGS = "settings"
     const val LOGS = "logs"
-    const val DASHBOARD = "dashboard"
     const val CONTROL_CENTER = "control_center"
 
     /** SavedStateHandle key used to hand a picked agent address back from AGENT_DISCOVERY. */
@@ -196,7 +194,7 @@ fun NavigationGraph(
             var linkApproved by rememberSaveable(linkedAddress) { mutableStateOf(false) }
             var linkAnswered by rememberSaveable(linkedAddress) { mutableStateOf(false) }
 
-            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeBeside ->
+            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeInLayout ->
                 ChatScreen(
                     // Until the user accepts, this screen behaves exactly as a
                     // normal launch: it connects to their own configured agent.
@@ -216,15 +214,12 @@ fun NavigationGraph(
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
                     },
-                    onNavigateToDashboard = {
-                        navController.navigate(Routes.DASHBOARD)
-                    },
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)
                     },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
-                    homeBeside = homeBeside
+                    homeInLayout = homeInLayout
                 )
             }
 
@@ -288,7 +283,7 @@ fun NavigationGraph(
             val agentId = backStackEntry.arguments?.getString("agentId") ?: ""
             val sessionId = backStackEntry.arguments?.getString("sessionId")
             val startNew = backStackEntry.arguments?.getBoolean("startNew") ?: false
-            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeBeside ->
+            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeInLayout ->
                 ChatScreen(
                     connectToAgentId = agentId,
                     sessionIdToRestore = sessionId,
@@ -302,15 +297,12 @@ fun NavigationGraph(
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
                     },
-                    onNavigateToDashboard = {
-                        navController.navigate(Routes.DASHBOARD)
-                    },
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)
                     },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
-                    homeBeside = homeBeside
+                    homeInLayout = homeInLayout
                 )
             }
         }
@@ -437,26 +429,13 @@ fun NavigationGraph(
             )
         }
 
-        // The agent's own Home page. Reached only from the chat top bar, and
-        // only once a DASHBOARD_SNAPSHOT has arrived, so the chat entry it
-        // borrows its ChatViewModel from is always still on the stack — see
+        // The agent's Home on a screen of its own, which only a Control Center app the device cannot
+        // host has: the screen says why. Any other Home is in the chat's layout, beside it or as a
+        // tab. Reached only from the chat top bar, and only once the agent has sent its app, so the
+        // chat entry it borrows its ChatViewModel from is always still on the stack — see
         // DashboardScreenWrapper for why that matters.
-        composable(Routes.DASHBOARD) {
-            HomeScreenRoute(onLeave = { navController.popBackStack(Routes.DASHBOARD, inclusive = true) }) {
-                DashboardScreenWrapper(
-                    chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
-                        runCatching { navController.getBackStackEntry(route) }.getOrNull()
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-        }
-
-        // The agent's Home when it has a Control Center app. Reached the same way as DASHBOARD.
         composable(Routes.CONTROL_CENTER) {
-            // A device that cannot host the app keeps this screen, which says why.
+            // A device that can host the app has no screen for it, and HomeScreenRoute leaves.
             val hostsApps = remember { controlCenterSupported() }
             HomeScreenRoute(
                 onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) },
@@ -496,7 +475,6 @@ private val DRILL_DOWN_ROUTES = listOf(
     Routes.AGENT_DISCOVERY,
     Routes.SETTINGS,
     Routes.LOGS,
-    Routes.DASHBOARD,
     Routes.CONTROL_CENTER
 )
 

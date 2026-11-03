@@ -440,10 +440,11 @@ val regressionSuite = mapOf(
     "relay failover" to listOf(
         "ui.chat.RelayFailoverTest",
     ),
-    "Home beside the chat" to listOf(
+    "Home beside the chat or in a tab" to listOf(
         "ui.adaptive.HomePlacementTest",
         "ui.adaptive.HomePlacementWindowComposeTest",
         "ui.adaptive.ChatWithHomeComposeTest",
+        "ui.adaptive.ChatWithHomeTabsComposeTest",
         "ui.adaptive.PaneComposeTest",
         "ui.adaptive.HomeScreenRouteComposeTest",
         "ui.adaptive.HomeBesideChatComposeTest",

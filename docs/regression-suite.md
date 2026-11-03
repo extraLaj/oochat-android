@@ -29,7 +29,7 @@ belongs in one of those classes, or its class belongs in that list.
 | Wrong clock and failed reconnects | `HostClockTest`, `AgentConnectionRobolectricTest`, `ConnectionRepositoryImplTest`, `ServerErrorTextTest`, `ChatViewModelTest` | Signatures carry the server's time from the upgrade's `Date` (CONNECT, commands, invite codes), the device clock with no header or past the 30-minute bound, a fresh reading per socket, and a clock put right is followed; `signature expired` is shown as advice to check the date and time; a reconnect answered with ERROR ends in Error with Reconnect, an unanswered one climbs the ladder after 15 s, and the relay's offline verdict is a rung; an offline agent is tried every minute after the ladder while the app is on screen; a recreated chat screen does not re-add an old error (W16AAPPLE-90, -82, -79, -74) |
 | Relay failover | `RelayFailoverTest` | The relay dropping, restarting, refusing upgrades or answering `Agent not connected` mid-turn: the app redials `/ws/input` on the backoff ladder, resumes with `session_id` and `last_msg_id`, a frame missed while it was down is replayed once, and the rest of the turn lands once in Room and on screen |
 | Network drop | `NetworkDropTest` | The phone's network cut mid-turn, with the socket failing at once or going silent until OkHttp's ping times out: dials fail while offline on the backoff ladder, the app dials as soon as the network is back, resumes with `session_id` and `last_msg_id`, and what it missed (including frames sent into the silent socket) is replayed once and lands once in Room and on screen |
-| Home beside the chat | `HomePlacementTest`, `HomePlacementWindowComposeTest`, `ChatWithHomeComposeTest`, `PaneComposeTest`, `HomeScreenRouteComposeTest`, `HomeBesideChatComposeTest`, `AgentHomeTest`, `ChatWithHomePanesComposeTest`, `ChatHomeButtonComposeTest`, `HomeScreenWrappersComposeTest`, `RunSkillFromHomeTest` | The agent's Home goes beside the chat from 600dp wide and 480dp tall, on either side of each bound, and never when the agent has none; the chat keeps its typed text and state while Home appears and disappears (a foldable unfolded and folded); each pane gets half the row even when what it holds ignores the modifier it is given; a Home screen of its own leaves for the chat when the window becomes wide, including while it is open; beside the chat a Home page has no back arrow and no waiting bar (W16AAPPLE-31); which Home an agent has, and that a Control Center the device cannot host stays behind the Home button instead of filling half the screen; the chat's Home button is hidden beside Home and shown otherwise; both Home screens drop their way back when beside the chat; a skill run from Home beside the chat does not go back to it (W16AAPPLE-105) |
+| Home beside the chat or in a tab | `HomePlacementTest`, `HomePlacementWindowComposeTest`, `ChatWithHomeComposeTest`, `ChatWithHomeTabsComposeTest`, `PaneComposeTest`, `HomeScreenRouteComposeTest`, `HomeBesideChatComposeTest`, `AgentHomeTest`, `ChatWithHomePanesComposeTest`, `ChatHomeButtonComposeTest`, `HomeScreenWrappersComposeTest`, `RunSkillFromHomeTest` | The agent's Home goes beside the chat from 600dp wide and 480dp tall and in a tab of its own on anything smaller (a phone, even on its side), on either side of each bound, and never when the agent has none; the chat keeps its typed text and state while Home appears and disappears (a foldable unfolded and folded); each pane gets half the row even when what it holds ignores the modifier it is given; a Home screen of its own leaves for the chat when Home gets a place in the chat's layout, including while it is open; beside the chat a Home page has no back arrow and no waiting bar (W16AAPPLE-31); which Home an agent has, and that a Control Center the device cannot host stays behind the Home button instead of filling half the screen; the chat's Home button is hidden whenever Home is in the chat's layout (beside it or a tab) and shown only for a Control Center the device cannot host; both Home screens drop their way back when beside the chat; a skill run from Home beside the chat does not go back to it (W16AAPPLE-105); on a phone the chat and Home tabs each keep their state (the transcript's place, a draft, the page's own state) while the other is showing, the Home tab is named for what the agent sent (Control Center or Dashboard), the chat's top bar sits directly under the tabs with no second gap for the status bar, Home is built only when its tab is first opened, choosing a tab drops the keyboard, and going back from Home by its arrow, the back button or a skill run returns to the chat (W16AAPPLE-32) |
 
 ## Where the test data comes from
 
@@ -75,21 +75,32 @@ purpose. At that point, remove the wrapper, and the test guards the fix.
   therefore modelled in `ProcessDeathResumeTest`: the first launch's objects
   are abandoned without a flush and the relaunch is rebuilt on the same Room
   file, rather than the app being killed on an emulator.
-- **Home beside the chat on a real device.** The wiring is tested with a real
+- **Home beside the chat, or in a tab, on a real device.** The wiring is tested with a real
   `ChatViewModel` over fakes, as in `ChatScreenRecompositionTest`, but with stand-in
   panes and Robolectric's stub WebView, and `NavigationGraph` itself is not run. So
   what the real Home pages look like next to the chat, and how the layout behaves
   across a fold, is checked by hand on a tablet or foldable emulator (Pixel Tablet,
-  or Pixel Fold unfolded), with an agent that has a Dashboard or a Control Center:
+  or Pixel Fold unfolded) and on a phone emulator, with an agent that has a Dashboard or a
+  Control Center:
   - Landscape on the tablet: the chat is on the left and Home on the right, and the
     chat's top bar has no Home button.
   - A skill run from Home sends its message and Home stays where it is.
   - Rotate to portrait and back, or fold and unfold the foldable: what was typed in
     the chat and how far it was scrolled are still there, and Home comes and goes.
-  - Unfold while Home is open on its own screen: it goes and the chat remains, with
-    Home beside it.
-  - On the phone emulator nothing changes: the Home button opens Home on its own
-    screen, with its back arrow.
+  - Unfold while Home's tab is showing: the tabs go and the chat remains, with Home
+    beside it. Fold again: the tabs come back.
+  - On the phone emulator (`Pixel_7`) the Chat tab and a tab named for the agent's Home
+    (Control Center or Dashboard) sit under the status bar, with the chat's top bar directly
+    below them and no Home button in it. A phone on its side keeps the tabs.
+  - On the phone, type a draft and scroll the chat up, choose Home's tab and then Chat: the
+    draft and the scroll position are where they were, and the keyboard closed when Home
+    was chosen. Scroll or fill in something on a Dashboard, go to Chat and back: it is
+    still as it was. For a Control Center, the work it was doing carries on while the chat
+    shows.
+  - On the phone, the back button on Home's tab goes to the chat, and a skill run from
+    Home lands on the chat with the turn it started.
+  - A Control Center the device cannot host has no tab: the chat's Home button opens the
+    screen that says why.
   - The chat's navigation drawer opens inside its half, and Home's page reloads when
     its pane comes back.
 - **The live relay.** `RelayFailoverTest` fakes it at the `WebSocketFactory`

@@ -1293,9 +1293,10 @@ dropped connection end it with a refusal instead. `conversation: "new"` is refus
 for now. As in the React SDK, the app cancelling an action (it gave up, or timed
 out) interrupts the turn it started, as soon as it starts if its message is still
 being sent. Unlike the web O Chat, where the app sits beside the chat, on a phone it
-replaces the chat on screen, so the page closing (the user going back to the chat
-to watch) only stops the wait and leaves the turn running. On a tablet or an open
-foldable it sits beside the chat, and the page never closes this way.
+is a tab next to the chat's, so the user can go to the chat to watch and the app
+keeps running. The page closing (the user leaving the chat for Settings, say) only
+stops the wait and leaves the turn running. On a tablet or an open foldable it sits
+beside the chat.
 
 **The snapshot** (`ChatViewModel.controlCenterSnapshot`) carries the agent's
 address, the session, its published skills (at most 2,000, names cut to 64
@@ -1308,10 +1309,11 @@ progress). Its chat items (`ControlCenterChatItems`) are the conversation in the
 React SDK's `ChatItem` shape, bounded as `boundControlSnapshot` does. Tool-call `args`
 and approval `arguments` go out with string values, as the app stores them.
 
-**The screen.** The chat's Home button opens `ControlCenterScreen` when the agent
-has an app and the device's WebView supports message listeners, and the legacy
-page otherwise. An agent with an app and no legacy page always gets the screen,
-which then says the WebView is too old. An app address with no origin the frame
+**The screen.** The agent's Home shows `ControlCenterScreen`, in its own tab on a
+phone and beside the chat on a tablet, when the agent has an app and the device's
+WebView supports message listeners, and the legacy page otherwise. An agent with an
+app and no legacy page always gets the screen. If the WebView is too old the screen
+says so, and, having no tab or pane, it is opened by the chat's Home button. An app address with no origin the frame
 can be pinned to (an IPv6 literal, say) is refused when the frame is parsed. The WebView loads our parent page at
 `https://appassets.androidplatform.net/control-center/host.html`, served by
 `WebViewAssetLoader`; any other path on that origin is a 404, never a network
@@ -1345,9 +1347,10 @@ screen says the Control Center stopped and offers Reload rather than letting
 O Chat close with it, and does not reload by itself, so a crashing app cannot
 loop. While O Chat is in the background the WebView and its timers are paused.
 
-Beside the chat, the app belongs to the chat's screen, which is only on screen while
-the user is in the chat. Leaving the chat for Settings, Logs or the agent list removes
-the pane and its WebView, and coming back loads the app again from its URL, so
+Beside the chat or in its tab, the app belongs to the chat's screen, which is only on
+screen while the user is in the chat. Switching between the chat and Home's tab keeps
+the app as it was. Leaving the chat for Settings, Logs or the agent list removes the
+pane or tab and its WebView, and coming back loads the app again from its URL, so
 whatever it held only in the page is lost.
 
 ## HTTP exception
