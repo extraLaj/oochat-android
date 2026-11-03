@@ -135,6 +135,10 @@ data class ServerEvent(
     // never parsed or rewritten here, only wrapped — see
     // ai.openonion.oochat.ui.dashboard.DashboardDocument.
     val html: String? = null,
+    // "WIKI_RESULT"'s — ws_router/rem.py handle_rem_read: whether `html` (the
+    // Rem reader page) or `error` came with it. Its `request_id` is the
+    // shared `requestId` below.
+    val ok: Boolean? = null,
     // "mode_changed" event fields — sent whenever a plugin flips
     // agent.current_session['mode'] (ulw.py's ULW enter/exit, tool_approval's
     // _set_mode, plan_mode.py's enter/exit). `mode` is one of "safe" |
@@ -157,6 +161,9 @@ data class ServerEvent(
     // rejection sends a number (-32010, connect.py), other ERRORs a string
     // ("provider_station_only", session.py), most none at all.
     @Serializable(with = LenientStringSerializer::class) val code: String = "",
+    // The request a frame answers: WIKI_RESULT's WIKI_READ. One field for
+    // every frame that names a request (!52's STALE_ANSWER too), not one each.
+    @SerialName("request_id") val requestId: String? = null,
     // The Host's own OIP descriptor, on CONNECTED and on the version
     // rejection ERROR. A JsonElement, not a ProtocolDescriptor: it carries
     // fields this client doesn't model (websocket_path, extensions), and a

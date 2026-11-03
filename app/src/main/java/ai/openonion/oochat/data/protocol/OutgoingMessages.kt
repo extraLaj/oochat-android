@@ -93,6 +93,19 @@ data class ExecMessage(
     val type: String = "EXEC"
 )
 
+/**
+ * Ask the Host for its owner's Rem notebook (W16AAPPLE-69). Answered by a
+ * `WIKI_RESULT` carrying the same [requestId] — ws_router/rem.py
+ * `handle_rem_read`. Still `WIKI_READ` on the wire: Rem was Wiki until
+ * connectonion 1.9.0, and the Host kept the frame's name. Signed like every
+ * other command; the Host refuses an unsigned one.
+ */
+@Serializable
+data class RemReadMessage(
+    @SerialName("request_id") val requestId: String,
+    val type: String = "WIKI_READ"
+)
+
 @Serializable
 data class PongMessage(
     val type: String = "PONG"

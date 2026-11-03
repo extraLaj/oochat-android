@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -189,5 +190,38 @@ class ChatTopBarComposeTest {
         setBar(activity = null, model = null)
 
         composeRule.onNodeWithTag("chat_top_bar_subtitle").assertDoesNotExist()
+    }
+
+    // ── the Rem menu item (W16AAPPLE-69) ──
+
+    private fun openMenu(connected: Boolean) {
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ChatTopBar(
+                    title = "research-assistant",
+                    connectionState = if (connected) ConnectionState.Connected(address = "0xabc") else ConnectionState.Disconnected,
+                    isConnected = connected,
+                    onClearChat = {},
+                    onNavigateToLogs = {},
+                    onMenuClick = {},
+                )
+            }
+        }
+        composeRule.onNodeWithContentDescription("More options").performClick()
+    }
+
+    @Test
+    fun `Rem is in the menu on a live connection`() {
+        openMenu(connected = true)
+
+        composeRule.onNodeWithText("Rem").assertExists()
+    }
+
+    @Test
+    fun `Rem is not in the menu while disconnected`() {
+        openMenu(connected = false)
+
+        composeRule.onNodeWithText("View logs").assertExists()
+        composeRule.onNodeWithText("Rem").assertDoesNotExist()
     }
 }

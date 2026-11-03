@@ -14,6 +14,7 @@ import ai.openonion.oochat.ui.loading.LoadingScreen
 import ai.openonion.oochat.ui.logs.LogsScreen
 import ai.openonion.oochat.ui.onboarding.OnboardingScreen
 import ai.openonion.oochat.ui.recovery.RecoveryScreen
+import ai.openonion.oochat.ui.rem.RemScreenWrapper
 import ai.openonion.oochat.ui.settings.SettingsScreen
 import ai.openonion.oochat.ui.theme.Motion
 import ai.openonion.oochat.util.truncateMiddle
@@ -62,6 +63,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val LOGS = "logs"
     const val CONTROL_CENTER = "control_center"
+    const val REM = "rem"
 
     /** SavedStateHandle key used to hand a picked agent address back from AGENT_DISCOVERY. */
     const val RESULT_SELECTED_AGENT_ADDRESS = "selected_agent_address"
@@ -211,6 +213,9 @@ fun NavigationGraph(
                     onNavigateToLogs = {
                         navController.navigate(Routes.LOGS)
                     },
+                    onNavigateToRem = {
+                        navController.navigate(Routes.REM)
+                    },
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
                     },
@@ -293,6 +298,9 @@ fun NavigationGraph(
                     },
                     onNavigateToLogs = {
                         navController.navigate(Routes.LOGS)
+                    },
+                    onNavigateToRem = {
+                        navController.navigate(Routes.REM)
                     },
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
@@ -429,6 +437,16 @@ fun NavigationGraph(
             )
         }
 
+        // The agent owner's Rem notebook (W16AAPPLE-69), from the chat's menu.
+        // Reads over the shared connection, so it needs nothing from the chat entry.
+        composable(Routes.REM) {
+            RemScreenWrapper(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
         // The agent's Home on a screen of its own, which only a Control Center app the device cannot
         // host has: the screen says why. Any other Home is in the chat's layout, beside it or as a
         // tab. Reached only from the chat top bar, and only once the agent has sent its app, so the
@@ -475,6 +493,7 @@ private val DRILL_DOWN_ROUTES = listOf(
     Routes.AGENT_DISCOVERY,
     Routes.SETTINGS,
     Routes.LOGS,
+    Routes.REM,
     Routes.CONTROL_CENTER
 )
 

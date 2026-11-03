@@ -66,6 +66,8 @@ A notification arrives when a reply lands and the app is in the background.
 
 - Multiple sessions per agent, in a drawer, renameable
 - Agent discovery and invite-code onboarding
+- The agent owner's **Rem** notebook, read-only, as readable Markdown on phone
+  and tablet
 - **BIP39 recovery phrase** — generated the same way as the web client, so a
   phrase created in one restores the identical identity in the other
 - Ed25519 signing via lazysodium; credentials in EncryptedSharedPreferences
