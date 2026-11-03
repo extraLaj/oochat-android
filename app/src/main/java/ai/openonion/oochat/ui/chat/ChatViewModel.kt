@@ -572,6 +572,11 @@ open class ChatViewModel @JvmOverloads constructor(
     // transition, preventing duplicate index sockets for the same connection.
     private var syncedCurrentConnection = false
 
+    // An explicit agent selection may refresh Recent Chats on an already-live
+    // socket. Keep that refresh from overlapping the Connected callback's
+    // automatic sync.
+    private var recentChatsSyncJob: Job? = null
+
     /**
      * Blocking cards the user has already answered, so [ChatEventReducer] can
      * stop pinning them to the bottom of the list.
@@ -1161,6 +1166,9 @@ open class ChatViewModel @JvmOverloads constructor(
             // Perform connection, on this conversation's own server session.
             // Its id is settled even before it has a Room row, so a brand-new
             // conversation still connects on a session of its own.
+            val joiningLiveConnection = connectUseCase.isConnected() &&
+                connectionState.value.addressOrNull()
+                    ?.equals(resolved.address, ignoreCase = true) == true
             val success = connectUseCase.connect(
                 resolved.address,
                 conversationHistory.conversationId,
@@ -1169,7 +1177,13 @@ open class ChatViewModel @JvmOverloads constructor(
             if (success) {
                 // Also run here, not only from the state collector: joining an
                 // already-live shared connection re-emits no Connected state.
-                onConnectedTo(resolved.address, effectiveDirectUrl)
+                // That user action is also a refresh request: Session Sync has
+                // its own index socket, so it does not need to tear down chat.
+                onConnectedTo(
+                    resolved.address,
+                    effectiveDirectUrl,
+                    refreshRecentChats = joiningLiveConnection
+                )
             } else {
                 FileLogger.e(LogTags.CHAT_VM, "Connection failed or timed out")
             }
@@ -1182,7 +1196,11 @@ open class ChatViewModel @JvmOverloads constructor(
      * the Connected transition and [connectToAgent], since with one shared
      * connection only one of the two fires on any given path.
      */
-    private suspend fun onConnectedTo(agentAddress: String, directUrl: String?) {
+    private suspend fun onConnectedTo(
+        agentAddress: String,
+        directUrl: String?,
+        refreshRecentChats: Boolean = false
+    ) {
         saveAgentIfNeeded(agentAddress, directUrl)
         activateRecentChatsIdentity()
         val forceNew = startFreshOnNextConnect
@@ -1195,7 +1213,7 @@ open class ChatViewModel @JvmOverloads constructor(
         val joined = connectionState.value as? ConnectionState.Connected
         if (joined != null) {
             _awaitingOnboardCode.value = false
-            startRecentChatsSync(agentAddress, directUrl)
+            startRecentChatsSync(agentAddress, directUrl, force = refreshRecentChats)
         }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
         joined?.let { actOnHostAnswer(it) }
@@ -1211,9 +1229,11 @@ open class ChatViewModel @JvmOverloads constructor(
 
     private suspend fun startRecentChatsSync(
         agentAddress: String,
-        directUrl: String?
+        directUrl: String?,
+        force: Boolean = false
     ) {
-        if (syncedCurrentConnection) return
+        if (!force && syncedCurrentConnection) return
+        if (recentChatsSyncJob?.isActive == true) return
         val agent = agentRepository.getAgentByAddress(canonicalAgentAddress(agentAddress)) ?: return
         syncedCurrentConnection = true
         val effectiveDirectUrl = directUrl
@@ -1222,7 +1242,7 @@ open class ChatViewModel @JvmOverloads constructor(
         // This is deliberately detached from the connection setup. An older
         // Host, a timeout, or an index failure must not hold the chat screen
         // closed; Room keeps showing the last safe local list.
-        viewModelScope.launch {
+        recentChatsSyncJob = viewModelScope.launch {
             when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl)) {
                 RecentChatsSyncResult.Synced ->
                     FileLogger.i(LogTags.CHAT_VM, "Recent Chat sync completed")
@@ -2694,6 +2714,15 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     fun onReturnedToForeground() {
         connectUseCase.retryNow()
+        if (_targetAgentAddress.isNotBlank() && connectionState.value is ConnectionState.Connected) {
+            launchScoped {
+                startRecentChatsSync(
+                    agentAddress = _targetAgentAddress,
+                    directUrl = null,
+                    force = true
+                )
+            }
+        }
         agentReplyNotifier.clearReplyNotifications()
     }
 

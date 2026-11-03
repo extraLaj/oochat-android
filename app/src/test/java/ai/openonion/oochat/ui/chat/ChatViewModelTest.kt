@@ -3999,6 +3999,34 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `selecting an already-connected agent refreshes Recent Chat again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `returning to foreground refreshes Recent Chat on a live connection`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        vm.onReturnedToForeground()
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
     fun `Recent Chat sync failure does not fail the live chat`() = runTest(testDispatcher) {
         recentChatsSync.result = RecentChatsSyncResult.Failed("index unavailable", retryable = true)
         val address = validHexAddress()
