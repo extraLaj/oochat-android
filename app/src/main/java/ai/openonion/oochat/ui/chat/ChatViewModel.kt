@@ -3,6 +3,7 @@ package ai.openonion.oochat.ui.chat
 import ai.openonion.oochat.ConnectOnionApplication
 import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
+import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.toConnectTarget
@@ -438,6 +439,9 @@ open class ChatViewModel @JvmOverloads constructor(
     // Backing var kept for the many internal reads below (unchanged call
     // sites); mirrored into a StateFlow so NavDrawer's mini account card
     // can show which agent this session is connected to.
+    /** The server [connectToAgent] dialled the target at, for a later Connected to use too. */
+    private var targetDirectUrl: String? = null
+
     private var _targetAgentAddress: String = ""
         set(value) {
             field = value
@@ -851,7 +855,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // opened it), i.e. before ChatScreen has said which
                         // agent we're for — connectToAgent() runs this itself
                         // once the target is known.
-                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, null)
+                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, targetDirectUrl)
                         settleOutboxedMessages()
                         // Only fires when the previous Disconnected transition
                         // force-failed a still-in-flight Thinking item (see
@@ -1141,6 +1145,7 @@ open class ChatViewModel @JvmOverloads constructor(
             val previousAddress = _targetAgentAddress
             _targetAgentAddress = resolved.address
             val effectiveDirectUrl = resolved.directUrl ?: savedServerUrl
+            targetDirectUrl = effectiveDirectUrl
             FileLogger.i(LogTags.CHAT_VM, "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}")
 
             // Local history first, and awaited: an unreachable server must
@@ -1196,6 +1201,7 @@ open class ChatViewModel @JvmOverloads constructor(
         val joined = connectionState.value as? ConnectionState.Connected
         if (joined != null) {
             _awaitingOnboardCode.value = false
+            rememberForColdStart(agentAddress, directUrl)
             startRecentChatsSync(agentAddress, directUrl)
         }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
@@ -1678,6 +1684,30 @@ open class ChatViewModel @JvmOverloads constructor(
         )
         _uiState.update { it.copy(chatItems = it.chatItems + item) }
         launchScoped { conversationHistory.persistMessage(item) }
+    }
+
+    /**
+     * Makes [agentAddress] the agent a cold start reconnects to, however this
+     * screen reached it (a link, the drawer, the agent list). Saved with the
+     * resolved address and server this screen used, so Loading dials the same.
+     */
+    private suspend fun rememberForColdStart(agentAddress: String, directUrl: String?) {
+        runCatchingCancellable {
+            val address = canonicalAgentAddress(agentAddress)
+            val saved = configRepository.getConfig()
+            val agent = agentRepository.getAgentByAddress(address)
+            // No URL before connectToAgent has dialled: use the agent's own server.
+            val serverUrl = directUrl
+                ?: agent?.serverUrl?.takeIf { !Constants.isDefaultServerUrl(it) }
+                ?: Constants.DEFAULT_SERVER_URL
+            val sameServer = saved?.serverUrl == serverUrl ||
+                (saved != null && Constants.isDefaultServerUrl(saved.serverUrl) && Constants.isDefaultServerUrl(serverUrl))
+            if (saved?.agentAddress == address && sameServer) return@runCatchingCancellable
+            val apiKey = if (saved?.agentAddress == address) saved.apiKey else agent?.apiKey
+            configRepository.saveConfig(
+                (saved ?: ConnectionConfig.default()).copy(serverUrl = serverUrl, agentAddress = address, apiKey = apiKey)
+            )
+        }.onFailure { e -> FileLogger.w(LogTags.CHAT_VM, "Failed to save the cold-start agent: ${e.message}") }
     }
 
     private suspend fun saveAgentIfNeeded(agentAddress: String, directUrl: String?) {
