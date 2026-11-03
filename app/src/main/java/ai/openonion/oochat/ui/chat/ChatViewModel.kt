@@ -1172,9 +1172,12 @@ open class ChatViewModel @JvmOverloads constructor(
             // Perform connection, on this conversation's own server session.
             // Its id is settled even before it has a Room row, so a brand-new
             // conversation still connects on a session of its own.
+            //
+            // Re-selecting the agent we are already live on is treated as a
+            // refresh request.
             val joiningLiveConnection = connectUseCase.isConnected() &&
-                connectionState.value.addressOrNull()
-                    ?.equals(resolved.address, ignoreCase = true) == true
+                previousAddress.isNotBlank() &&
+                previousAddress.equals(resolved.address, ignoreCase = true)
             val success = connectUseCase.connect(
                 resolved.address,
                 conversationHistory.conversationId,
@@ -1219,6 +1222,7 @@ open class ChatViewModel @JvmOverloads constructor(
         val joined = connectionState.value as? ConnectionState.Connected
         if (joined != null) {
             _awaitingOnboardCode.value = false
+            rememberForColdStart(agentAddress, directUrl)
             startRecentChatsSync(agentAddress, directUrl, force = refreshRecentChats)
         }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
