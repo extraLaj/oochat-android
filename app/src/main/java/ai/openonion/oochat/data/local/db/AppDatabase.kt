@@ -1,5 +1,6 @@
 package ai.openonion.oochat.data.local.db
 
+import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.db.dao.AgentDao
 import ai.openonion.oochat.data.local.db.dao.MessageDao
 import ai.openonion.oochat.data.local.db.dao.PendingMessageDao
@@ -37,7 +38,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionSyncStateEntity::class,
         SessionSyncDeletionEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -298,6 +299,26 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Makes every saved agent's mode say how it is really reached
+         * (W16AAPPLE-56). Until now only "is this the default relay" decided
+         * the route, so an agent with its own server was always dialled
+         * direct, whatever `connection_mode` said, and auto-saved direct
+         * agents kept the column's "relay" default. From this version a
+         * relay-mode agent on a custom server goes through that server as a
+         * relay, so those rows are made "direct": each one keeps the route it
+         * has always used. Agents on the default relay are left alone.
+         */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val defaults = Constants.DEFAULT_SERVER_URLS.joinToString(", ") { "'$it'" }
+                db.execSQL(
+                    "UPDATE agent_profiles SET connection_mode = 'direct' " +
+                        "WHERE connection_mode = 'relay' AND RTRIM(server_url, '/') NOT IN ($defaults)"
+                )
+            }
+        }
+
+        /**
          * The migration chain, shared with the migration tests so it
          * can never be written, tested, and then left out of the
          * builder below.
@@ -305,7 +326,8 @@ abstract class AppDatabase : RoomDatabase() {
         internal val ALL_MIGRATIONS = arrayOf(
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
+            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+            MIGRATION_16_17
         )
 
         @Volatile

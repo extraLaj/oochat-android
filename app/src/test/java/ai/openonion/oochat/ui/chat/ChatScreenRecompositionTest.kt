@@ -153,7 +153,7 @@ class ChatScreenRecompositionTest {
             ),
             // Session Sync has its own integration tests. This suite measures
             // Compose invalidation and must not load production identity crypto.
-            recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
+            recentChatsSync = RecentChatsSync { _, _, _, _ -> RecentChatsSyncResult.Unsupported },
             initialMyAddress = "0xTEST",
             networkMonitor = RecompFakeNetworkMonitor(),
         )

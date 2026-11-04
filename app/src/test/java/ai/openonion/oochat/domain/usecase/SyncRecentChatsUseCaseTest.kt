@@ -52,12 +52,12 @@ class SyncRecentChatsUseCaseTest {
     fun `completed fetch is reconciled for the current identity and agent`() = runTest {
         val repository = FakeRepository()
         val cursors = mutableListOf<String?>()
-        val useCase = useCase(repository) { _, _, cursor ->
+        val useCase = useCase(repository) { _, _, _, cursor ->
             cursors += cursor
             SessionSyncFetchResult.Complete(snapshot)
         }
 
-        val result = useCase.sync("agent-1", "0xagent", null)
+        val result = useCase.sync("agent-1", "0xagent", null, null)
 
         assertSame(RecentChatsSyncResult.Synced, result)
         assertEquals(listOf("0xidentity"), repository.activatedIdentities)
@@ -68,7 +68,7 @@ class SyncRecentChatsUseCaseTest {
     @Test
     fun `preparing the same identity repeatedly only filters Room once`() = runTest {
         val repository = FakeRepository()
-        val useCase = useCase(repository) { _, _, _ -> SessionSyncFetchResult.Complete(snapshot) }
+        val useCase = useCase(repository) { _, _, _, _ -> SessionSyncFetchResult.Complete(snapshot) }
 
         useCase.activateIdentity()
         useCase.activateIdentity()
@@ -80,7 +80,7 @@ class SyncRecentChatsUseCaseTest {
     fun `expired cursor retries once without a cursor`() = runTest {
         val repository = FakeRepository()
         val cursors = mutableListOf<String?>()
-        val useCase = useCase(repository) { _, _, cursor ->
+        val useCase = useCase(repository) { _, _, _, cursor ->
             cursors += cursor
             if (cursors.size == 1) {
                 SessionSyncFetchResult.CursorExpired(
@@ -91,7 +91,7 @@ class SyncRecentChatsUseCaseTest {
             }
         }
 
-        assertSame(RecentChatsSyncResult.Synced, useCase.sync("agent-1", "0xagent", null))
+        assertSame(RecentChatsSyncResult.Synced, useCase.sync("agent-1", "0xagent", null, null))
         assertEquals(listOf("cursor-1", null), cursors)
         assertEquals(1, repository.reconciled.size)
     }
@@ -99,9 +99,9 @@ class SyncRecentChatsUseCaseTest {
     @Test
     fun `unsupported host keeps local history unchanged`() = runTest {
         val repository = FakeRepository()
-        val useCase = useCase(repository) { _, _, _ -> SessionSyncFetchResult.Unsupported() }
+        val useCase = useCase(repository) { _, _, _, _ -> SessionSyncFetchResult.Unsupported() }
 
-        assertSame(RecentChatsSyncResult.Unsupported, useCase.sync("agent-1", "0xagent", null))
+        assertSame(RecentChatsSyncResult.Unsupported, useCase.sync("agent-1", "0xagent", null, null))
         assertEquals(emptyList<Any>(), repository.reconciled)
         assertEquals("cursor-1", repository.cursor)
     }
@@ -110,14 +110,14 @@ class SyncRecentChatsUseCaseTest {
     fun `retryable failed fetch retries once and keeps local history unchanged`() = runTest {
         val repository = FakeRepository()
         var calls = 0
-        val useCase = useCase(repository) { _, _, _ ->
+        val useCase = useCase(repository) { _, _, _, _ ->
             calls++
             SessionSyncFetchResult.Failed("offline", retryable = true)
         }
 
         assertEquals(
             RecentChatsSyncResult.Failed("offline", retryable = true),
-            useCase.sync("agent-1", "0xagent", null)
+            useCase.sync("agent-1", "0xagent", null, null)
         )
         assertEquals(emptyList<Any>(), repository.reconciled)
         assertEquals("cursor-1", repository.cursor)
@@ -128,7 +128,7 @@ class SyncRecentChatsUseCaseTest {
     fun `cursor recovery is attempted only once`() = runTest {
         val repository = FakeRepository()
         var calls = 0
-        val useCase = useCase(repository) { _, _, _ ->
+        val useCase = useCase(repository) { _, _, _, _ ->
             calls++
             SessionSyncFetchResult.CursorExpired(
                 SessionSyncError(code = "cursor_expired", message = "still expired")
@@ -137,7 +137,7 @@ class SyncRecentChatsUseCaseTest {
 
         assertEquals(
             RecentChatsSyncResult.Failed("still expired"),
-            useCase.sync("agent-1", "0xagent", null)
+            useCase.sync("agent-1", "0xagent", null, null)
         )
         assertEquals(2, calls)
         assertEquals(emptyList<Any>(), repository.reconciled)
@@ -145,7 +145,7 @@ class SyncRecentChatsUseCaseTest {
 
     private fun useCase(
         repository: FakeRepository,
-        fetch: suspend (String, String?, String?) -> SessionSyncFetchResult
+        fetch: suspend (String, String?, String?, String?) -> SessionSyncFetchResult
     ) = SyncRecentChatsUseCase(
         repository = repository,
         identityAddress = { "0xidentity" },

@@ -244,8 +244,8 @@ class DefaultAppContainer(context: Context) : AppContainer {
             identityAddress = {
                 withContext(Dispatchers.IO) { keyManager.loadOrGenerate().address }
             },
-            fetch = { agentAddress, directUrl, cursor ->
-                client.fetch(agentAddress, directUrl, cursor)
+            fetch = { agentAddress, directUrl, relayUrl, cursor ->
+                client.fetch(agentAddress, directUrl, cursor, relayUrl = relayUrl)
             }
         )
     }

@@ -77,7 +77,9 @@ class SessionSyncClient(
         directUrl: String? = null,
         cursor: String? = null,
         includeArchived: Boolean = false,
-        timeoutMs: Long = FETCH_TIMEOUT_MS
+        timeoutMs: Long = FETCH_TIMEOUT_MS,
+        // A self-hosted relay the agent is reached through (W16AAPPLE-56); null for this client's own.
+        relayUrl: String? = null
     ): SessionSyncFetchResult {
         val keys = keyManager.loadOrGenerate()
         val completion = CompletableDeferred<SessionSyncFetchResult>()
@@ -250,7 +252,7 @@ class SessionSyncClient(
         }
 
         return try {
-            val request = Request.Builder().url(webSocketUrl(directUrl)).build()
+            val request = Request.Builder().url(webSocketUrl(directUrl, relayUrl ?: this.relayUrl)).build()
             socket = webSocketFactory.create(request, listener)
             withTimeout(timeoutMs) { completion.await() }
         } catch (_: TimeoutCancellationException) {
@@ -264,7 +266,7 @@ class SessionSyncClient(
         }
     }
 
-    private fun webSocketUrl(directUrl: String?): String {
+    private fun webSocketUrl(directUrl: String?, relayUrl: String): String {
         if (directUrl != null) {
             val baseUrl = directUrl.replace(Regex("^https?://"), "")
             val protocol = if (directUrl.startsWith("https")) "wss" else "ws"

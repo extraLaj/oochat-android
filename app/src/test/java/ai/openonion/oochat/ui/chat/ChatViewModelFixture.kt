@@ -44,6 +44,6 @@ internal fun chatViewModelOver(connectUseCase: RecompFakeConnectUseCase): ChatVi
         initialMyAddress = "0xTEST",
         networkMonitor = RecompFakeNetworkMonitor(),
         // Session Sync has its own tests, and the real one loads identity crypto, which a JVM cannot.
-        recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
+        recentChatsSync = RecentChatsSync { _, _, _, _ -> RecentChatsSyncResult.Unsupported },
     )
 }

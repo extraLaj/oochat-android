@@ -83,7 +83,7 @@ class FakeAppContainer(
     override val speechRecognitionService: SpeechRecognitionService = FakeSpeechRecognitionService(),
     override val appSettings: AppSettings = FakeAppSettings(),
     override val persistenceTransaction: PersistenceTransaction = FakePersistenceTransaction(context),
-    override val recentChatsSync: RecentChatsSync = RecentChatsSync { _, _, _ ->
+    override val recentChatsSync: RecentChatsSync = RecentChatsSync { _, _, _, _ ->
         RecentChatsSyncResult.Unsupported
     },
     override val agentReplyNotifier: AgentReplyNotifier = FakeAgentReplyNotifier(),
