@@ -162,6 +162,18 @@ class ConnectionConfigTest {
     }
 
     @Test
+    fun selfHostedRelayTypedWithATrailingSlashLosesIt() {
+        // The relay's /ws/input is appended, so "https://relay.example.com/" must not become "//ws/input".
+        val target = ConnectionConfig(
+            serverUrl = "https://relay.example.com/",
+            agentAddress = agent,
+            connectionMode = "relay"
+        ).toConnectTarget()
+
+        assertEquals("https://relay.example.com", target.relayUrl)
+    }
+
+    @Test
     fun defaultRelaySavedInEitherModeUsesTheDefaultRelay() {
         for (mode in listOf("relay", "direct", null)) {
             val target = ConnectionConfig(

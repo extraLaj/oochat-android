@@ -49,10 +49,10 @@ class Migration16To17Test {
         helper.close()
     }
 
-    private fun agent(id: String, serverUrl: String, mode: String) {
+    private fun agent(id: String, serverUrl: String, mode: String, address: String = "0x$id") {
         db.execSQL(
             "INSERT INTO agent_profiles (id, address, name, server_url, created_at, is_active, connection_mode) " +
-                "VALUES ('$id', '0x$id', 'Agent', '$serverUrl', 1000, 1, '$mode')"
+                "VALUES ('$id', '$address', 'Agent', '$serverUrl', 1000, 1, '$mode')"
         )
     }
 
@@ -76,10 +76,12 @@ class Migration16To17Test {
         agent("a", "https://oo.openonion.ai", "relay")
         agent("b", "https://oo.openonion.ai/", "relay")
         agent("c", "wss://oo.openonion.ai", "relay")
+        agent("d", "http://oo.openonion.ai", "relay")
+        agent("e", "ws://oo.openonion.ai", "relay")
 
         AppDatabase.MIGRATION_16_17.migrate(db)
 
-        listOf("a", "b", "c").forEach { assertEquals(it, "relay", modeOf(it)) }
+        listOf("a", "b", "c", "d", "e").forEach { assertEquals(it, "relay", modeOf(it)) }
     }
 
     @Test
@@ -89,5 +91,15 @@ class Migration16To17Test {
         AppDatabase.MIGRATION_16_17.migrate(db)
 
         assertEquals("direct", modeOf("d"))
+    }
+
+    @Test
+    fun `an agent discovery found on a self-hosted relay stays on that relay`() {
+        // Discovery saves the agent's address as the row id (in any letter case); everything else uses a UUID.
+        agent("0xABC", "https://relay.example.com", "relay", address = "0xabc")
+
+        AppDatabase.MIGRATION_16_17.migrate(db)
+
+        assertEquals("relay", modeOf("0xABC"))
     }
 }

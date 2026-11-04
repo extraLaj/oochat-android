@@ -157,6 +157,23 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `Setup saves the mode the user picked`() = runTest(testDispatcher) {
+        // W16AAPPLE-56: a custom relay picked as Relay Server is gone through, not dialled direct.
+        val vm = createVm()
+
+        vm.connect(AgentFormState(serverUrl = "https://relay.example.com", agentAddress = address), onSaved = {})
+        testScheduler.runCurrent()
+        assertEquals("relay", configRepository.savedConfig?.connectionMode)
+
+        vm.connect(
+            AgentFormState(serverUrl = "https://agent.example.com", agentAddress = address, useDirectConnection = true),
+            onSaved = {}
+        )
+        testScheduler.runCurrent()
+        assertEquals("direct", configRepository.savedConfig?.connectionMode)
+    }
+
+    @Test
     fun `Setup rejects an agent address the Add Agent form rejects`() = runTest(testDispatcher) {
         val vm = createVm()
         var saved = false

@@ -66,6 +66,19 @@ class SyncRecentChatsUseCaseTest {
     }
 
     @Test
+    fun `an agent on a self-hosted relay is indexed through that relay`() = runTest {
+        val routes = mutableListOf<Pair<String?, String?>>()
+        val useCase = useCase(FakeRepository()) { _, directUrl, relayUrl, _ ->
+            routes += directUrl to relayUrl
+            SessionSyncFetchResult.Complete(snapshot)
+        }
+
+        useCase.sync("agent-1", "0xagent", null, "https://relay.example.com")
+
+        assertEquals(listOf(null to "https://relay.example.com"), routes)
+    }
+
+    @Test
     fun `preparing the same identity repeatedly only filters Room once`() = runTest {
         val repository = FakeRepository()
         val useCase = useCase(repository) { _, _, _, _ -> SessionSyncFetchResult.Complete(snapshot) }

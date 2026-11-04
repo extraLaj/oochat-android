@@ -49,6 +49,7 @@ class LoadingViewModelTest {
         var connectInvocations = 0
         var lastAddress: String? = null
         var lastDirectUrl: String? = null
+        var lastRelayUrl: String? = null
         var lastConversationId: String? = null
         /** If set, run before returning [connectResult] — lets a test drive connectionState transitions. */
         var onConnect: (suspend () -> Unit)? = null
@@ -64,6 +65,7 @@ class LoadingViewModelTest {
             lastAddress = agentAddress
             lastConversationId = conversationId
             lastDirectUrl = directUrl
+            lastRelayUrl = relayUrl
             onConnect?.invoke()
             if (suspendConnectForever) awaitCancellation()
             return connectResult
@@ -174,6 +176,22 @@ class LoadingViewModelTest {
             "this agent has no local history, so there is no conversation to resume",
             connectUseCase.lastConversationId
         )
+    }
+
+    @Test
+    fun `an agent saved on a self-hosted relay is connected through that relay`() = runTest(testDispatcher) {
+        // W16AAPPLE-56: what the agent list, discovery and onboarding save for a relay the user typed in.
+        configRepository.config = ConnectionConfig(
+            serverUrl = "https://relay.example.com/",
+            agentAddress = "0xabc123",
+            connectionMode = "relay"
+        )
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertNull(connectUseCase.lastDirectUrl)
+        assertEquals("https://relay.example.com", connectUseCase.lastRelayUrl)
     }
 
     @Test

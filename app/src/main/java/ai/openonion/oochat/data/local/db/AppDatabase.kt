@@ -1,6 +1,5 @@
 package ai.openonion.oochat.data.local.db
 
-import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.db.dao.AgentDao
 import ai.openonion.oochat.data.local.db.dao.MessageDao
 import ai.openonion.oochat.data.local.db.dao.PendingMessageDao
@@ -306,14 +305,22 @@ abstract class AppDatabase : RoomDatabase() {
          * agents kept the column's "relay" default. From this version a
          * relay-mode agent on a custom server goes through that server as a
          * relay, so those rows are made "direct": each one keeps the route it
-         * has always used. Agents on the default relay are left alone.
+         * has always used. Two kinds of row are left alone: agents on the
+         * default relay, and agents found by discovery, which really are on the
+         * relay they were found on (discovery saves a row whose id is the
+         * agent's address; the form and the chat's auto-save use a UUID). Those
+         * were dialled direct and never connected; now they go through their relay.
+         * The default relay's spellings are written out, not read from
+         * Constants, so a later change there cannot alter a shipped migration.
          */
         internal val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                val defaults = Constants.DEFAULT_SERVER_URLS.joinToString(", ") { "'$it'" }
                 db.execSQL(
                     "UPDATE agent_profiles SET connection_mode = 'direct' " +
-                        "WHERE connection_mode = 'relay' AND RTRIM(server_url, '/') NOT IN ($defaults)"
+                        "WHERE connection_mode = 'relay' " +
+                        "AND RTRIM(server_url, '/') NOT IN " +
+                        "('https://oo.openonion.ai', 'http://oo.openonion.ai', 'wss://oo.openonion.ai', 'ws://oo.openonion.ai') " +
+                        "AND LOWER(id) <> LOWER(address)"
                 )
             }
         }

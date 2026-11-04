@@ -103,7 +103,8 @@ data class ServerRoute(val directUrl: String?, val relayUrl: String?)
  */
 fun resolveServerRoute(serverUrl: String?, connectionMode: String?): ServerRoute = when {
     serverUrl.isNullOrBlank() || Constants.isDefaultServerUrl(serverUrl) -> ServerRoute(null, null)
-    connectionMode == CONNECTION_MODE_RELAY -> ServerRoute(directUrl = null, relayUrl = serverUrl)
+    // Trimmed: the relay's path is appended, and discovery saves the URL as typed.
+    connectionMode == CONNECTION_MODE_RELAY -> ServerRoute(directUrl = null, relayUrl = serverUrl.trimEnd('/'))
     else -> ServerRoute(directUrl = serverUrl, relayUrl = null)
 }
 

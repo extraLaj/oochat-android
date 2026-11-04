@@ -90,7 +90,7 @@ class OnboardingViewModel @JvmOverloads constructor(
                 agentAddress = trimmedAddress.takeIf { it.isNotBlank() },
                 // The mode the user picked, so a custom relay is gone through
                 // rather than dialled direct (W16AAPPLE-56).
-                connectionMode = null
+                connectionMode = if (formState.useDirectConnection) CONNECTION_MODE_DIRECT else CONNECTION_MODE_RELAY
             )
             configRepository.saveConfig(config)
             onSaved()

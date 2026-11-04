@@ -151,12 +151,16 @@ it was reached by. The same route is used for the chat socket, its reconnects,
 the cold-start config Loading dials, and the Recent Chat index
 (`SessionSyncClient`).
 
+A self-hosted relay URL loses any trailing `/` before `/ws/input` is appended,
+since discovery saves the URL as the user typed it.
+
 Before database version 17 the mode was never read, and an agent the chat saved
 after a direct connect kept the column's `relay` default.
 `AppDatabase.MIGRATION_16_17` therefore marks every `relay` agent on a
 non-default server as `direct`, which is the route each of them has always
-used. An agent found by discovery on a self-hosted relay before this version
-connects direct until it is added again from discovery.
+used, except agents saved by discovery (their row id is the agent's address,
+where the form and the chat's auto-save use a UUID). Those really are on the
+relay they were found on, so they stay `relay` and now connect through it.
 
 `WebSocketFactory` is the seam used to create an OkHttp `WebSocket` from a
 `Request` and `WebSocketListener`. Production uses `OkHttpWebSocketFactory`;
