@@ -4300,6 +4300,57 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `selecting an already-connected agent refreshes Recent Chat again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `re-selecting the same agent refreshes even when Connected carries the device identity`() = runTest(testDispatcher) {
+        // Production reality: AgentConnection stamps ConnectionState.Connected.address
+        // with the device's own identity (keys?.address), NOT the agent we dialled
+        // (see AgentConnection's CONNECTED handler). The "is this a live
+        // re-selection?" decision must therefore come from the ViewModel's own
+        // previous target, not from Connected.address -- otherwise navigating back
+        // to the agent already open silently skips the refresh, which is exactly
+        // the cross-device staleness this fixes.
+        val address = validHexAddress()
+        val deviceIdentity = validHexAddress(nibble = 0xB)
+        connectUseCase.markConnected(deviceIdentity)
+        assertNotEquals(address, deviceIdentity)
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `returning to foreground refreshes Recent Chat on a live connection`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        vm.onReturnedToForeground()
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
     fun `Recent Chat sync failure does not fail the live chat`() = runTest(testDispatcher) {
         recentChatsSync.result = RecentChatsSyncResult.Failed("index unavailable", retryable = true)
         val address = validHexAddress()
