@@ -3042,7 +3042,9 @@ class AgentConnectionRobolectricTest {
 
         assertEquals("no third socket", 2, factory.socketCount)
         assertFalse(connection.isConnected())
-        events.await("the refusal") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        withContext(Dispatchers.Default) {
+            events.await("the refusal") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        }
 
         // Nothing was queued: the chat fails that turn on the error and offers
         // Retry, so the user's Reconnect must not also send it.
@@ -3189,7 +3191,9 @@ class AgentConnectionRobolectricTest {
         answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
 
         assertEquals(RemOutcome.SessionLost, withTimeoutOrNull(1_000) { pending.await() })
-        events.await("Reconnect offered") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        withContext(Dispatchers.Default) {
+            events.await("Reconnect offered") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        }
     }
 
     @Test
@@ -3207,8 +3211,10 @@ class AgentConnectionRobolectricTest {
         runCurrent()
 
         assertEquals(2, factory.socketCount)
-        events.await("the chat told") { seen ->
-            seen.any { it is ConnectionEvent.ConnectionError && it.message == AgentConnection.LOST_SESSION_MESSAGE }
+        withContext(Dispatchers.Default) {
+            events.await("the chat told") { seen ->
+                seen.any { it is ConnectionEvent.ConnectionError && it.message == AgentConnection.LOST_SESSION_MESSAGE }
+            }
         }
         pending.cancel()
     }
@@ -3272,7 +3278,9 @@ class AgentConnectionRobolectricTest {
         // Unlike the Work Room refusal, this one refuses every command on the
         // socket: the Host lost the session, so the connection reconnects
         // (W16AAPPLE-108) rather than showing it as a chat error.
-        events.await("the reconnect") { seen -> seen.any { it is ConnectionEvent.Reconnecting } }
+        withContext(Dispatchers.Default) {
+            events.await("the reconnect") { seen -> seen.any { it is ConnectionEvent.Reconnecting } }
+        }
         assertTrue(
             "not a chat error any more: ${events.seen}",
             events.seen.none { it is ConnectionEvent.ConnectionError }
