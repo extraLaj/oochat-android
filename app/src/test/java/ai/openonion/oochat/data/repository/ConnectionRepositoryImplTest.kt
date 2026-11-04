@@ -312,8 +312,51 @@ class ConnectionRepositoryImplTest {
 
         repository.switchConversation("conv-B")
 
-        val connected = repository.connectionState.value as ConnectionState.Connected
-        assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, connected.status)
+        // Moving conversation reopens the socket, and its Reconnecting reaches
+        // the state on the collector's own time: either is right here, as long
+        // as conv-A's RUNNING is not still showing.
+        when (val state = repository.connectionState.value) {
+            is ConnectionState.Connected ->
+                assertEquals("the status was conv-A's, not conv-B's", ServerSessionStatus.UNKNOWN, state.status)
+            ConnectionState.Reconnecting -> Unit
+            else -> fail("expected Connected or Reconnecting after the switch, was $state")
+        }
+    }
+
+    @Test
+    fun `a session the Host lost shows Reconnecting and connects again, leaving the message to Retry`() = runTest(testDispatcher) {
+        // W16AAPPLE-108: the Host restarted, or its session for this socket
+        // crashed, while the relay kept the socket open.
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+        repository.sendMessage("what's on today?", "0xAGENT")
+        val lostSocket = factory.lastWebSocket
+
+        simulateError("authenticate first (send CONNECT)")
+
+        awaitUntil { repository.connectionState.value == ConnectionState.Reconnecting && factory.lastWebSocket !== lostSocket }
+        assertTrue("nothing queued to go out again by itself", sink.enqueued.isEmpty())
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        assertTrue(repository.connectionState.value is ConnectionState.Connected)
+    }
+
+    @Test
+    fun `Reconnect after a refused recovery gets its own recovery`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        simulateError("authenticate first (send CONNECT)")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        // Lost again within the minute: Error, with Reconnect offered.
+        simulateError("authenticate first (send CONNECT)")
+        awaitUntil { repository.connectionState.value is ConnectionState.Error }
+
+        // The user taps Reconnect.
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.isConnected() }
+        val beforeLoss = factory.lastWebSocket
+        simulateError("authenticate first (send CONNECT)")
+
+        awaitUntil { repository.connectionState.value == ConnectionState.Reconnecting && factory.lastWebSocket !== beforeLoss }
     }
 
     @Test

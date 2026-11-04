@@ -5,6 +5,7 @@ import ai.openonion.oochat.domain.model.PlanPriority
 import ai.openonion.oochat.domain.model.PlanStatus
 import ai.openonion.oochat.ui.theme.spacing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -128,7 +129,10 @@ private fun PlanEntryRow(entry: PlanEntry) {
                 PlanStatus.COMPLETED -> MaterialTheme.colorScheme.tertiary
                 PlanStatus.PENDING -> MaterialTheme.colorScheme.outline
             },
-            modifier = Modifier.padding(top = 6.dp)
+            // A step not yet started is a ring: with one palette, filled grey (done) and
+            // outlined grey (to do) need a shape to tell them apart as well as a tone.
+            ring = entry.status == PlanStatus.PENDING,
+            modifier = Modifier.padding(top = 5.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -151,8 +155,9 @@ private fun PlanEntryRow(entry: PlanEntry) {
 }
 
 @Composable
-private fun StatusDot(color: Color, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.size(6.dp).background(color, CircleShape))
+private fun StatusDot(color: Color, modifier: Modifier = Modifier, ring: Boolean = false) {
+    val dot = modifier.size(8.dp)
+    Box(modifier = if (ring) dot.border(1.5.dp, color, CircleShape) else dot.background(color, CircleShape))
 }
 
 /** The collapsed panel's one line: the step being worked on, else the next one. */

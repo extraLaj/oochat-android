@@ -493,6 +493,7 @@ internal fun PlanReviewCard(
                         Text("Cancel")
                     }
                     Button(
+                        shape = MaterialTheme.shapes.large,
                         onClick = {
                             outcome = PlanReviewOutcome.REJECTED
                             onPlanReviewResponse("Plan rejected. Revise with write_plan(). Feedback: $feedback")
@@ -515,6 +516,7 @@ internal fun PlanReviewCard(
                         Text("Reject")
                     }
                     Button(
+                        shape = MaterialTheme.shapes.large,
                         onClick = {
                             outcome = PlanReviewOutcome.APPROVED
                             onPlanReviewResponse(
@@ -587,6 +589,7 @@ internal fun UlwTurnsReachedCard(
             } else {
                 Button(
                     onClick = { submitted = true; onUlwResponse("continue", 100, null) },
+                    shape = MaterialTheme.shapes.large,
                     // 48dp touch target — was 44dp; full-width, so the 4dp
                     // grow has no layout fallout.
                     modifier = Modifier.fillMaxWidth().height(ButtonToken.Compact)

@@ -5,6 +5,8 @@ import ai.openonion.oochat.domain.model.SessionActivity
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.ConnectionStatusDot
 import ai.openonion.oochat.ui.components.DangerConfirmActions
+import ai.openonion.oochat.ui.theme.Elevation
+import ai.openonion.oochat.ui.theme.hairline
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Menu
@@ -75,6 +78,9 @@ fun ChatTopBar(
     // control on every one of them is worse than no control.
     hasDashboard: Boolean = false,
     onOpenDashboard: () -> Unit = {},
+    // The owner's Rem notebook (W16AAPPLE-69). Offered on any live connection:
+    // only the Host knows who its owner is, and a non-owner is told so there.
+    onOpenRem: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -164,14 +170,21 @@ fun ChatTopBar(
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false },
-                // 1.4 switched the default from surface-plus-elevation to
-                // the flat surfaceContainer role, which drops the green
-                // tint the rest of the app carries. Same computation as
-                // before, expressed through the theme rather than pinned
-                // to a value, so dark mode still derives its own.
+                // A flat surface set apart by a hairline, not a shadow or a tint.
                 containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
+                shadowElevation = Elevation.hairline,
+                border = MaterialTheme.hairline
             ) {
+                if (isConnected) {
+                    DropdownMenuItem(
+                        text = { Text("Rem") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenRem()
+                        }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("View logs") },
                     leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },

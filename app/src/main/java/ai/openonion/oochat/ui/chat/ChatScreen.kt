@@ -13,6 +13,7 @@ import ai.openonion.oochat.ui.chat.components.VoiceInputState
 import ai.openonion.oochat.ui.chat.components.composerEnabled
 import ai.openonion.oochat.ui.chat.components.failedUserMessages
 import ai.openonion.oochat.ui.common.appViewModel
+import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.ConnectionBanner
 import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
 import ai.openonion.oochat.ui.home.AgentHome
@@ -43,7 +44,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -93,11 +93,12 @@ fun ChatScreen(
     startNewSessionOnConnect: Boolean = false,
     onNavigateToSettings: () -> Unit = {},
     onNavigateToLogs: () -> Unit = {},
+    onNavigateToRem: () -> Unit = {},
     onNavigateToAgentList: () -> Unit = {},
-    onNavigateToDashboard: () -> Unit = {},
     onNavigateToControlCenter: () -> Unit = {},
-    // Home is shown beside this chat, so the top bar's button to open it would open what is there.
-    homeBeside: Boolean = false,
+    // Home is already part of this layout, beside the chat or as a tab, so the top bar's button to
+    // open it would only open what is there.
+    homeInLayout: Boolean = false,
     // Drawer row tapped for an agent other than the one this ChatViewModel
     // is connected to — the caller (NavigationGraph) re-navigates to that
     // agent's own chat/{address} destination, tearing down this ChatViewModel
@@ -331,8 +332,11 @@ fun ChatScreen(
                 awaitingOnboardCode = awaitingOnboardCode,
                 modelName = agentProfile?.model,
                 sessionActivity = sessionActivity,
-                hasDashboard = !homeBeside && agentHome.hasPage,
-                onOpenDashboard = if (agentHome.opensControlCenter) onNavigateToControlCenter else onNavigateToDashboard
+                // Only a Control Center the device cannot host has a screen of its own; any other
+                // Home is in the layout.
+                hasDashboard = !homeInLayout && agentHome.opensControlCenter,
+                onOpenDashboard = onNavigateToControlCenter,
+                onOpenRem = onNavigateToRem
             )
 
             ConnectionBanner(
@@ -427,15 +431,16 @@ fun ChatScreen(
                 }
             )
             }
-            SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+            AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
 
 // ── Navigation drawer ───────────────────────────────────────────
 
+// Internal for SessionDrawerComposeTest.
 @Composable
-private fun ChatNavDrawerContent(
+internal fun ChatNavDrawerContent(
     agentSections: List<DrawerAgentSection>,
     activeSessionId: String?,
     targetAgentAddress: String?,

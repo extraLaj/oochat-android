@@ -1,5 +1,6 @@
 package ai.openonion.oochat.ui.controlcenter
 
+import ai.openonion.oochat.R
 import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ThemeMode
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
@@ -8,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
@@ -23,6 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -104,24 +107,20 @@ class ControlCenterWebViewTest {
     fun `our page is loaded once per app, not again when the screen recomposes`() {
         var current by mutableStateOf(app)
         var latest by mutableStateOf(snapshot)
-        var theme by mutableStateOf(ThemeMode.LIGHT)
         composeRule.setContent {
-            ConnectOnionTheme(themeMode = theme) {
+            ConnectOnionTheme(themeMode = ThemeMode.LIGHT) {
                 ControlCenterWebView(current, latest, actions, onNavigationBlocked = {}, onStopped = {}, onUnavailable = {}, addMessageListener = listens)
             }
         }
         composeRule.waitForIdle()
         val view = webView()
         assertEquals(ControlCenterPage.PAGE_URL, shadowOf(view).lastLoadedUrl)
-        val lightBackground = shadowOf(view).backgroundColor
-        assertNotEquals("painted white until host.html loads", 0, lightBackground)
+        assertNotEquals("painted white until host.html loads", 0, shadowOf(view).backgroundColor)
 
         view.loadUrl("about:blank")
         latest = snapshot.copy(status = ControlCenterAgentStatus.WORKING)
-        theme = ThemeMode.DARK
         composeRule.waitForIdle()
         assertEquals("a recomposition reloaded the app", "about:blank", shadowOf(view).lastLoadedUrl)
-        assertNotEquals("the background did not follow the theme", lightBackground, shadowOf(view).backgroundColor)
 
         current = app.copy(revision = "sha256:" + "b".repeat(64))
         composeRule.waitForIdle()
@@ -266,5 +265,96 @@ class ControlCenterWebViewTest {
 
         composeRule.onNodeWithText("Control Center unavailable").assertExists()
         assertTrue(webViews().isEmpty())
+    }
+
+    // ── Dark mode (W16AAPPLE-49) ───────────────────────────────────────
+    // The app inside the frame is the agent's own page. It is dark only if the WebView tells it so,
+    // and WebView takes that from the theme it was created under: so the theme has to follow the
+    // app's Light/Dark/System choice, not the system's setting.
+
+    private fun isLightTheme(view: View): Boolean {
+        val attrs = view.context.theme.obtainStyledAttributes(intArrayOf(android.R.attr.isLightTheme))
+        try {
+            return attrs.getBoolean(0, true)
+        } finally {
+            attrs.recycle()
+        }
+    }
+
+    private fun showIn(mode: () -> ThemeMode) {
+        // The theme the app's activity wears on a device, which follows the system's dark setting.
+        composeRule.activity.setTheme(R.style.Theme_ConnectOnion)
+        composeRule.setContent {
+            ConnectOnionTheme(themeMode = mode()) {
+                ControlCenterWebView(app, snapshot, actions, onNavigationBlocked = {}, onStopped = {}, onUnavailable = {}, addMessageListener = listens)
+            }
+        }
+        composeRule.waitForIdle()
+    }
+
+    @Test
+    fun `in the dark theme the page is told the app is dark, though the system is light`() {
+        showIn { ThemeMode.DARK }
+
+        assertFalse("the page would see prefers-color-scheme: light", isLightTheme(webView()))
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "night")
+    fun `in the light theme the page is told the app is light, though the system is dark`() {
+        showIn { ThemeMode.LIGHT }
+
+        assertTrue("the page would see prefers-color-scheme: dark", isLightTheme(webView()))
+    }
+
+    @Test
+    fun `switching the theme with the screen open gives the page the new one, and a background to match`() {
+        var mode by mutableStateOf(ThemeMode.LIGHT)
+        showIn { mode }
+        val light = webView()
+        assertTrue(isLightTheme(light))
+        val lightBackground = shadowOf(light).backgroundColor
+
+        composeRule.runOnIdle { mode = ThemeMode.DARK }
+        composeRule.waitForIdle()
+
+        // A WebView takes its scheme from the theme it is made under, so this is a new one: the old is gone.
+        val dark = webView()
+        assertNotSame(light, dark)
+        assertFalse(isLightTheme(dark))
+        assertEquals(ControlCenterPage.PAGE_URL, shadowOf(dark).lastLoadedUrl)
+        assertNotEquals("the background did not follow the theme", lightBackground, shadowOf(dark).backgroundColor)
+    }
+
+    @Test
+    fun `the app is allowed to be darkened, on the settings of the WebView it is shown in`() {
+        val asked = mutableListOf<WebSettings>()
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ControlCenterWebView(app, snapshot, actions, onNavigationBlocked = {}, onStopped = {}, onUnavailable = {}, addMessageListener = listens, allowDarkening = { asked += it })
+            }
+        }
+        composeRule.waitForIdle()
+
+        assertEquals("asked once for the one WebView", 1, asked.size)
+        assertSame(webView().settings, asked.single())
+    }
+
+    @Test
+    fun `the WebView made for a theme change is allowed to be darkened too`() {
+        val asked = mutableListOf<WebSettings>()
+        var mode by mutableStateOf(ThemeMode.LIGHT)
+        composeRule.setContent {
+            ConnectOnionTheme(themeMode = mode) {
+                ControlCenterWebView(app, snapshot, actions, onNavigationBlocked = {}, onStopped = {}, onUnavailable = {}, addMessageListener = listens, allowDarkening = { asked += it })
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { mode = ThemeMode.DARK }
+        composeRule.waitForIdle()
+
+        assertEquals("once for each of the two WebViews", 2, asked.size)
+        assertSame(webView().settings, asked.last())
     }
 }

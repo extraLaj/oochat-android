@@ -13,10 +13,12 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.UserProfile
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -28,6 +30,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Unit tests for [SettingsViewModel].
@@ -80,6 +83,15 @@ class SettingsViewModelTest {
 
         override fun exportBackup(): KeyManager.BackupExport =
             KeyManager.BackupExport.Phrase("exported phrase words")
+
+        var legacyDerivation = false
+        /** Runs once, inside the next check, after that check has read its answer. */
+        var duringNextCheck: (() -> Unit)? = null
+        override fun hasLegacyDerivation(): Boolean {
+            val answer = legacyDerivation
+            duringNextCheck?.also { duringNextCheck = null }?.invoke()
+            return answer
+        }
     }
 
     private class FakeAccountRepository : AccountRepository {
@@ -226,6 +238,7 @@ class SettingsViewModelTest {
     private fun createVm(
         requiresNotificationPermission: Boolean = true,
         autoLoadAccountOnInit: Boolean = true,
+        legacyCheckDispatcher: CoroutineDispatcher = testDispatcher,
     ) = SettingsViewModel(
         application = Application(),
         identityManager = identityManager,
@@ -236,6 +249,7 @@ class SettingsViewModelTest {
         requiresNotificationPermission = requiresNotificationPermission,
         notificationPermissionChecker = { !requiresNotificationPermission || permissionGranted },
         autoLoadAccountOnInit = autoLoadAccountOnInit,
+        legacyCheckDispatcher = legacyCheckDispatcher,
     )
 
     // ── Construction / initial account load ────────────────────────────
@@ -408,6 +422,63 @@ class SettingsViewModelTest {
 
         assertTrue(export is KeyManager.BackupExport.Phrase)
         assertEquals("exported phrase words", (export as KeyManager.BackupExport.Phrase).mnemonic)
+    }
+
+    @Test
+    fun `a phrase that no longer derives the identity is flagged until the identity changes`() {
+        identityManager.legacyDerivation = true
+        val vm = createVm(autoLoadAccountOnInit = false)
+
+        assertTrue(vm.uiState.value.legacyDerivation)
+
+        // Restoring from the phrase moves onto the derivation it now gives.
+        identityManager.legacyDerivation = false
+        vm.importIdentity("legal winner thank year wave sausage worth useful legal winner thank yellow")
+
+        assertFalse(vm.uiState.value.legacyDerivation)
+    }
+
+    @Test
+    fun `the legacy check runs on its own dispatcher, not the main thread`() {
+        // Its first call is 2048 rounds of PBKDF2 plus a key derivation.
+        val checkDispatcher = StandardTestDispatcher()
+        identityManager.legacyDerivation = true
+        val vm = createVm(autoLoadAccountOnInit = false, legacyCheckDispatcher = checkDispatcher)
+
+        assertFalse("must not have run inline on Main", vm.uiState.value.legacyDerivation)
+        checkDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.legacyDerivation)
+    }
+
+    @Test
+    fun `a legacy check from before an identity switch cannot flag the new identity`() {
+        // Checks that finish in the order they started need no fence: the
+        // later one writes last. It matters when the older one finishes last,
+        // so run them newest first. The old identity's check answers "legacy".
+        val checks = NewestFirstDispatcher()
+        val vm = createVm(autoLoadAccountOnInit = false, legacyCheckDispatcher = checks)
+        vm.importIdentity("legal winner thank year wave sausage worth useful legal winner thank yellow")
+        identityManager.duringNextCheck = { identityManager.legacyDerivation = true }
+
+        checks.runNewestFirst()
+
+        assertFalse(vm.uiState.value.legacyDerivation)
+    }
+
+    /** Holds what is dispatched to it until [runNewestFirst]. */
+    private class NewestFirstDispatcher : CoroutineDispatcher() {
+        private val queued = ArrayDeque<Runnable>()
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            queued.addLast(block)
+        }
+        fun runNewestFirst() {
+            while (queued.isNotEmpty()) queued.removeLast().run()
+        }
+    }
+
+    @Test
+    fun `a current identity is not flagged`() {
+        assertFalse(createVm(autoLoadAccountOnInit = false).uiState.value.legacyDerivation)
     }
 
     // ── Notification-permission three-way coordination ─────────────────

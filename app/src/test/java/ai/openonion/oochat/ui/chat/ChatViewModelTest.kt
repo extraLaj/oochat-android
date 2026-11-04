@@ -10,6 +10,7 @@ import ai.openonion.oochat.data.local.RecordingResult
 import ai.openonion.oochat.data.local.StoredImage
 import ai.openonion.oochat.data.local.VoiceRecorderStore
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
+import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.data.repository.AgentRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
@@ -41,6 +42,7 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSync
 import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
+import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.OFFLINE_GRACE_MS
 import ai.openonion.oochat.network.RecognizerReadiness
@@ -227,7 +229,13 @@ class ChatViewModelTest {
         var onSend: (() -> Unit)? = null
 
         var lastRespond: String? = null
-        override suspend fun respond(answer: String) { lastRespond = answer }
+        var lastRespondRequestId: String? = null
+        var respondCount = 0
+        override suspend fun respond(answer: String, requestId: String?) {
+            lastRespond = answer
+            lastRespondRequestId = requestId
+            respondCount++
+        }
 
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
@@ -236,7 +244,7 @@ class ChatViewModelTest {
         var lastApprovalScope: String? = null
         var lastApprovalMode: String? = null
         var lastApprovalFeedback: String? = null
-        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
+        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
             lastApproval = approved
             lastApprovalScope = scope
             lastApprovalMode = mode
@@ -338,7 +346,7 @@ class ChatViewModelTest {
     }
 
     private class FakeRecentChatsSync : RecentChatsSync {
-        data class Call(val agentId: String, val agentAddress: String, val directUrl: String?)
+        data class Call(val agentId: String, val agentAddress: String, val directUrl: String?, val relayUrl: String? = null)
         val calls = mutableListOf<Call>()
         var identityActivations = 0
         var activationFailure: Throwable? = null
@@ -354,9 +362,10 @@ class ChatViewModelTest {
         override suspend fun sync(
             agentId: String,
             agentAddress: String,
-            directUrl: String?
+            directUrl: String?,
+            relayUrl: String?
         ): RecentChatsSyncResult {
-            calls += Call(agentId, agentAddress, directUrl)
+            calls += Call(agentId, agentAddress, directUrl, relayUrl)
             return result
         }
     }
@@ -2019,6 +2028,47 @@ class ChatViewModelTest {
             )
         }
 
+    /**
+     * W16AAPPLE-108: the Host lost this connection's session, so it refused
+     * the message unread. AgentConnection says so, then reconnects, and sends
+     * nothing again by itself: the message is shown failed with Retry, and
+     * only Retry sends it, once.
+     */
+    @Test
+    fun `a message lost with the Host's session is shown failed with Retry, and sent again only by Retry`() =
+        runTest(testDispatcher) {
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            connectUseCase.markConnected(address)
+            vm.sendMessage("what's on today?")
+            testScheduler.runCurrent()
+
+            connectUseCase.emit(ChatEvent.ConnectionErrorOccurred(AgentConnection.LOST_SESSION_MESSAGE))
+            testScheduler.runCurrent()
+            connectUseCase.forceState(ConnectionState.Reconnecting)
+            testScheduler.runCurrent()
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            val items = vm.uiState.value.chatItems
+            val bubble = items.indexOfFirst { it is ChatItem.User && it.content == "what's on today?" }
+            val failed = items.drop(bubble + 1).filterIsInstance<ChatItem.Thinking>().single()
+            assertEquals("a failed turn, which offers Retry", ThinkingStatus.ERROR, failed.status)
+            assertEquals(AgentConnection.LOST_SESSION_MESSAGE, failed.content)
+            assertEquals("not sent again by itself", listOf("what's on today?"), connectUseCase.sentMessages.map { it.content })
+
+            vm.retryFailedTurn("what's on today?")
+            testScheduler.runCurrent()
+
+            assertEquals(listOf("what's on today?", "what's on today?"), connectUseCase.sentMessages.map { it.content })
+            assertEquals(
+                "Retry adds no second bubble",
+                1,
+                vm.uiState.value.chatItems.count { it is ChatItem.User && it.content == "what's on today?" }
+            )
+        }
+
     @Test
     fun `the closing message after Stop lands in the turn that was stopped`() =
         runTest(testDispatcher) {
@@ -3302,9 +3352,12 @@ class ChatViewModelTest {
 
     @Test
     fun `respond forwards answer to the use case`() = runTest(testDispatcher) {
-        vm.respond("my answer")
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+        vm.respond("q-1", "my answer")
         testScheduler.runCurrent()
         assertEquals("my answer", connectUseCase.lastRespond)
+        assertEquals("ask-1", connectUseCase.lastRespondRequestId)
     }
 
     @Test
@@ -3427,6 +3480,122 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals(false, vm.isAgentWorking.value)
+    }
+
+    private suspend fun askUser(id: String, requestId: String?) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.AskUser(id = id, text = "Which branch?", options = listOf("main", "dev"), multiSelect = false, requestId = requestId)
+            )
+        )
+    }
+
+    private fun question(id: String) =
+        vm.uiState.value.chatItems.filterIsInstance<ChatItem.AskUser>().single { it.id == id }
+
+    // ── which card an answer, and a refusal, belongs to (W16AAPPLE-107) ──
+
+    @Test
+    fun `answering an older question sends that question's id, not the newest one's`() = runTest(testDispatcher) {
+        // Another device answered question 1 and the Host asked question 2;
+        // question 1 is still on this screen with its buttons.
+        askUser("q-1", requestId = "ask-1")
+        askUser("q-2", requestId = "ask-2")
+        testScheduler.runCurrent()
+
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals("ask-1", connectUseCase.lastRespondRequestId)
+        assertEquals("dev", question("q-1").answer)
+        assertNull("the newer question is still open", question("q-2").answer)
+    }
+
+    @Test
+    fun `a question is answered once`() = runTest(testDispatcher) {
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+
+        vm.respond("q-1", "main")
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals(1, connectUseCase.respondCount)
+        assertEquals("main", question("q-1").answer)
+    }
+
+    @Test
+    fun `a question with no id from the Host is answered without one`() = runTest(testDispatcher) {
+        askUser("local-7", requestId = null)
+        testScheduler.runCurrent()
+
+        vm.respond("local-7", "dev")
+        testScheduler.runCurrent()
+
+        assertEquals("dev", connectUseCase.lastRespond)
+        assertNull("neither an app-made id nor the card's own id may be sent", connectUseCase.lastRespondRequestId)
+    }
+
+    @Test
+    fun `a refused ask_user answer marks its question as no longer waiting`() = runTest(testDispatcher) {
+        askUser("q-1", requestId = "ask-1")
+        testScheduler.runCurrent()
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused("ask-1"))
+        testScheduler.runCurrent()
+
+        assertTrue(question("q-1").refused)
+        assertEquals("only one answer was ever sent", 1, connectUseCase.respondCount)
+    }
+
+    @Test
+    fun `a refusal touches only the approval it names`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "a", tool = "bash", arguments = emptyMap(), requestId = "req-a")))
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "b", tool = "edit", arguments = emptyMap(), requestId = "req-b")))
+        testScheduler.runCurrent()
+        vm.respondToApproval("a", true)
+        vm.respondToApproval("b", true)
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused("req-a"))
+        testScheduler.runCurrent()
+
+        assertEquals(true, gate("a")?.decision?.refused)
+        assertEquals(false, gate("b")?.decision?.refused)
+    }
+
+    @Test
+    fun `a refusal with no id marks nothing when it could mean either of two cards`() = runTest(testDispatcher) {
+        raiseGate("gate-1")
+        askUser("q-1", requestId = null)
+        testScheduler.runCurrent()
+        vm.respondToApproval("gate-1", true)
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused(null))
+        testScheduler.runCurrent()
+
+        assertEquals(false, gate("gate-1")?.decision?.refused)
+        assertFalse(question("q-1").refused)
+    }
+
+    @Test
+    fun `a refusal with no id marks the one card answered without an id`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ApprovalNeeded(id = "named", tool = "bash", arguments = emptyMap(), requestId = "req-1")))
+        askUser("q-1", requestId = null)
+        testScheduler.runCurrent()
+        vm.respondToApproval("named", true)
+        vm.respond("q-1", "dev")
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.AnswerRefused(null))
+        testScheduler.runCurrent()
+
+        assertTrue("the only answer that went out without an id", question("q-1").refused)
+        assertEquals("an answer that named its request would have been named back", false, gate("named")?.decision?.refused)
     }
 
     /** respondToApproval now needs the gate present in chatItems to answer it. */
@@ -3877,6 +4046,147 @@ class ChatViewModelTest {
         assertEquals("https://explicit.example.com", connectUseCase.lastConnectDirectUrl)
     }
 
+    // ── which agent a cold start reconnects to (W16AAPPLE-77) ──────────
+
+    /** The agent onboarding or the agent list saved before the user went elsewhere. */
+    private fun savedFromOnboarding(address: String) {
+        configRepo.configValue = ConnectionConfig(serverUrl = "https://oo.openonion.ai", agentAddress = address, apiKey = "key-1")
+    }
+
+    @Test
+    fun `an agent opened from a link or the drawer becomes the one a cold start reconnects to`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertNull("on the default relay, as the chat dialled it", target.directUrl)
+    }
+
+    @Test
+    fun `a cold start reaches the agent on the same server the chat used`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertEquals(connectUseCase.lastConnectDirectUrl, target.directUrl)
+        assertEquals("https://custom.example.com", target.directUrl)
+    }
+
+    private suspend fun ownServerAgent(address: String) {
+        agentRepo.createAgent(
+            // An agent on its own server is saved "direct" (the form, a link, and since v17 every older row).
+            AgentProfile(
+                id = "agent-b",
+                address = address,
+                name = "Own server",
+                serverUrl = "https://custom.example.com",
+                createdAt = 0L,
+                connectionMode = "direct"
+            )
+        )
+    }
+
+    @Test
+    fun `a reconnect after a drop keeps the agent on its own server`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        // The state listener's Connected carries no URL.
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        assertEquals("https://custom.example.com", configRepo.configValue!!.toConnectTarget().directUrl)
+    }
+
+    @Test
+    fun `an agent let in after the onboarding gate is saved on its own server`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        // connect() returns true on ONBOARD_REQUIRED, before the user is let in.
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertEquals("https://custom.example.com", target.directUrl)
+    }
+
+    @Test
+    fun `a reconnect keeps the server the agent was opened at, not its saved row's`() = runTest(testDispatcher) {
+        val opened = validHexAddress(0xB)
+        ownServerAgent(opened)
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened, directUrl = "https://other.example.com")
+        testScheduler.runCurrent()
+
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        connectUseCase.markConnected(opened)
+        testScheduler.runCurrent()
+
+        assertEquals("https://other.example.com", configRepo.configValue!!.toConnectTarget().directUrl)
+    }
+
+    @Test
+    fun `a saved relay URL written another way is not rewritten`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        val saved = ConnectionConfig(serverUrl = "wss://oo.openonion.ai/", agentAddress = onboarded, apiKey = "key-1")
+        configRepo.configValue = saved
+
+        connectUseCase.markConnected(onboarded)
+        vm.connectToAgent(onboarded)
+        testScheduler.runCurrent()
+
+        assertEquals(saved, configRepo.configValue)
+    }
+
+    @Test
+    fun `an agent that could not be reached does not replace the saved one`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        savedFromOnboarding(onboarded)
+        connectUseCase.connectResult = false
+
+        vm.connectToAgent(validHexAddress(0xB))
+        testScheduler.runCurrent()
+
+        assertEquals(onboarded, configRepo.configValue?.agentAddress)
+    }
+
+    @Test
+    fun `reconnecting to the saved agent keeps its config as it was`() = runTest(testDispatcher) {
+        val onboarded = validHexAddress(0xA)
+        savedFromOnboarding(onboarded)
+
+        connectUseCase.markConnected(onboarded)
+        vm.connectToAgent(onboarded)
+        testScheduler.runCurrent()
+
+        assertEquals(
+            ConnectionConfig(serverUrl = "https://oo.openonion.ai", agentAddress = onboarded, apiKey = "key-1"),
+            configRepo.configValue
+        )
+    }
+
     @Test
     fun `targetAgentAddress reflects the resolved address after connectToAgent`() = runTest(testDispatcher) {
         assertNull("no target address before any connect attempt", vm.targetAgentAddress.value)
@@ -3914,6 +4224,69 @@ class ChatViewModelTest {
         vm.connectToAgentByConfig()
         testScheduler.runCurrent()
 
+        assertNull(connectUseCase.lastConnectDirectUrl)
+        assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
+    }
+
+    private suspend fun selfHostedRelayAgent(address: String) {
+        // What discovery saves for an agent found on a relay the user typed in.
+        agentRepo.createAgent(
+            AgentProfile(
+                id = "agent-r",
+                address = address,
+                name = "On my relay",
+                serverUrl = "https://relay.example.com",
+                createdAt = 0L,
+                connectionMode = "relay"
+            )
+        )
+    }
+
+    @Test
+    fun `a cold start goes back through the self-hosted relay the chat used`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        selfHostedRelayAgent(opened)
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        // W16AAPPLE-56: remembered in relay mode, or Loading would dial the relay direct.
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertNull(target.directUrl)
+        assertEquals("https://relay.example.com", target.relayUrl)
+    }
+
+    @Test
+    fun `Recent Chat for an agent on a self-hosted relay is fetched through that relay`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        selfHostedRelayAgent(address)
+
+        connectUseCase.markConnected(address)
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        val call = recentChatsSync.calls.single()
+        assertNull(call.directUrl)
+        assertEquals("https://relay.example.com", call.relayUrl)
+    }
+
+    @Test
+    fun `an agent first reached through a self-hosted relay is saved on that relay`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+
+        connectUseCase.markConnected(address)
+        vm.connectToAgent(address, relayUrl = "https://relay.example.com")
+        testScheduler.runCurrent()
+
+        val saved = agentRepo.getAgentByAddress(address)!!
+        assertEquals("https://relay.example.com", saved.serverUrl)
+        assertEquals("relay", saved.connectionMode)
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
         assertNull(connectUseCase.lastConnectDirectUrl)
         assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
     }
@@ -4021,6 +4394,57 @@ class ChatViewModelTest {
         connectUseCase.forceState(ConnectionState.Reconnecting)
         testScheduler.runCurrent()
         connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `selecting an already-connected agent refreshes Recent Chat again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `re-selecting the same agent refreshes even when Connected carries the device identity`() = runTest(testDispatcher) {
+        // Production reality: AgentConnection stamps ConnectionState.Connected.address
+        // with the device's own identity (keys?.address), NOT the agent we dialled
+        // (see AgentConnection's CONNECTED handler). The "is this a live
+        // re-selection?" decision must therefore come from the ViewModel's own
+        // previous target, not from Connected.address -- otherwise navigating back
+        // to the agent already open silently skips the refresh, which is exactly
+        // the cross-device staleness this fixes.
+        val address = validHexAddress()
+        val deviceIdentity = validHexAddress(nibble = 0xB)
+        connectUseCase.markConnected(deviceIdentity)
+        assertNotEquals(address, deviceIdentity)
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals(2, recentChatsSync.calls.size)
+    }
+
+    @Test
+    fun `returning to foreground refreshes Recent Chat on a live connection`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        vm.onReturnedToForeground()
         testScheduler.runCurrent()
 
         assertEquals(2, recentChatsSync.calls.size)

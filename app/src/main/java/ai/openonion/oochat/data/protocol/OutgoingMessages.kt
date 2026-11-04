@@ -93,6 +93,19 @@ data class ExecMessage(
     val type: String = "EXEC"
 )
 
+/**
+ * Ask the Host for its owner's Rem notebook (W16AAPPLE-69). Answered by a
+ * `WIKI_RESULT` carrying the same [requestId] — ws_router/rem.py
+ * `handle_rem_read`. Still `WIKI_READ` on the wire: Rem was Wiki until
+ * connectonion 1.9.0, and the Host kept the frame's name. Signed like every
+ * other command; the Host refuses an unsigned one.
+ */
+@Serializable
+data class RemReadMessage(
+    @SerialName("request_id") val requestId: String,
+    val type: String = "WIKI_READ"
+)
+
 @Serializable
 data class PongMessage(
     val type: String = "PONG"
@@ -112,7 +125,9 @@ data class InterruptMessage(
 @Serializable
 data class AskUserResponse(
     val type: String = "ASK_USER_RESPONSE",
-    val answer: String
+    val answer: String,
+    // The ask_user event's id. The Host refuses an answer without it when the session is open on two devices.
+    @SerialName("request_id") val requestId: String? = null
 )
 
 @Serializable
@@ -131,7 +146,9 @@ data class ApprovalResponse(
     // examples all carry this field. Only meaningful when approved == false;
     // the encoder (explicitNulls = false) drops it from the frame entirely
     // when null, matching the reference's conditional-spread behavior.
-    val feedback: String? = null
+    val feedback: String? = null,
+    // The approval_needed event's id, as for AskUserResponse.
+    @SerialName("request_id") val requestId: String? = null
 )
 
 /**

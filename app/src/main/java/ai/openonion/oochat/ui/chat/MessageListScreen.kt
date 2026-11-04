@@ -50,7 +50,7 @@ import java.time.format.DateTimeFormatter
 /**
  * Caps the chat column's width on tablets and unfolded foldables
  * instead of letting a line run edge-to-edge. chatBody is 15sp, and a
- * Manrope glyph there averages ~8dp, so 600dp of column holds roughly 70
+ * glyph there averages ~8dp, so 600dp of column holds roughly 70
  * characters once list/bubble padding is subtracted — the middle of the
  * 60-75 char comfortable-measure range. Any phone is narrower than this, so
  * widthIn is a no-op there. Shared with the composer, which has to line up
@@ -63,7 +63,7 @@ fun MessageList(
     items: List<ChatItem>,
     timestamps: Map<String, Long>,
     wasCleared: Boolean,
-    onRespond: (String) -> Unit,
+    onRespond: (itemId: String, answer: String) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
     onPlanReviewResponse: (message: String) -> Unit,
@@ -345,7 +345,7 @@ private fun ChatItemWrapper(
     startsRun: Boolean = true,
     endsRun: Boolean = true,
     timestamps: Map<String, Long>,
-    onRespond: (String) -> Unit,
+    onRespond: (itemId: String, answer: String) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
     onPlanReviewResponse: (message: String) -> Unit,
@@ -369,7 +369,7 @@ private fun ChatItemWrapper(
         ChatItemBubble(
             item = item,
             timestamp = timestamp,
-            onRespond = { answer -> onGateResolved(item.id); onRespond(answer) },
+            onRespond = { answer -> onGateResolved(item.id); onRespond(item.id, answer) },
             onApprove = { approved, scope, mode, feedback ->
                 onGateResolved(item.id)
                 onApprove(item.id, approved, scope, mode, feedback)

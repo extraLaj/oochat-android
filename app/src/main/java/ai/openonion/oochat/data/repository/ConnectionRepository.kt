@@ -13,6 +13,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.UNKNOWN_SESSION_STATUS
@@ -185,11 +186,18 @@ interface ConnectionRepository {
     suspend fun executeTool(request: ExecRequest): ExecOutcome
 
     /**
+     * Read the connected agent's Rem notebook (W16AAPPLE-69). Owner-only on
+     * the Host; anyone else gets [RemOutcome.NotOwner] and no content.
+     */
+    suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
+
+    /**
      * Respond to ask_user event.
      *
      * @param answer User's answer
+     * @param requestId The ask_user event's id
      */
-    suspend fun respond(answer: String)
+    suspend fun respond(answer: String, requestId: String? = null)
 
     /**
      * Ask the agent to gracefully stop its current run — it finishes the
@@ -207,8 +215,15 @@ interface ConnectionRepository {
      *   "reject_hard", or "reject_explain". Ignored when [approved] is true.
      * @param feedback Free-text reason shown to the LLM when [approved] is
      *   false. Ignored when [approved] is true.
+     * @param requestId The approval_needed event's id
      */
-    suspend fun respondToApproval(approved: Boolean, scope: String = "once", mode: String? = null, feedback: String? = null)
+    suspend fun respondToApproval(
+        approved: Boolean,
+        scope: String = "once",
+        mode: String? = null,
+        feedback: String? = null,
+        requestId: String? = null
+    )
 
     /**
      * Respond to ONBOARD_REQUIRED event with either an invite code

@@ -41,19 +41,25 @@ class HomePlacementWindowComposeTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp")
-    fun `a phone keeps Home on its own screen`() {
-        assertEquals(HomePlacement.OWN_SCREEN, placementWithHome())
+    fun `a phone puts Home in a tab`() {
+        assertEquals(HomePlacement.TABBED, placementWithHome())
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w915dp-h412dp")
-    fun `a phone on its side keeps Home on its own screen`() {
-        assertEquals(HomePlacement.OWN_SCREEN, placementWithHome())
+    fun `a phone on its side puts Home in a tab`() {
+        assertEquals(HomePlacement.TABBED, placementWithHome())
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w900dp-h800dp")
     fun `a tablet with no Home to show puts nothing beside the chat`() {
+        assertEquals(HomePlacement.OWN_SCREEN, placementWithHome(hasHome = false))
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h800dp")
+    fun `a phone with no Home to show has no tab`() {
         assertEquals(HomePlacement.OWN_SCREEN, placementWithHome(hasHome = false))
     }
 }

@@ -14,6 +14,7 @@ import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.network.AgentConnection
@@ -255,6 +256,8 @@ class ConnectToAgentUseCase(
         return getOrCreateRepository().executeTool(request)
     }
 
+    override suspend fun readRem(): RemOutcome = getOrCreateRepository().readRem()
+
     override fun observeEvents(): Flow<ChatEvent> {
         return getOrCreateRepository().observeEvents()
     }
@@ -267,16 +270,16 @@ class ConnectToAgentUseCase(
         getOrCreateRepository().releaseSessionStatus()
     }
 
-    override suspend fun respond(answer: String) {
-        getOrCreateRepository().respond(answer)
+    override suspend fun respond(answer: String, requestId: String?) {
+        getOrCreateRepository().respond(answer, requestId)
     }
 
     override suspend fun interrupt() {
         getOrCreateRepository().interrupt()
     }
 
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
-        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback)
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
+        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback, requestId)
     }
 
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {
