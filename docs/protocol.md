@@ -134,6 +134,34 @@ https://oo.openonion.ai
   `ws://.../ws/input` for an HTTP relay.
 - Direct agent connections use the supplied URL and connect to `/ws`.
 
+Which one an agent gets is `resolveServerRoute` in `ConnectionConfig.kt`
+(W16AAPPLE-56), from the agent's saved server URL and `connectionMode`:
+
+| Saved server | `connectionMode` | Route |
+|---|---|---|
+| A default relay (any spelling in `Constants.DEFAULT_SERVER_URLS`) | any | The default relay's `/ws/input` |
+| Any other server | `relay` | Through that server as a self-hosted relay: its `/ws/input`, with `to` set |
+| Any other server | `direct`, or none recorded | Direct, at its `/ws` |
+
+A Host's relay is configurable (`relay_url` in its config), so a self-hosted
+relay is a supported setup. Discovery on a relay the user typed in saves its
+agents as `relay` on that relay, the agent form saves the mode the user picked,
+and an agent first reached through a link or onboarding is saved with the mode
+it was reached by. The same route is used for the chat socket, its reconnects,
+the cold-start config Loading dials, and the Recent Chat index
+(`SessionSyncClient`).
+
+A self-hosted relay URL loses any trailing `/` before `/ws/input` is appended,
+since discovery saves the URL as the user typed it.
+
+Before database version 17 the mode was never read, and an agent the chat saved
+after a direct connect kept the column's `relay` default.
+`AppDatabase.MIGRATION_16_17` therefore marks every `relay` agent on a
+non-default server as `direct`, which is the route each of them has always
+used, except agents saved by discovery (their row id is the agent's address,
+where the form and the chat's auto-save use a UUID). Those really are on the
+relay they were found on, so they stay `relay` and now connect through it.
+
 `WebSocketFactory` is the seam used to create an OkHttp `WebSocket` from a
 `Request` and `WebSocketListener`. Production uses `OkHttpWebSocketFactory`;
 tests can inject a different implementation.

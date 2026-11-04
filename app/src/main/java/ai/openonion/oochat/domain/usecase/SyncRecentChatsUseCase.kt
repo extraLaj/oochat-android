@@ -15,7 +15,8 @@ sealed interface RecentChatsSyncResult {
 
 /** Small seam used by the UI and its tests. */
 fun interface RecentChatsSync {
-    suspend fun sync(agentId: String, agentAddress: String, directUrl: String?): RecentChatsSyncResult
+    /** [relayUrl] is a self-hosted relay to go through when not [directUrl]; null for the default relay. */
+    suspend fun sync(agentId: String, agentAddress: String, directUrl: String?, relayUrl: String?): RecentChatsSyncResult
 
     /** Hides another identity's synced rows before conversation restoration reads them. */
     suspend fun activateIdentity() = Unit
@@ -25,7 +26,7 @@ fun interface RecentChatsSync {
 class SyncRecentChatsUseCase(
     private val repository: SessionSyncRepository,
     private val identityAddress: suspend () -> String,
-    private val fetch: suspend (agentAddress: String, directUrl: String?, cursor: String?) -> SessionSyncFetchResult
+    private val fetch: suspend (agentAddress: String, directUrl: String?, relayUrl: String?, cursor: String?) -> SessionSyncFetchResult
 ) : RecentChatsSync {
     // A reconnect and the screen joining that same connection can arrive
     // together. Serialize them so two snapshots cannot race their cursors.
@@ -42,7 +43,8 @@ class SyncRecentChatsUseCase(
     override suspend fun sync(
         agentId: String,
         agentAddress: String,
-        directUrl: String?
+        directUrl: String?,
+        relayUrl: String?
     ): RecentChatsSyncResult = syncMutex.withLock {
         try {
             require(agentId.isNotBlank()) { "agentId must not be blank" }
@@ -53,11 +55,11 @@ class SyncRecentChatsUseCase(
             activateIdentity(identity)
             val cursor = repository.cursorFor(identity, agentId)
 
-            var first = fetch(agentAddress, directUrl, cursor)
+            var first = fetch(agentAddress, directUrl, relayUrl, cursor)
             // Retry one transient failure immediately. The mutex and single
             // retry keep reconnect storms bounded.
             if (first is SessionSyncFetchResult.Failed && first.retryable) {
-                first = fetch(agentAddress, directUrl, cursor)
+                first = fetch(agentAddress, directUrl, relayUrl, cursor)
             }
 
             when (first) {
@@ -66,7 +68,7 @@ class SyncRecentChatsUseCase(
                     // A cursor only points into the Host's retained change
                     // history. If it has aged out, one full snapshot is the
                     // safe recovery; never loop if the Host rejects that too.
-                    when (val retry = fetch(agentAddress, directUrl, null)) {
+                    when (val retry = fetch(agentAddress, directUrl, relayUrl, null)) {
                         is SessionSyncFetchResult.Complete -> commit(identity, agentId, retry)
                         is SessionSyncFetchResult.Unsupported -> RecentChatsSyncResult.Unsupported
                         is SessionSyncFetchResult.Failed -> retry.toSyncResult()

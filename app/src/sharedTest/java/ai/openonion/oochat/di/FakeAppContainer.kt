@@ -83,7 +83,7 @@ class FakeAppContainer(
     override val speechRecognitionService: SpeechRecognitionService = FakeSpeechRecognitionService(),
     override val appSettings: AppSettings = FakeAppSettings(),
     override val persistenceTransaction: PersistenceTransaction = FakePersistenceTransaction(context),
-    override val recentChatsSync: RecentChatsSync = RecentChatsSync { _, _, _ ->
+    override val recentChatsSync: RecentChatsSync = RecentChatsSync { _, _, _, _ ->
         RecentChatsSyncResult.Unsupported
     },
     override val agentReplyNotifier: AgentReplyNotifier = FakeAgentReplyNotifier(),
@@ -291,7 +291,7 @@ class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
     override val agentProfile: StateFlow<ai.openonion.oochat.domain.model.AgentLiveProfile?> =
         MutableStateFlow(null)
     override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) = true
+    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?) = true
     override suspend fun switchConversation(conversationId: String?) {}
     override fun liveSessionIdFor(agentAddress: String): String? = null
     override fun observeEvents(): Flow<ChatEvent> = kotlinx.coroutines.flow.emptyFlow()

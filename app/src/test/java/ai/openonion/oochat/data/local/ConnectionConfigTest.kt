@@ -123,9 +123,8 @@ class ConnectionConfigTest {
         }
     }
 
-    // Holds only because ConnectionConfig cannot record which mode Setup was
-    // in: a custom *relay* saved from Setup is dialled direct too. Revisit with
-    // W16AAPPLE-56 (saved connectionMode is ignored).
+    // A config with no recorded mode (written before W16AAPPLE-56) keeps the
+    // old rule: any custom server is dialled direct.
     @Test
     fun customServerUrlConnectsDirectToThatUrl() {
         val target = ConnectionConfig(serverUrl = "https://agent.example.com", agentAddress = agent).toConnectTarget()
@@ -133,6 +132,60 @@ class ConnectionConfigTest {
         assertTrue(target.isDirect)
         assertEquals("https://agent.example.com", target.directUrl)
         assertEquals(agent, target.agentAddress)
+    }
+
+    @Test
+    fun customServerSavedAsDirectConnectsDirect() {
+        val target = ConnectionConfig(
+            serverUrl = "https://agent.example.com",
+            agentAddress = agent,
+            connectionMode = "direct"
+        ).toConnectTarget()
+
+        assertTrue(target.isDirect)
+        assertEquals("https://agent.example.com", target.directUrl)
+        assertNull(target.relayUrl)
+    }
+
+    @Test
+    fun customServerSavedAsRelayConnectsThroughThatRelay() {
+        val target = ConnectionConfig(
+            serverUrl = "https://relay.example.com",
+            agentAddress = agent,
+            connectionMode = "relay"
+        ).toConnectTarget()
+
+        assertFalse(target.isDirect)
+        assertNull("a self-hosted relay is not a direct URL", target.directUrl)
+        assertEquals("https://relay.example.com", target.relayUrl)
+        assertEquals(agent, target.agentAddress)
+    }
+
+    @Test
+    fun selfHostedRelayTypedWithATrailingSlashLosesIt() {
+        // The relay's /ws/input is appended, so "https://relay.example.com/" must not become "//ws/input".
+        val target = ConnectionConfig(
+            serverUrl = "https://relay.example.com/",
+            agentAddress = agent,
+            connectionMode = "relay"
+        ).toConnectTarget()
+
+        assertEquals("https://relay.example.com", target.relayUrl)
+    }
+
+    @Test
+    fun defaultRelaySavedInEitherModeUsesTheDefaultRelay() {
+        for (mode in listOf("relay", "direct", null)) {
+            val target = ConnectionConfig(
+                serverUrl = ConnectionConfig.DEFAULT_RELAY_URL,
+                agentAddress = agent,
+                connectionMode = mode
+            ).toConnectTarget()
+
+            assertFalse("$mode", target.isDirect)
+            assertNull("$mode", target.directUrl)
+            assertNull("$mode: the default relay needs no override", target.relayUrl)
+        }
     }
 
     @Test

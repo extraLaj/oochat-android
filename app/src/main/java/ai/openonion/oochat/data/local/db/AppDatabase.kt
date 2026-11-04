@@ -37,7 +37,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionSyncStateEntity::class,
         SessionSyncDeletionEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -298,6 +298,34 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Makes every saved agent's mode say how it is really reached
+         * (W16AAPPLE-56). Until now only "is this the default relay" decided
+         * the route, so an agent with its own server was always dialled
+         * direct, whatever `connection_mode` said, and auto-saved direct
+         * agents kept the column's "relay" default. From this version a
+         * relay-mode agent on a custom server goes through that server as a
+         * relay, so those rows are made "direct": each one keeps the route it
+         * has always used. Two kinds of row are left alone: agents on the
+         * default relay, and agents found by discovery, which really are on the
+         * relay they were found on (discovery saves a row whose id is the
+         * agent's address; the form and the chat's auto-save use a UUID). Those
+         * were dialled direct and never connected; now they go through their relay.
+         * The default relay's spellings are written out, not read from
+         * Constants, so a later change there cannot alter a shipped migration.
+         */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE agent_profiles SET connection_mode = 'direct' " +
+                        "WHERE connection_mode = 'relay' " +
+                        "AND RTRIM(server_url, '/') NOT IN " +
+                        "('https://oo.openonion.ai', 'http://oo.openonion.ai', 'wss://oo.openonion.ai', 'ws://oo.openonion.ai') " +
+                        "AND LOWER(id) <> LOWER(address)"
+                )
+            }
+        }
+
+        /**
          * The migration chain, shared with the migration tests so it
          * can never be written, tested, and then left out of the
          * builder below.
@@ -305,7 +333,8 @@ abstract class AppDatabase : RoomDatabase() {
         internal val ALL_MIGRATIONS = arrayOf(
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
+            MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+            MIGRATION_16_17
         )
 
         @Volatile

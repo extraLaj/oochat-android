@@ -410,6 +410,7 @@ val regressionSuite = mapOf(
         "ConstantsTest",
         "data.repository.EncryptedPreferencesConnectionConfigRepositoryTest",
         "ui.loading.LoadingViewModelTest",
+        "network.SessionSyncClientTest",
     ),
     "Ed25519 identity" to listOf(
         "crypto.IdentityVectorsTest",
@@ -504,6 +505,7 @@ val regressionSuite = mapOf(
         "data.local.db.Migration10To11Test",
         "data.local.db.Migration12To13Test",
         "data.local.db.Migration13To14Test",
+        "data.local.db.Migration16To17Test",
         "data.local.db.TurnMetadataSchemaCompatTest",
     ),
     "which screen opens first" to listOf(

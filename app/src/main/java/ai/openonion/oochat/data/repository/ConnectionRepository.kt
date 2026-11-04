@@ -149,8 +149,15 @@ interface ConnectionRepository {
      * @param conversationId Local conversation this connection is for; null
      *   when it has no persisted row yet, which starts a fresh server session
      * @param directUrl Direct connection URL (optional)
+     * @param relayUrl Relay to go through when not direct; null for the
+     *   repository's own (the default relay)
      */
-    suspend fun connect(agentAddress: String, conversationId: String? = null, directUrl: String? = null)
+    suspend fun connect(
+        agentAddress: String,
+        conversationId: String? = null,
+        directUrl: String? = null,
+        relayUrl: String? = null
+    )
 
     /**
      * Move the live connection onto [conversationId]'s server session,

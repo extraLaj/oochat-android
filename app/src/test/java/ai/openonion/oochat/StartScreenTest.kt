@@ -54,7 +54,12 @@ class StartScreenTest {
     /** Never connects, so Loading stays on screen. */
     private class NeverConnects : ConnectToAgentUseCaseContract by FakeConnectToAgentUseCase() {
         @Volatile var attempts = 0
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+        override suspend fun connect(
+            agentAddress: String,
+            conversationId: String?,
+            directUrl: String?,
+            relayUrl: String?
+        ): Boolean {
             attempts++
             awaitCancellation()
         }

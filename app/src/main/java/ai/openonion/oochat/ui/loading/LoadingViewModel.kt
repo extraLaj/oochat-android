@@ -182,7 +182,8 @@ open class LoadingViewModel @JvmOverloads constructor(
                     connectUseCase.connect(
                         agentAddress = agentAddress,
                         conversationId = conversationId,
-                        directUrl = directUrl
+                        directUrl = directUrl,
+                        relayUrl = target.relayUrl
                     )
                 }
 

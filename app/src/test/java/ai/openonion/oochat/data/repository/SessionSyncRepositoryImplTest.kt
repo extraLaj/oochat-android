@@ -105,7 +105,7 @@ class SessionSyncRepositoryImplTest {
         val sync = SyncRecentChatsUseCase(
             repository = repository,
             identityAddress = { "0xidentity" },
-            fetch = { agentAddress, directUrl, cursor ->
+            fetch = { agentAddress, directUrl, _, cursor ->
                 assertEquals("0xagent-1", agentAddress)
                 assertEquals("https://agent.example", directUrl)
                 assertNull(cursor)
@@ -113,7 +113,7 @@ class SessionSyncRepositoryImplTest {
             }
         )
 
-        val result = sync.sync("agent-1", "0xagent-1", "https://agent.example")
+        val result = sync.sync("agent-1", "0xagent-1", "https://agent.example", null)
         val visible = SessionRepositoryImpl(database.sessionDao())
             .getSessionsByAgent("agent-1")
             .first()

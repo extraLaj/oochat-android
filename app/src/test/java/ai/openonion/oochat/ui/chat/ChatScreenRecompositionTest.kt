@@ -153,7 +153,7 @@ class ChatScreenRecompositionTest {
             ),
             // Session Sync has its own integration tests. This suite measures
             // Compose invalidation and must not load production identity crypto.
-            recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
+            recentChatsSync = RecentChatsSync { _, _, _, _ -> RecentChatsSyncResult.Unsupported },
             initialMyAddress = "0xTEST",
             networkMonitor = RecompFakeNetworkMonitor(),
         )
@@ -357,7 +357,7 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     private var liveSessionId: String? = null
 
     override fun isConnected(): Boolean = connected
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean {
         liveSessionId = conversationId
         return true
     }

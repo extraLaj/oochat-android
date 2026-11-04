@@ -42,7 +42,6 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSync
 import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.OFFLINE_GRACE_MS
@@ -154,6 +153,7 @@ class ChatViewModelTest {
         var connectInvocations = 0
         var lastConnectAddress: String? = null
         var lastConnectDirectUrl: String? = null
+        var lastConnectRelayUrl: String? = null
         var lastConnectConversationId: String? = null
         val switchedConversations = mutableListOf<String?>()
         /**
@@ -166,11 +166,12 @@ class ChatViewModelTest {
         /** Ordered record of what was asked of the connection, for ordering assertions. */
         val interactions = mutableListOf<String>()
 
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean {
             connectInvocations++
             lastConnectAddress = agentAddress
             lastConnectConversationId = conversationId
             lastConnectDirectUrl = directUrl
+            lastConnectRelayUrl = relayUrl
             if (connectResult) connectedConversationId = conversationId
             interactions += "connect:$conversationId"
             return connectResult
@@ -345,7 +346,7 @@ class ChatViewModelTest {
     }
 
     private class FakeRecentChatsSync : RecentChatsSync {
-        data class Call(val agentId: String, val agentAddress: String, val directUrl: String?)
+        data class Call(val agentId: String, val agentAddress: String, val directUrl: String?, val relayUrl: String? = null)
         val calls = mutableListOf<Call>()
         var identityActivations = 0
         var activationFailure: Throwable? = null
@@ -361,9 +362,10 @@ class ChatViewModelTest {
         override suspend fun sync(
             agentId: String,
             agentAddress: String,
-            directUrl: String?
+            directUrl: String?,
+            relayUrl: String?
         ): RecentChatsSyncResult {
-            calls += Call(agentId, agentAddress, directUrl)
+            calls += Call(agentId, agentAddress, directUrl, relayUrl)
             return result
         }
     }
@@ -3982,7 +3984,7 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `known issue - an agent saved as relay-mode on a self-hosted relay is dialled as a direct agent`() =
+    fun `an agent saved as relay-mode on a self-hosted relay is dialled through that relay`() =
         runTest(testDispatcher) {
             // What discovery saves for every agent found on a relay the user
             // typed in: connectionMode "relay", serverUrl = that relay.
@@ -4001,12 +4003,9 @@ class ChatViewModelTest {
             vm.connectToAgent(address)
             testScheduler.runCurrent()
 
-            knownIssue(
-                "the saved connectionMode is never read; any non-default server URL is dialled direct, " +
-                    "so a relay-mode agent is reached at <relay>/ws instead of through the relay"
-            ) {
-                assertNull(connectUseCase.lastConnectDirectUrl)
-            }
+            // W16AAPPLE-56: through the relay's /ws/input, not direct at <relay>/ws.
+            assertNull(connectUseCase.lastConnectDirectUrl)
+            assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
         }
 
     @Test
@@ -4086,7 +4085,15 @@ class ChatViewModelTest {
 
     private suspend fun ownServerAgent(address: String) {
         agentRepo.createAgent(
-            AgentProfile(id = "agent-b", address = address, name = "Own server", serverUrl = "https://custom.example.com", createdAt = 0L)
+            // An agent on its own server is saved "direct" (the form, a link, and since v17 every older row).
+            AgentProfile(
+                id = "agent-b",
+                address = address,
+                name = "Own server",
+                serverUrl = "https://custom.example.com",
+                createdAt = 0L,
+                connectionMode = "direct"
+            )
         )
     }
 
@@ -4205,6 +4212,99 @@ class ChatViewModelTest {
             1,
             connectUseCase.connectInvocations
         )
+    }
+
+    @Test
+    fun `connectToAgentByConfig forwards a self-hosted relay saved in relay mode as the relay`() = runTest(testDispatcher) {
+        configRepo.configValue = ConnectionConfig(
+            serverUrl = "https://relay.example.com",
+            agentAddress = validHexAddress(),
+            connectionMode = "relay"
+        )
+        vm.connectToAgentByConfig()
+        testScheduler.runCurrent()
+
+        assertNull(connectUseCase.lastConnectDirectUrl)
+        assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
+    }
+
+    private suspend fun selfHostedRelayAgent(address: String) {
+        // What discovery saves for an agent found on a relay the user typed in.
+        agentRepo.createAgent(
+            AgentProfile(
+                id = "agent-r",
+                address = address,
+                name = "On my relay",
+                serverUrl = "https://relay.example.com",
+                createdAt = 0L,
+                connectionMode = "relay"
+            )
+        )
+    }
+
+    @Test
+    fun `a cold start goes back through the self-hosted relay the chat used`() = runTest(testDispatcher) {
+        savedFromOnboarding(validHexAddress(0xA))
+        val opened = validHexAddress(0xB)
+        selfHostedRelayAgent(opened)
+
+        connectUseCase.markConnected(opened)
+        vm.connectToAgent(opened)
+        testScheduler.runCurrent()
+
+        // W16AAPPLE-56: remembered in relay mode, or Loading would dial the relay direct.
+        val target = configRepo.configValue!!.toConnectTarget()
+        assertEquals(opened, target.agentAddress)
+        assertNull(target.directUrl)
+        assertEquals("https://relay.example.com", target.relayUrl)
+    }
+
+    @Test
+    fun `Recent Chat for an agent on a self-hosted relay is fetched through that relay`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        selfHostedRelayAgent(address)
+
+        connectUseCase.markConnected(address)
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        val call = recentChatsSync.calls.single()
+        assertNull(call.directUrl)
+        assertEquals("https://relay.example.com", call.relayUrl)
+    }
+
+    @Test
+    fun `an agent first reached through a self-hosted relay is saved on that relay`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+
+        connectUseCase.markConnected(address)
+        vm.connectToAgent(address, relayUrl = "https://relay.example.com")
+        testScheduler.runCurrent()
+
+        val saved = agentRepo.getAgentByAddress(address)!!
+        assertEquals("https://relay.example.com", saved.serverUrl)
+        assertEquals("relay", saved.connectionMode)
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        assertNull(connectUseCase.lastConnectDirectUrl)
+        assertEquals("https://relay.example.com", connectUseCase.lastConnectRelayUrl)
+    }
+
+    @Test
+    fun `an agent first reached direct is saved as direct so it is dialled direct again`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address, directUrl = "https://agent.example.com")
+        testScheduler.runCurrent()
+
+        val saved = agentRepo.getAgentByAddress(address)
+        assertEquals("direct", saved?.connectionMode)
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertEquals("https://agent.example.com", connectUseCase.lastConnectDirectUrl)
+        assertNull(connectUseCase.lastConnectRelayUrl)
     }
 
     @Test
