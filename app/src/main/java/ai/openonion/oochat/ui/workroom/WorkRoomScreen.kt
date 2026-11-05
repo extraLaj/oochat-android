@@ -147,7 +147,12 @@ private fun RunHeader(run: ChatItem.ProviderInvocation) {
             }
         }
         WorkRoomText.elapsed(run.elapsedMs)?.let {
-            Text("Took $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Only a finished run's time is final; a working one's moves on with each frame.
+            Text(
+                text = if (run.status.isTerminal) "Took $it" else "Running for $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

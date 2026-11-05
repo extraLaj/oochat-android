@@ -9,6 +9,7 @@ import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -140,7 +141,8 @@ object ControlCenterChatItems {
                 item.taskTitle?.let { put("taskTitle", it) }
                 put("status", item.status.wire)
                 item.currentSummary?.let { put("currentSummary", it) }
-                item.resultSummary?.let { put("resultSummary", it) }
+                (item.resultSummary ?: WorkRoomText.ENDED_UNSEEN.takeIf { item.status == ProviderInvocationStatus.ENDED })
+                    ?.let { put("resultSummary", it) }
                 item.errorSummary?.let { put("errorSummary", it) }
                 item.elapsedMs?.let { put("elapsedMs", it) }
                 item.stateRevision?.let { put("stateRevision", it) }
@@ -223,7 +225,11 @@ object ControlCenterChatItems {
 
     private val ThinkingStatus.wire get() = name.lowercase()
     private val ToolStatus.wire get() = name.lowercase()
-    private val ProviderInvocationStatus.wire get() = name.lowercase()
+    // ENDED is this app's own: the Host never sends it, so the SDK's card would not know it. A run
+    // that ended unseen is over either way, and "cancelled" is the Host's terminal status that claims
+    // neither a result nor an error; the resultSummary written with it says what really happened.
+    private val ProviderInvocationStatus.wire
+        get() = if (this == ProviderInvocationStatus.ENDED) "cancelled" else name.lowercase()
 
     /** Added to a [ChatItem.Turn]'s reply when it shares the turn's thinking id. */
     const val REPLY_SUFFIX = ":reply"

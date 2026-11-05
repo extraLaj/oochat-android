@@ -2780,6 +2780,30 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `a Work Room run still working keeps Stop showing until it ends`() = runTest(testDispatcher) {
+        // W16AAPPLE-33 review: the run replaces the codex tool card, the only
+        // other item in flight, so Send came back for the whole run.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        appSettings.setStreamingResponses(false)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.ToolCall(id = "call-1", name = "codex")))
+        testScheduler.runCurrent()
+        assertTrue("premise: the codex tool card is in flight", vm.isAgentWorking.value)
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", parentToolCallId = "call-1", provider = "codex", stateRevision = 1)
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run))
+        testScheduler.runCurrent()
+        assertTrue("a working run is work in flight", vm.isAgentWorking.value)
+        assertEquals("but its card is not hidden with streaming off", listOf("codex:call-1"), vm.uiState.value.chatItems.map { it.id })
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)))
+        testScheduler.runCurrent()
+        assertFalse(vm.isAgentWorking.value)
+    }
+
+    @Test
     fun `clearing a chat during a Work Room run keeps the run's late codex tool card away`() = runTest(testDispatcher) {
         // W16AAPPLE-33: the run replaced its parent ToolCall, so the parent's id
         // was never on screen; the clear must still ignore it, or the outer

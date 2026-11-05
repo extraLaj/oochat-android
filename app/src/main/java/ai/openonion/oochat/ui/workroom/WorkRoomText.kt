@@ -24,8 +24,8 @@ internal object WorkRoomText {
         ProviderInvocationStatus.ENDED -> "Ended"
     }
 
-    /** Said for a run that ended while the phone was not listening, so no result reached it. */
-    const val ENDED_UNSEEN = "This run ended while the phone was not connected, so its result did not arrive here."
+    /** Said for a run that ended while this device was not listening, so no result reached it. */
+    const val ENDED_UNSEEN = "This run ended while this device was not connected, so its result did not arrive here."
 
     /** The run's task, as the Host titled it; never the raw prompt. */
     fun title(run: ChatItem.ProviderInvocation): String =

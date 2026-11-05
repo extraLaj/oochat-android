@@ -1414,9 +1414,16 @@ ignores the outer tool call too, so its late result cannot bring it back. The
 Control Center app receives the card in the Host's nested shape.
 
 A run still working when the Host answers CONNECTED with `connected` (idle) or
-says it has no record of the session ended while the phone was not listening,
+says it has no record of the session ended while this device was not listening,
 and an idle Host replays nothing, so the card becomes **Ended** (an outcome this
 app cannot know) instead of spinning. A later frame for the run still replaces it.
+`ended` is not a Host status, so the Control Center receives an Ended run as
+`cancelled`, with the Ended explanation as its `resultSummary`.
+
+A run still working keeps the agent busy: the composer shows Stop and a message
+typed meanwhile waits for the turn, as for any other work in flight. It is not
+"in progress" for the Streaming responses setting, though, which would hide its
+card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.

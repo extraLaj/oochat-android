@@ -13,8 +13,10 @@ import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -115,6 +117,16 @@ class ControlCenterChatItemsTest {
             ),
             one(run)
         )
+    }
+
+    @Test
+    fun `a run that ended unseen goes out as a status the Host knows, saying why`() {
+        val ended = ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", status = ProviderInvocationStatus.ENDED)
+
+        val sent = one(ended)
+
+        assertEquals(JsonPrimitive("cancelled"), sent["status"])
+        assertEquals(JsonPrimitive(WorkRoomText.ENDED_UNSEEN), sent["resultSummary"])
     }
 
     @Test

@@ -98,6 +98,14 @@ class WorkRoomComposeTest {
     }
 
     @Test
+    fun `a working run's time does not read as final`() {
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = running.copy(elapsedMs = 42_000L), onNavigateBack = {}) } }
+
+        composeRule.onNodeWithText("Running for 42 s").assertIsDisplayed()
+        composeRule.onNodeWithText("Took 42 s").assertDoesNotExist()
+    }
+
+    @Test
     fun `a stopped run does not still say it is working`() {
         // A Host-made Stop frame carries the running summary over.
         val stopped = running.copy(status = ProviderInvocationStatus.CANCELLED)

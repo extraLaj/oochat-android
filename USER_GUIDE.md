@@ -189,7 +189,7 @@ An agent that can use Claude Code or Codex may hand a coding task to one of
 them. When it does, the chat shows a card for that run instead of a tool call:
 which coding agent, the task, and whether it is working, waiting for your
 decision, completed, failed or stopped. A run that finished while your phone
-was not connected says **Ended**, since its result never reached the phone. Tap **Open Work Room** to follow it: the
+was not connected says **Ended**, since its result never reached this device. Tap **Open Work Room** to follow it: the
 room lists each step the coding agent takes, such as updating files or running
 tests, with the files it changed, and says how the run ended. It keeps updating
 while you watch. You only see the steps the agent's Host describes, never the
