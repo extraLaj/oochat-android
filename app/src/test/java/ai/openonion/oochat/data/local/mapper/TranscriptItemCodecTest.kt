@@ -3,6 +3,9 @@ package ai.openonion.oochat.data.local.mapper
 import ai.openonion.oochat.domain.model.ApprovalDecision
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
+import ai.openonion.oochat.domain.model.ProviderActivity
+import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -27,6 +30,28 @@ class TranscriptItemCodecTest {
             status = ToolStatus.DONE,
             result = "total 24\ndrwxr-xr-x  ...",
             timingMs = 143L
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room run survives a round trip with its steps`() {
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            parentToolCallId = "call-1",
+            workroomId = "codex:call-1",
+            provider = "codex",
+            providerDisplayName = "Codex",
+            taskTitle = "Add a login page",
+            status = ProviderInvocationStatus.COMPLETED,
+            currentSummary = "The provider completed its run",
+            resultSummary = "Updated 2 files",
+            elapsedMs = 42_000L,
+            stateRevision = 3L,
+            activities = listOf(
+                ProviderActivity("a", 1, "file_change", ProviderActivityStatus.COMPLETED, "Update workspace files", "Changed 2 files", listOf("Login.kt")),
+                ProviderActivity("t", Int.MAX_VALUE, "tool", ProviderActivityStatus.FAILED, "shell", "", legacy = true)
+            )
         )
         assertEquals(item, roundTrip(item))
     }

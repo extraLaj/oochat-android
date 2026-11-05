@@ -98,7 +98,8 @@ class ChatControlsLabelledComposeTest {
         ChatItem.FilesReceivedItem("f1", listOf(ReceivedFile("a.txt", "/a.txt"))),
         ChatItem.UlwTurnsReachedItem("ul1", 10, 10),
         ChatItem.DiffPreviewItem("d1", "/a.txt", "+new\n-old"),
-        ChatItem.ModeChangedItem("m1", "plan", "agent")
+        ChatItem.ModeChangedItem("m1", "plan", "agent"),
+        ChatItem.ProviderInvocation("w1", provider = "codex", taskTitle = "Add a login page")
     )
 
     @Test

@@ -7,11 +7,16 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
+import ai.openonion.oochat.domain.model.ProviderActivity
+import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -82,6 +87,46 @@ class ControlCenterChatItemsTest {
             ControlCenterChatItems.of(listOf(ChatItem.Turn(id = "t2", agent = ChatItem.Agent(id = "r1", content = "only"))))
         )
         assertEquals(emptyList<JsonObject>(), ControlCenterChatItems.of(listOf(ChatItem.Turn(id = "t3"))))
+    }
+
+    @Test
+    fun `a Work Room run is the Host's nested card, its compatibility steps as tool calls`() {
+        // network/host/session/ui.py: the invocation with its activities, legacy ones being the tool_call item.
+        val run = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            parentToolCallId = "call-1",
+            provider = "codex",
+            providerDisplayName = "Codex",
+            taskTitle = "Add a login page",
+            status = ProviderInvocationStatus.COMPLETED,
+            stateRevision = 3,
+            activities = listOf(
+                ProviderActivity("a", 1, "file_change", ProviderActivityStatus.COMPLETED, "Update workspace files", "Changed 1 file", listOf("Login.kt")),
+                ProviderActivity("t", Int.MAX_VALUE, "tool", ProviderActivityStatus.FAILED, "Use a provider tool", "", legacy = true)
+            )
+        )
+
+        assertEquals(
+            json(
+                """{"id":"codex:call-1","type":"provider_invocation","invocationId":"codex:call-1","parentToolCallId":"call-1",
+                "provider":"codex","providerDisplayName":"Codex","taskTitle":"Add a login page","status":"completed","stateRevision":3,
+                "activities":[
+                  {"id":"a","sequence":1,"kind":"file_change","status":"completed","title":"Update workspace files","summary":"Changed 1 file","files":["Login.kt"],"legacy":false},
+                  {"id":"t","type":"tool_call","name":"Use a provider tool","status":"error","legacy":true}
+                ]}"""
+            ),
+            one(run)
+        )
+    }
+
+    @Test
+    fun `a run that ended unseen goes out as a status the Host knows, saying why`() {
+        val ended = ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", status = ProviderInvocationStatus.ENDED)
+
+        val sent = one(ended)
+
+        assertEquals(JsonPrimitive("cancelled"), sent["status"])
+        assertEquals(JsonPrimitive(WorkRoomText.ENDED_UNSEEN), sent["resultSummary"])
     }
 
     @Test

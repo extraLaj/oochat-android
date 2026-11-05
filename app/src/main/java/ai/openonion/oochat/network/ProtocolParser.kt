@@ -71,6 +71,8 @@ object ProtocolParser {
      * @return ParsedResult containing the event and any side effects
      */
     fun parse(text: String, outstandingInputIds: Set<String>, isDirect: Boolean): ParseResult {
+        // Claude Code and Codex Work Room frames have a decoder of their own; see ProviderFrames.
+        ProviderFrames.parse(text)?.let { return it }
         val event = try {
             json.decodeFromString<ServerEvent>(text)
         } catch (e: kotlinx.serialization.SerializationException) {
@@ -279,31 +281,55 @@ object ProtocolParser {
             // with no tool_id at all.
             "tool_call" -> {
                 val id = event.toolId ?: event.id ?: generateId()
-                ParseResult(
-                    event = ConnectionEvent.ChatItemReceived(
-                        ChatItem.ToolCall(
-                            id = id,
-                            name = event.name ?: "unknown",
-                            args = event.args.toDisplayMap(),
-                            status = toolStartStatus(event.status)
+                // A step of a Claude Code or Codex run is shown in its Work Room, not as a card of its own.
+                val invocationId = event.invocationId?.takeIf { it.isNotBlank() }
+                if (invocationId != null) {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ProviderFrames.legacyStep(invocationId, event.parentToolCallId, id, event.status)
                         )
                     )
-                )
+                } else {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemReceived(
+                            ChatItem.ToolCall(
+                                id = id,
+                                name = event.name ?: "unknown",
+                                args = event.args.toDisplayMap(),
+                                status = toolStartStatus(event.status)
+                            )
+                        )
+                    )
+                }
             }
 
             "tool_result" -> {
                 val id = event.toolId ?: event.id ?: return ParseResult(event = ConnectionEvent.Unknown)
-                ParseResult(
-                    event = ConnectionEvent.ChatItemUpdated(
-                        ChatItem.ToolCall(
-                            id = id,
-                            name = event.name ?: "",
-                            status = toolResultStatus(event.status),
-                            result = event.result,
-                            timingMs = event.timingMs?.toLong()
+                val invocationId = event.invocationId?.takeIf { it.isNotBlank() }
+                if (invocationId != null) {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ProviderFrames.legacyStep(
+                                invocationId,
+                                event.parentToolCallId,
+                                id,
+                                event.status?.takeIf { it.isNotBlank() } ?: "failed"
+                            )
                         )
                     )
-                )
+                } else {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ChatItem.ToolCall(
+                                id = id,
+                                name = event.name ?: "",
+                                status = toolResultStatus(event.status),
+                                result = event.result,
+                                timingMs = event.timingMs?.toLong()
+                            )
+                        )
+                    )
+                }
             }
 
             // A complete Todo List replacement (agent.py's _record_plan).

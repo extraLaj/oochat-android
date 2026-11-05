@@ -96,6 +96,7 @@ fun ChatScreen(
     onNavigateToRem: () -> Unit = {},
     onNavigateToAgentList: () -> Unit = {},
     onNavigateToControlCenter: () -> Unit = {},
+    onNavigateToWorkRoom: (invocationId: String) -> Unit = {},
     // Home is already part of this layout, beside the chat or as a tab, so the top bar's button to
     // open it would only open what is there.
     homeInLayout: Boolean = false,
@@ -366,6 +367,7 @@ fun ChatScreen(
                 conversationKey = activeSessionId,
                 hasOlderMessages = hasOlderMessages,
                 onLoadOlderMessages = viewModel::loadOlderMessages,
+                onOpenWorkRoom = onNavigateToWorkRoom,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()

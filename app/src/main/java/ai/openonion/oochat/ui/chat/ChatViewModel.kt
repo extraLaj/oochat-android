@@ -34,6 +34,7 @@ import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.UserMessageState
+import ai.openonion.oochat.domain.model.WorkRooms
 import ai.openonion.oochat.domain.model.canonicalAgentAddress
 import ai.openonion.oochat.domain.model.createError
 import ai.openonion.oochat.domain.model.dedupeUI
@@ -1348,8 +1349,11 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     private fun onHostIdle() {
         val inProgress = _uiState.value.chatItems.filter { it.isInProgress() }
-        if (inProgress.isEmpty()) return
-        val settled = inProgress.resolveRunningItems().associateBy { it.id }
+        // A Claude Code or Codex run is never "in progress" for the streaming toggle (its
+        // card is how the run is followed), but an idle Host means it is over all the same.
+        val unseenRuns = _uiState.value.chatItems.mapNotNull(WorkRooms::endedUnseen)
+        if (inProgress.isEmpty() && unseenRuns.isEmpty()) return
+        val settled = (inProgress.resolveRunningItems() + unseenRuns).associateBy { it.id }
         _uiState.update { state -> state.copy(chatItems = state.chatItems.map { settled[it.id] ?: it }) }
         val owningSessionId = conversationHistory.activeSessionId.value
         settled.values.forEach { item -> launchScoped { conversationHistory.persistMessage(item, owningSessionId) } }
@@ -3101,7 +3105,9 @@ open class ChatViewModel @JvmOverloads constructor(
             // UI. Awaiting (rather than fire-and-forget) means a
             // process kill between clearChat and the next launch
             // can't leave the persistence half-done.
-            val snapshot = _uiState.value.chatItems.map { it.id }
+            // With the outer tool call of each run: its result can still be on its way, and
+            // must not come back as a card of its own.
+            val snapshot = _uiState.value.chatItems.map { it.id } + WorkRooms.parentToolCallIds(_uiState.value.chatItems)
             ignoredIdsManager.ignoreAll(_targetAgentAddress, snapshot)
             // Wipe the active session's persisted log too, so the drawer's
             // preview/count for this conversation reflects the clear.

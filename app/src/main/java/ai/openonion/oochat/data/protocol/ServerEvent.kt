@@ -25,6 +25,10 @@ data class ServerEvent(
     val error: String? = null,
     val id: String? = null,
     @SerialName("tool_id") val toolId: String? = null,
+    // A Claude Code or Codex run's compatibility tool_call/tool_result names
+    // the run it belongs to (W16AAPPLE-33); see ProviderFrames.legacyStep.
+    val invocationId: String? = null,
+    val parentToolCallId: String? = null,
     val name: String? = null,
     // JsonElement, not String: the server sends tool args with their native
     // JSON types (int/bool/etc — e.g. bash's `timeout: int`), and this Json

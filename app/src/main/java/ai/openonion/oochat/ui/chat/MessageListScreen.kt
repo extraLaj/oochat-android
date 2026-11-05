@@ -85,6 +85,8 @@ fun MessageList(
     conversationKey: String? = null,
     hasOlderMessages: Boolean = false,
     onLoadOlderMessages: () -> Unit = {},
+    // Opens a Claude Code or Codex run's Work Room, by its invocation id (W16AAPPLE-33).
+    onOpenWorkRoom: (invocationId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Each turn's thoughts ride on its newest one (see groupReasoningByTurn).
@@ -331,7 +333,8 @@ fun MessageList(
                         openThoughtGroups = openThoughtGroups,
                         onToggleThoughts = { key ->
                             openThoughtGroups = if (key in openThoughtGroups) openThoughtGroups - key else openThoughtGroups + key
-                        }
+                        },
+                        onOpenWorkRoom = onOpenWorkRoom
                     )
                 }
             }
@@ -357,7 +360,8 @@ private fun ChatItemWrapper(
     hasLiveConnection: Boolean = true,
     thoughtGroup: ThoughtGroup? = null,
     openThoughtGroups: Set<String> = emptySet(),
-    onToggleThoughts: (String) -> Unit = {}
+    onToggleThoughts: (String) -> Unit = {},
+    onOpenWorkRoom: (String) -> Unit = {}
 ) {
     // One timestamp per run, on its last message — a time on every bubble in a
     // burst repeats the same minute three times over.
@@ -390,7 +394,8 @@ private fun ChatItemWrapper(
             onResend = onResend,
             earlierThoughts = thoughtGroup?.earlier.orEmpty(),
             showAllThoughts = thoughtGroup != null && thoughtGroup.key in openThoughtGroups,
-            onToggleThoughts = thoughtGroup?.let { group -> { onToggleThoughts(group.key) } }
+            onToggleThoughts = thoughtGroup?.let { group -> { onToggleThoughts(group.key) } },
+            onOpenWorkRoom = onOpenWorkRoom
         )
     }
     // The run boundary carries the spacing: `lg` between runs, `xs` inside one,
