@@ -71,6 +71,8 @@ object ProtocolParser {
      * @return ParsedResult containing the event and any side effects
      */
     fun parse(text: String, outstandingInputIds: Set<String>, isDirect: Boolean): ParseResult {
+        // Claude Code and Codex Work Room frames have a decoder of their own; see ProviderFrames.
+        ProviderFrames.parse(text)?.let { return it }
         val event = try {
             json.decodeFromString<ServerEvent>(text)
         } catch (e: kotlinx.serialization.SerializationException) {
@@ -279,31 +281,55 @@ object ProtocolParser {
             // with no tool_id at all.
             "tool_call" -> {
                 val id = event.toolId ?: event.id ?: generateId()
-                ParseResult(
-                    event = ConnectionEvent.ChatItemReceived(
-                        ChatItem.ToolCall(
-                            id = id,
-                            name = event.name ?: "unknown",
-                            args = event.args.toDisplayMap(),
-                            status = toolStartStatus(event.status)
+                // A step of a Claude Code or Codex run is shown in its Work Room, not as a card of its own.
+                val invocationId = event.invocationId?.takeIf { it.isNotBlank() }
+                if (invocationId != null) {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ProviderFrames.legacyStep(invocationId, event.parentToolCallId, id, event.status)
                         )
                     )
-                )
+                } else {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemReceived(
+                            ChatItem.ToolCall(
+                                id = id,
+                                name = event.name ?: "unknown",
+                                args = event.args.toDisplayMap(),
+                                status = toolStartStatus(event.status)
+                            )
+                        )
+                    )
+                }
             }
 
             "tool_result" -> {
                 val id = event.toolId ?: event.id ?: return ParseResult(event = ConnectionEvent.Unknown)
-                ParseResult(
-                    event = ConnectionEvent.ChatItemUpdated(
-                        ChatItem.ToolCall(
-                            id = id,
-                            name = event.name ?: "",
-                            status = toolResultStatus(event.status),
-                            result = event.result,
-                            timingMs = event.timingMs?.toLong()
+                val invocationId = event.invocationId?.takeIf { it.isNotBlank() }
+                if (invocationId != null) {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ProviderFrames.legacyStep(
+                                invocationId,
+                                event.parentToolCallId,
+                                id,
+                                event.status?.takeIf { it.isNotBlank() } ?: "failed"
+                            )
                         )
                     )
-                )
+                } else {
+                    ParseResult(
+                        event = ConnectionEvent.ChatItemUpdated(
+                            ChatItem.ToolCall(
+                                id = id,
+                                name = event.name ?: "",
+                                status = toolResultStatus(event.status),
+                                result = event.result,
+                                timingMs = event.timingMs?.toLong()
+                            )
+                        )
+                    )
+                }
             }
 
             // A complete Todo List replacement (agent.py's _record_plan).
@@ -376,6 +402,7 @@ object ProtocolParser {
                 event = ConnectionEvent.ChatItemReceived(
                     ChatItem.AskUser(
                         id = event.id ?: generateId(),
+                        requestId = event.id,
                         // The server's actual field is "question" (see
                         // ask_user.py's event payload) — "text" is not sent
                         // for this event type, only kept as a fallback so an
@@ -392,6 +419,7 @@ object ProtocolParser {
                 event = ConnectionEvent.ChatItemReceived(
                     ChatItem.ApprovalNeeded(
                         id = event.id ?: generateId(),
+                        requestId = event.id,
                         tool = event.tool ?: "",
                         arguments = event.arguments.toDisplayMap() ?: emptyMap(),
                         description = event.description,
@@ -559,6 +587,21 @@ object ProtocolParser {
                 )
             }
 
+            // The answer to a WIKI_READ (W16AAPPLE-69). Like EXEC_RESULT it
+            // settles one waiting request and is not a chat item.
+            "WIKI_RESULT" -> {
+                val requestId = event.requestId?.takeIf { it.isNotBlank() }
+                    ?: return ParseResult(event = ConnectionEvent.Unknown)
+                ParseResult(
+                    event = ConnectionEvent.RemResultReceived(
+                        requestId = requestId,
+                        ok = event.ok == true,
+                        html = event.html,
+                        error = event.error
+                    )
+                )
+            }
+
             "OUTPUT" -> {
                 val isForUs = isDirect || event.inputId == null || event.inputId in outstandingInputIds
                 if (isForUs) {
@@ -606,6 +649,12 @@ object ProtocolParser {
                             message = event.message
                         )
                     )
+
+                // The Host was no longer waiting on that request (another device
+                // answered first, or the turn ended). Nothing was applied, and the
+                // socket is fine. Shape: docs/network/websocket-protocol.md, APPROVAL_RESPONSE.
+                STALE_ANSWER ->
+                    ParseResult(event = ConnectionEvent.AnswerRefused(requestId = event.requestId))
 
                 else ->
                     ParseResult(
@@ -824,6 +873,9 @@ object ProtocolParser {
     /** `code` of the ERROR frame a host sends when a running turn refuses runtime input. */
     const val RUNTIME_INPUT_REJECTED = "RUNTIME_INPUT_REJECTED"
 
+    /** `code` of the ERROR a host sends when it refuses an answer (docs/network/websocket-protocol.md). */
+    const val STALE_ANSWER = "STALE_ANSWER"
+
     /** [ChatItem.Thinking.kind] for reasoning text whose frame names no kind. */
     const val REASONING_KIND = "reasoning"
 
@@ -1040,6 +1092,18 @@ sealed class ConnectionEvent {
     ) : ConnectionEvent()
 
     /**
+     * A `WIKI_RESULT`: the Host's answer to the Rem read with [requestId].
+     * [html] is the whole reader page and stays inside the network layer,
+     * which turns it into a [ai.openonion.oochat.domain.model.RemOutcome].
+     */
+    data class RemResultReceived(
+        val requestId: String,
+        val ok: Boolean,
+        val html: String? = null,
+        val error: String? = null
+    ) : ConnectionEvent()
+
+    /**
      * The connection's session changed, from whichever frame carried it —
      * CONNECTED, OUTPUT or session_sync. Emitted so persistence has one thing
      * to listen to instead of guessing which frame types carry a session.
@@ -1104,6 +1168,9 @@ sealed class ConnectionEvent {
      * [RuntimeInputAcknowledged].
      */
     data class RuntimeInputRejected(val sessionId: String?, val retryable: Boolean, val message: String?) : ConnectionEvent()
+
+    /** The Host refused an answer to [requestId] (STALE_ANSWER). */
+    data class AnswerRefused(val requestId: String?) : ConnectionEvent()
     data class ConnectionError(
         val message: String,
         /** Machine-readable ERROR code, when the Host supplied one. */

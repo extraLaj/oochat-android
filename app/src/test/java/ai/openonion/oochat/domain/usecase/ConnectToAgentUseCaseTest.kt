@@ -58,8 +58,11 @@ class ConnectToAgentUseCaseTest {
         override suspend fun switchConversation(conversationId: String?) { switchedConversations += conversationId }
         override fun liveSessionIdFor(agentAddress: String): String? = null
 
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) {
+        val connectedRelays = mutableListOf<String?>()
+
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?) {
             connectCount++
+            connectedRelays += relayUrl
             connectedAddresses += agentAddress
             connectedConversations += conversationId
             hasConnectedThisAttempt = false
@@ -82,9 +85,9 @@ class ConnectToAgentUseCaseTest {
             lastExecRequest = request
             return execOutcome
         }
-        override suspend fun respond(answer: String) {}
+        override suspend fun respond(answer: String, requestId: String?) {}
         override suspend fun interrupt() {}
-        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {}
+        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {}
         override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {}
         override suspend fun respondToPlanReview(message: String) {}
         override suspend fun respondToUlwTurnsReached(action: String, turns: Int?, mode: String?) {}
@@ -164,6 +167,22 @@ class ConnectToAgentUseCaseTest {
         assertTrue(connected)
         assertEquals(1, fakeRepository.connectCount)
         assertEquals(0, fakeRepository.resetCount)
+    }
+
+    @Test
+    fun `a self-hosted relay reaches the repository on every attempt`() = runTest(testDispatcher) {
+        // W16AAPPLE-56: the second, same-session attempt must not fall back to the default relay.
+        val useCase = newUseCase()
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.state.value = ConnectionState.Error("Connection failed")
+        }
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.state.value = ConnectionState.Connected(address = validAddress)
+        }
+
+        useCase.connect(validAddress, relayUrl = "https://relay.example.com")
+
+        assertEquals(listOf("https://relay.example.com", "https://relay.example.com"), fakeRepository.connectedRelays)
     }
 
     @Test

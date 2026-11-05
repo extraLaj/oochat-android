@@ -21,13 +21,13 @@ class KeyManagerSodiumVectorsTest {
     private val keyManager = KeyManager(InstrumentationRegistry.getInstrumentation().targetContext)
 
     @Test
-    fun a_recovery_phrase_restores_the_address_libsodium_derives_from_it() {
+    fun a_recovery_phrase_restores_the_address_co_recovers_from_it() {
         assertEquals(
-            "0xc5785e1865b708938aff8161d573006496663b1aa10834e396dc566869a2c66a",
+            "0x54ff7e165926bca30e8b1535f22c053a0e0e2ca6d5a445a149bde23d90c6ee1e",
             keyManager.keysFromMnemonic(ABANDON_ABOUT).address
         )
         assertEquals(
-            "0xc6f2ac5598970c79633714d3eb5c34d7bfc3e92da58c7354b37996d9a4af3ab2",
+            "0xf8405257284c15e67fd759703d0c04afdf2f216153b9781946f096cae1990a95",
             keyManager.keysFromMnemonic("legal winner thank year wave sausage worth useful legal winner thank yellow").address
         )
     }
@@ -40,8 +40,8 @@ class KeyManagerSodiumVectorsTest {
         )
 
         assertEquals(
-            "8c547c5d3abeb8b79fc0325271379ea5b745c92e1dc5b27a3fea568a44bb47fb" +
-                "68ef2dbf6cfbf1282eae7dbed17132907b11184c1ada817ca27fe351d781fc0f",
+            "2402db638f0cf481d7107ea49fec3bb319a6e186cd24287dd37251d42db55970" +
+                "7047184d9625db0b53e9907c2934325742d13b64ea28ba826369a70621ac580a",
             keyManager.sign(keys, canonical)
         )
     }

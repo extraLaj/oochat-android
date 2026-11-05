@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.SessionModes
@@ -452,6 +453,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.RuntimeInputAcknowledged -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputAcknowledged(event.sessionId))
                     }
+                    is ConnectionEvent.AnswerRefused -> {
+                        _chatEvents.tryEmit(ChatEvent.AnswerRefused(event.requestId))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
@@ -540,7 +544,7 @@ class ConnectionRepositoryImpl(
         // The plan is the left conversation's. The one coming in is its stored
         // plan: an idle session's CONNECTED carries no snapshot of its own.
         showStoredPlan(session)
-        connection?.switchSession(session)
+        connection?.switchSession(session, conversationId)
     }
 
     /** The plan [session] was saved with, or none — see SessionStateEntity.planJson. */
@@ -567,7 +571,14 @@ class ConnectionRepositoryImpl(
         return session
     }
 
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) {
+    override suspend fun connect(
+        agentAddress: String,
+        conversationId: String?,
+        directUrl: String?,
+        relayUrl: String?
+    ) {
+        // A self-hosted relay is per agent; everything else uses this repository's own.
+        val effectiveRelayUrl = relayUrl ?: this.relayUrl
         withContext(Dispatchers.IO) {
             connectMutex.withLock {
                 // One socket per agent. The Loading probe and ChatViewModel now
@@ -646,8 +657,8 @@ class ConnectionRepositoryImpl(
 
                     val newConnection = agentConnectionFactory(
                         keyManager ?: error("keyManager is required to connect"),
-                        relayUrl
-                    ).also { it.setSession(restoredSession) }
+                        effectiveRelayUrl
+                    ).also { it.setSession(restoredSession, conversationId) }
                     connection = newConnection
 
                     // Subscribe first, and wait until the subscription is
@@ -680,7 +691,9 @@ class ConnectionRepositoryImpl(
                 // disconnect (the first-connect timeout included). The bubble
                 // already says "Waiting to send", so queue it for this
                 // conversation's next CONNECTED rather than drop it
-                // (W16AAPPLE-102). The conversation id is the session id.
+                // (W16AAPPLE-102). The conversation id is the local routing
+                // fallback; the flush also accepts it alongside a fresh Host
+                // session id when Memory is off.
                 FileLogger.w(LogTags.CONN_REPO, "No connection, queuing message")
                 pendingMessageSink.enqueue(agentAddress, currentConversationId, content, images, wireFiles)
             }
@@ -729,21 +742,24 @@ class ConnectionRepositoryImpl(
             )
         }
 
+    override suspend fun readRem(): RemOutcome =
+        withContext(Dispatchers.IO) { connection?.readRem() ?: RemOutcome.NotConnected }
+
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {
             connection?.interrupt()
         }
     }
 
-    override suspend fun respond(answer: String) {
+    override suspend fun respond(answer: String, requestId: String?) {
         withContext(Dispatchers.IO) {
-            connection?.respond(answer)
+            connection?.respond(answer, requestId)
         }
     }
 
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
         withContext(Dispatchers.IO) {
-            connection?.respondToApproval(approved, scope, mode, feedback)
+            connection?.respondToApproval(approved, scope, mode, feedback, requestId)
         }
     }
 

@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.agent
 
 import ai.openonion.oochat.data.local.ConnectionConfig
+import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AgentDiscoveryRepository
 import ai.openonion.oochat.data.repository.AgentRepository
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
@@ -13,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -137,15 +139,15 @@ class AgentViewModelTest {
         override val agentProfile: kotlinx.coroutines.flow.StateFlow<ai.openonion.oochat.domain.model.AgentLiveProfile?> =
             MutableStateFlow(null)
         override val dashboardHtml: kotlinx.coroutines.flow.StateFlow<String?> = MutableStateFlow(null)
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?) = true
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?) = true
         override suspend fun switchConversation(conversationId: String?) {}
         override fun liveSessionIdFor(agentAddress: String): String? = null
         override fun observeEvents(): Flow<ai.openonion.oochat.domain.model.ChatEvent> = kotlinx.coroutines.flow.emptyFlow()
         override suspend fun sendMessage(content: String, agentAddress: String, images: List<String>?, files: List<ai.openonion.oochat.domain.model.OutgoingFileAttachment>?) {}
         override suspend fun executeTool(request: ExecRequest): ExecOutcome = ExecOutcome.NotSent("Not used in AgentViewModel tests")
-        override suspend fun respond(answer: String) {}
+        override suspend fun respond(answer: String, requestId: String?) {}
         override suspend fun interrupt() {}
-        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {}
+        override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {}
         override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {}
         override suspend fun respondToPlanReview(message: String) {}
         override suspend fun respondToUlwTurnsReached(action: String, turns: Int?, mode: String?) {}
@@ -482,6 +484,32 @@ class AgentViewModelTest {
         assertEquals(discovered.serverUrl, configRepository.config?.serverUrl)
         assertEquals(discovered.address, configRepository.config?.agentAddress)
         assertTrue(onSavedCalled)
+    }
+
+    @Test
+    fun `an agent discovered on a self-hosted relay is saved to connect through that relay`() = runTest {
+        // W16AAPPLE-56: the ticket's own path, discovery on a typed-in relay, then Loading.
+        val discovered = testAgent(id = "0xnew", address = "0xnew")
+
+        viewModel.connectToDiscoveredAgent(discovered, onSaved = {})
+
+        val target = configRepository.config!!.toConnectTarget()
+        assertNull(target.directUrl)
+        assertEquals("https://relay.example.com", target.relayUrl)
+    }
+
+    @Test
+    fun `choosing an agent from the list saves its mode with it`() = runTest {
+        val direct = testAgent("own", address = "0xown").copy(serverUrl = "https://agent.example.com", connectionMode = "direct")
+        agentRepository.agents.value = listOf(direct)
+        viewModel = buildViewModel()
+        advanceUntilIdle()
+
+        viewModel.selectAgentForConnection("0xown", onSaved = {})
+        advanceUntilIdle()
+
+        assertEquals("direct", configRepository.config?.connectionMode)
+        assertEquals("https://agent.example.com", configRepository.config!!.toConnectTarget().directUrl)
     }
 
     @Test

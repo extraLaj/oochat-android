@@ -13,4 +13,25 @@ interface SessionSyncRepository {
         agentId: String,
         snapshot: SessionSyncSnapshot
     )
+
+    /**
+     * Advances the Host cursor without importing any of the sessions in that
+     * snapshot. Used for the first sync after Memory is re-enabled: sessions
+     * created while Memory was off are intentionally skipped.
+     */
+    suspend fun advanceCursor(
+        identityAddress: String,
+        agentId: String,
+        cursor: String
+    ) {
+        reconcile(
+            identityAddress = identityAddress,
+            agentId = agentId,
+            snapshot = SessionSyncSnapshot(
+                sessions = emptyList(),
+                removedSessionIds = emptyList(),
+                cursor = cursor
+            )
+        )
+    }
 }

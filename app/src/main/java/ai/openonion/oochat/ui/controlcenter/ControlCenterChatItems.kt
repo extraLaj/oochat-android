@@ -4,8 +4,12 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
+import ai.openonion.oochat.domain.model.ProviderActivity
+import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -126,8 +130,66 @@ object ControlCenterChatItems {
                 )
             }
         )
+        // The Host's own nested shape for a run (network/host/session/ui.py), which the SDK renders as a coding-agent card.
+        is ChatItem.ProviderInvocation -> listOf(
+            item(item.id, "provider_invocation") {
+                put("invocationId", item.id)
+                item.parentToolCallId?.let { put("parentToolCallId", it) }
+                item.workroomId?.let { put("workroomId", it) }
+                put("provider", item.provider)
+                item.providerDisplayName?.let { put("providerDisplayName", it) }
+                item.taskTitle?.let { put("taskTitle", it) }
+                put("status", item.status.wire)
+                item.currentSummary?.let { put("currentSummary", it) }
+                (item.resultSummary ?: WorkRoomText.ENDED_UNSEEN.takeIf { item.status == ProviderInvocationStatus.ENDED })
+                    ?.let { put("resultSummary", it) }
+                item.errorSummary?.let { put("errorSummary", it) }
+                item.elapsedMs?.let { put("elapsedMs", it) }
+                item.stateRevision?.let { put("stateRevision", it) }
+                put(
+                    "activities",
+                    buildJsonArray {
+                        item.activities.forEach { step ->
+                            add(if (step.legacy) legacyStep(step) else nativeStep(step))
+                        }
+                    }
+                )
+            }
+        )
         is ChatItem.OnboardingFailed, is ChatItem.PlanReviewItem, is ChatItem.UlwTurnsReachedItem,
-        is ChatItem.DiffPreviewItem, is ChatItem.ModeChangedItem -> emptyList()
+        is ChatItem.DiffPreviewItem, is ChatItem.ModeChangedItem, is ChatItem.ProviderActivityUpdate -> emptyList()
+    }
+
+    /** A `provider_activity` step as ui.py `_nested_provider_activity` nests it. */
+    private fun nativeStep(step: ProviderActivity) = buildJsonObject {
+        put("id", step.id)
+        put("sequence", step.sequence)
+        put("kind", step.kind)
+        put("status", step.status.name.lowercase())
+        put("title", step.title)
+        put("summary", step.summary)
+        if (step.files.isNotEmpty()) put("files", buildJsonArray { step.files.forEach { add(it.json) } })
+        put("legacy", false)
+    }
+
+    /**
+     * A compatibility step as ui.py nests it: the tool_call item itself, marked
+     * legacy, with the SDK's tool statuses. Its name is the generic title, as on
+     * screen: the Host's own is Codex's raw command.
+     */
+    private fun legacyStep(step: ProviderActivity) = buildJsonObject {
+        put("id", step.id)
+        put("type", "tool_call")
+        put("name", step.title)
+        put(
+            "status",
+            when (step.status) {
+                ProviderActivityStatus.RUNNING -> "running"
+                ProviderActivityStatus.COMPLETED -> "done"
+                ProviderActivityStatus.FAILED -> "error"
+            }
+        )
+        put("legacy", true)
     }
 
     private fun agent(id: String, item: ChatItem.Agent) = item(id, "agent") {
@@ -163,6 +225,11 @@ object ControlCenterChatItems {
 
     private val ThinkingStatus.wire get() = name.lowercase()
     private val ToolStatus.wire get() = name.lowercase()
+    // ENDED is this app's own: the Host never sends it, so the SDK's card would not know it. A run
+    // that ended unseen is over either way, and "cancelled" is the Host's terminal status that claims
+    // neither a result nor an error; the resultSummary written with it says what really happened.
+    private val ProviderInvocationStatus.wire
+        get() = if (this == ProviderInvocationStatus.ENDED) "cancelled" else name.lowercase()
 
     /** Added to a [ChatItem.Turn]'s reply when it shares the turn's thinking id. */
     const val REPLY_SUFFIX = ":reply"

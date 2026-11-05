@@ -5,6 +5,9 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
+import ai.openonion.oochat.domain.model.ProviderActivity
+import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -27,8 +30,7 @@ import kotlinx.serialization.json.Json
  * what the agent was allowed to do, which is transcript like any other.
  *
  * The remaining gates (AskUser, Onboard*, PlanReview, UlwTurnsReached) are
- * still excluded — none of them carries its answer on the item yet, so there
- * is nothing to restore them into.
+ * still excluded. AskUser now keeps its answer on the item, but is not saved yet.
  */
 @Serializable
 sealed class TranscriptItemPayload {
@@ -136,7 +138,10 @@ sealed class TranscriptItemPayload {
         val approved: Boolean,
         val scope: String,
         val mode: String? = null,
-        val feedback: String? = null
+        val feedback: String? = null,
+        val refused: Boolean = false,
+        /** Kept so a STALE_ANSWER arriving after a reload still finds its card. */
+        val requestId: String? = null
     ) : TranscriptItemPayload()
 
     @Serializable
@@ -167,6 +172,38 @@ sealed class TranscriptItemPayload {
         val triggeredBy: String? = null,
         val turnsLeft: Int? = null
     ) : TranscriptItemPayload()
+
+    /** A Claude Code or Codex run's Work Room card, with its steps (W16AAPPLE-33). */
+    @Serializable
+    @SerialName("provider_invocation")
+    data class ProviderInvocation(
+        override val id: String,
+        val parentToolCallId: String? = null,
+        val workroomId: String? = null,
+        val provider: String = "",
+        val providerDisplayName: String? = null,
+        val taskTitle: String? = null,
+        val status: String,
+        val currentSummary: String? = null,
+        val resultSummary: String? = null,
+        val errorSummary: String? = null,
+        val elapsedMs: Long? = null,
+        val stateRevision: Long? = null,
+        val activities: List<Step> = emptyList()
+    ) : TranscriptItemPayload() {
+        @Serializable
+        data class Step(
+            val id: String,
+            val sequence: Int,
+            // Not `kind`: that is this codec's class discriminator.
+            val activityKind: String = "",
+            val status: String,
+            val title: String,
+            val summary: String = "",
+            val files: List<String> = emptyList(),
+            val legacy: Boolean = false
+        )
+    }
 }
 
 /**
@@ -292,7 +329,9 @@ object TranscriptItemCodec {
                 approved = d.approved,
                 scope = d.scope,
                 mode = d.mode,
-                feedback = d.feedback
+                feedback = d.feedback,
+                refused = d.refused,
+                requestId = item.requestId
             )
         }
         is ChatItem.FilesReceivedItem -> TranscriptItemPayload.FilesReceived(
@@ -311,6 +350,32 @@ object TranscriptItemCodec {
             mode = item.mode,
             triggeredBy = item.triggeredBy,
             turnsLeft = item.turnsLeft
+        )
+        is ChatItem.ProviderInvocation -> TranscriptItemPayload.ProviderInvocation(
+            id = item.id,
+            parentToolCallId = item.parentToolCallId,
+            workroomId = item.workroomId,
+            provider = item.provider,
+            providerDisplayName = item.providerDisplayName,
+            taskTitle = item.taskTitle,
+            status = item.status.name,
+            currentSummary = item.currentSummary,
+            resultSummary = item.resultSummary,
+            errorSummary = item.errorSummary,
+            elapsedMs = item.elapsedMs,
+            stateRevision = item.stateRevision,
+            activities = item.activities.map {
+                TranscriptItemPayload.ProviderInvocation.Step(
+                    id = it.id,
+                    sequence = it.sequence,
+                    activityKind = it.kind,
+                    status = it.status.name,
+                    title = it.title,
+                    summary = it.summary,
+                    files = it.files,
+                    legacy = it.legacy
+                )
+            }
         )
         else -> null
     }
@@ -396,7 +461,8 @@ object TranscriptItemCodec {
             tool = payload.tool,
             arguments = payload.arguments,
             description = payload.description,
-            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback)
+            decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback, payload.refused),
+            requestId = payload.requestId
         )
         is TranscriptItemPayload.FilesReceived -> ChatItem.FilesReceivedItem(
             id = payload.id,
@@ -414,6 +480,34 @@ object TranscriptItemCodec {
             mode = payload.mode,
             triggeredBy = payload.triggeredBy,
             turnsLeft = payload.turnsLeft
+        )
+        // A run saved while it worked comes back working: only the Host, replaying
+        // the frames missed since (last_msg_id), may say it ended.
+        is TranscriptItemPayload.ProviderInvocation -> ChatItem.ProviderInvocation(
+            id = payload.id,
+            parentToolCallId = payload.parentToolCallId,
+            workroomId = payload.workroomId,
+            provider = payload.provider,
+            providerDisplayName = payload.providerDisplayName,
+            taskTitle = payload.taskTitle,
+            status = enumOrDefault(payload.status, ProviderInvocationStatus.RUNNING),
+            currentSummary = payload.currentSummary,
+            resultSummary = payload.resultSummary,
+            errorSummary = payload.errorSummary,
+            elapsedMs = payload.elapsedMs,
+            stateRevision = payload.stateRevision,
+            activities = payload.activities.map {
+                ProviderActivity(
+                    id = it.id,
+                    sequence = it.sequence,
+                    kind = it.activityKind,
+                    status = enumOrDefault(it.status, ProviderActivityStatus.COMPLETED),
+                    title = it.title,
+                    summary = it.summary,
+                    files = it.files,
+                    legacy = it.legacy
+                )
+            }
         )
     }
 

@@ -6,6 +6,7 @@ import ai.openonion.oochat.data.protocol.ProtocolDescriptor
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.knownIssue
 import androidx.test.core.app.ApplicationProvider
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -157,7 +160,12 @@ class AgentConnectionRobolectricTest {
         // the native libsodium binary and throws UnsatisfiedLinkError on a
         // host JVM/Robolectric. Inject a fake signer so the respondToOnboard
         // tests below can exercise the real wire-format/queuing logic.
-        connection = AgentConnection(keyManager, webSocketFactory = factory, signer = { _, _ -> "fake-signature" })
+        connection = AgentConnection(
+            keyManager,
+            webSocketFactory = factory,
+            signer = { _, _ -> "fake-signature" },
+            remParseDispatcher = Dispatchers.Unconfined
+        )
     }
 
     @After
@@ -222,6 +230,18 @@ class AgentConnectionRobolectricTest {
     private suspend fun awaitSockets(expected: Int) {
         awaitOn("socket #$expected to open", factory.createCount) { it >= expected }
         assertEquals("expected $expected socket(s)", expected, factory.socketCount)
+    }
+
+    /**
+     * Waits for [AgentConnection.isConnected] after a replacement socket's CONNECTED.
+     * The factory counts a socket inside `create()`, but the connection only takes
+     * it as its own once `create()` returns, on the IO thread [awaitSockets] waited
+     * on, so a CONNECTED sent straight after can land before that.
+     */
+    private suspend fun awaitConnected() {
+        if (withTimeoutOrNull(AWAIT_TIMEOUT_MS) { while (!connection.isConnected()) delay(1) } == null) {
+            fail("timed out after ${AWAIT_TIMEOUT_MS}ms waiting for the connection to be ready")
+        }
     }
 
     /** Everything one subscriber saw on [AgentConnection.events], as a flow so waits on it are event-driven. */
@@ -1337,7 +1357,7 @@ class AgentConnectionRobolectricTest {
 
         // Completing the handshake this time recovers the connection.
         simulateConnected("sess-new")
-        assertTrue(connection.isConnected())
+        awaitConnected()
     }
 
     @Test
@@ -2809,6 +2829,427 @@ class AgentConnectionRobolectricTest {
         assertTrue(events.seen.none { it is ConnectionEvent.ConnectionError })
     }
 
+    // ── Rem (W16AAPPLE-69) ──────────────────────────────────────────
+
+    private val remPage = "<script>\nconst REM = {\"categories\":[\"notes\"],\"records\":[" +
+        "{\"path\":\"notes/a.md\",\"category\":\"notes\",\"title\":\"A\",\"text\":\"# A\"}]};\n</script>"
+
+    @Test
+    fun `readRem sends a signed WIKI_READ and returns the notebook it answers with`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+
+        val sent = factory.lastWebSocket!!.sentMessages.single()
+        val command = signedCommand(sent)
+        assertEquals("WIKI_READ", command.getValue("type").jsonPrimitive.content)
+        val requestId = command.getValue("request_id").jsonPrimitive.content
+        assertEquals("fake-signature", Json.parseToJsonElement(sent).jsonObject.getValue("signature").jsonPrimitive.content)
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            Json.encodeToString(
+                JsonObject.serializer(),
+                JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("WIKI_RESULT"),
+                        "request_id" to JsonPrimitive(requestId),
+                        "ok" to JsonPrimitive(true),
+                        "html" to JsonPrimitive(remPage)
+                    )
+                )
+            )
+        )
+
+        val outcome = withTimeoutOrNull(1_000) { pending.await() }
+        assertEquals(listOf("A"), (outcome as RemOutcome.Loaded).notebook.pages.map { it.title })
+    }
+
+    @Test
+    fun `a result for another request does not settle this one`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+
+        val pending = async { connection.readRem(timeoutMs = 200) }
+        runCurrent()
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"WIKI_RESULT","request_id":"someone-else","ok":false,"error":"co rem is not available on this Host"}"""
+        )
+
+        assertEquals(RemOutcome.NoAnswer, pending.await())
+    }
+
+    @Test
+    fun `a Host older than Rem is told apart, and the chat is not shown its error`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"ERROR","message":"unknown message type: 'WIKI_READ'"}"""
+        )
+
+        assertEquals(RemOutcome.HostTooOld, withTimeoutOrNull(1_000) { pending.await() })
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+        assertTrue(events.seen.none { it is ConnectionEvent.ConnectionError })
+    }
+
+    @Test
+    fun `a Rem read is settled when the connection is torn down`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        connection.teardown()
+
+        assertEquals(RemOutcome.NotConnected, withTimeoutOrNull(1_000) { pending.await() })
+    }
+
+    @Test
+    fun `no Rem read goes out before the connection is ready`() = runTest {
+        connection.connect("0xAGENT")
+
+        assertEquals(RemOutcome.NotConnected, connection.readRem())
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("WIKI_READ") })
+    }
+
+    // ── the Host losing this connection's session (W16AAPPLE-108) ──
+    //
+    // Through the relay the Host keeps one session per app connection. When
+    // it restarts, or that session's task crashes, the relay keeps our socket
+    // open and the next frame reaches a new, unauthenticated session.
+
+    private var clockMs = 1_000_000L
+
+    /**
+     * The fixture's connection, but reopening its socket inline, so the new
+     * socket is the connection's own before a test answers on it, and on a
+     * clock the test moves.
+     */
+    private fun useRecoveringConnection() {
+        connection = AgentConnection(
+            keyManager,
+            webSocketFactory = factory,
+            signer = { _, _ -> "fake-signature" },
+            reconnectDispatcher = Dispatchers.Unconfined,
+            remParseDispatcher = Dispatchers.Unconfined,
+            nowMs = { clockMs }
+        )
+    }
+
+    private fun simulateSessionLost() {
+        factory.lastListener!!.onMessage(factory.lastWebSocket!!, """{"type":"ERROR","message":"authenticate first (send CONNECT)"}""")
+    }
+
+    private fun answerRemRead(socket: FakeWebSocket, ok: Boolean, error: String? = null) {
+        val requestId = signedCommand(socket.sentMessages.last { it.contains("WIKI_READ") }).getValue("request_id").jsonPrimitive.content
+        val fields = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
+            "type" to JsonPrimitive("WIKI_RESULT"),
+            "request_id" to JsonPrimitive(requestId),
+            "ok" to JsonPrimitive(ok)
+        )
+        if (ok) fields["html"] = JsonPrimitive(remPage) else fields["error"] = JsonPrimitive(error)
+        factory.lastListener!!.onMessage(socket, Json.encodeToString(JsonObject.serializer(), JsonObject(fields)))
+    }
+
+    /** Opens the replacement socket and completes its handshake. */
+    private fun completeReconnect(sessionId: String = "sess-1") {
+        factory.lastListener!!.onOpen(factory.lastWebSocket!!, fakeResponse())
+        simulateConnected(sessionId)
+    }
+
+    @Test
+    fun `a lost session reconnects on its own and tells the chat the message did not go`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val events = collectEvents()
+        connection.sendMessage("what's on today?", "0xAGENT")
+        assertTrue(factory.lastWebSocket!!.sentMessages.any { it.contains("what's on today?") })
+
+        simulateSessionLost()
+
+        assertEquals("a fresh socket for a fresh CONNECT", 2, factory.socketCount)
+        assertFalse(connection.isConnected())
+        completeReconnect()
+        val retried = factory.lastWebSocket!!.sentMessages
+        assertTrue(
+            "the CONNECT names the same session: $retried",
+            retried.single { it.contains("\"type\":\"CONNECT\"") }.contains("sess-1")
+        )
+        assertTrue("nothing is sent again: Retry is the user's", retried.none { it.contains("\"type\":\"INPUT\"") })
+        assertTrue(connection.isConnected())
+
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+        val error = events.seen.indexOfFirst { it is ConnectionEvent.ConnectionError }
+        assertEquals(
+            "the chat is told in words it can show, not the Host's",
+            AgentConnection.LOST_SESSION_MESSAGE,
+            (events.seen[error] as ConnectionEvent.ConnectionError).message
+        )
+        assertTrue("before the reconnect, so the chat fails the turn first", error < events.seen.indexOfFirst { it is ConnectionEvent.Reconnecting })
+    }
+
+    @Test
+    fun `with no message waiting a lost session reconnects without a chat error`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val events = collectEvents()
+        connection.sendMessage("first", "0xAGENT")
+        factory.lastListener!!.onMessage(factory.lastWebSocket!!, """{"type":"OUTPUT","result":"done"}""")
+
+        simulateSessionLost()
+        completeReconnect()
+
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("\"type\":\"INPUT\"") })
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+        assertTrue(events.seen.none { it is ConnectionEvent.ConnectionError })
+    }
+
+    @Test
+    fun `Authentication required on a plain ERROR is not taken for a lost session`() = runTest {
+        // Only Rem's WIKI_RESULT uses that wording for it (ws_router/rem.py).
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+
+        factory.lastListener!!.onMessage(factory.lastWebSocket!!, """{"type":"ERROR","message":"Authentication required"}""")
+
+        assertEquals(1, factory.socketCount)
+    }
+
+    @Test
+    fun `losing the session again within a minute ends with Reconnect offered instead of looping`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val events = collectEvents()
+        simulateSessionLost()
+        completeReconnect()
+        connection.sendMessage("still there?", "0xAGENT")
+
+        clockMs += AgentConnection.SESSION_RECOVERY_WINDOW_MS - 1
+        simulateSessionLost()
+
+        assertEquals("no third socket", 2, factory.socketCount)
+        assertFalse(connection.isConnected())
+        withContext(Dispatchers.Default) {
+            events.await("the refusal") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        }
+
+        // Nothing was queued: the chat fails that turn on the error and offers
+        // Retry, so the user's Reconnect must not also send it.
+        connection.connect("0xAGENT")
+        completeReconnect()
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("still there?") })
+    }
+
+    @Test
+    fun `a turn the old session had already taken is not sent again`() = runTest {
+        // The review's probe: the agent was running "deploy the release" when
+        // the Host restarted. Sending it again would deploy twice.
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        connection.sendMessage("deploy the release", "0xAGENT")
+        factory.lastListener!!.onMessage(factory.lastWebSocket!!, """{"type":"tool_call","id":"ev-1","tool_id":"t1","name":"bash"}""")
+        connection.sendMessage("are you there?", "0xAGENT")
+
+        simulateSessionLost()
+        completeReconnect()
+
+        val resent = factory.lastWebSocket!!.sentMessages
+            .filter { it.contains("\"type\":\"INPUT\"") }
+            .map { signedCommand(it).getValue("prompt").jsonPrimitive.content }
+        assertEquals("neither goes out again by itself", emptyList<String>(), resent)
+    }
+
+    @Test
+    fun `a new connect starts the minute afresh`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        simulateSessionLost()
+        completeReconnect()
+
+        connection.connect("0xAGENT")
+        completeReconnect()
+        simulateSessionLost()
+
+        assertEquals("the Reconnect's own session gets its own recovery", 4, factory.socketCount)
+    }
+
+    @Test
+    fun `a Rem read that waits out a reconnect still answers within its one wait`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+
+        val pending = async { connection.readRem(timeoutMs = 1_000) }
+        runCurrent()
+        advanceTimeBy(600)
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+        runCurrent()
+        // The reconnect never lands.
+        advanceTimeBy(401)
+        runCurrent()
+
+        assertTrue("1 s in all, not 1 s more for the reconnect", pending.isCompleted)
+        assertEquals(RemOutcome.NotConnected, pending.await())
+    }
+
+    @Test
+    fun `a session lost again a minute later is recovered again`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        simulateSessionLost()
+        completeReconnect()
+
+        clockMs += AgentConnection.SESSION_RECOVERY_WINDOW_MS
+        simulateSessionLost()
+
+        assertEquals(3, factory.socketCount)
+        completeReconnect()
+        assertTrue(connection.isConnected())
+    }
+
+    @Test
+    fun `authenticate first before the connection is ready is not a lost session`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+
+        simulateSessionLost()
+
+        assertEquals(1, factory.socketCount)
+    }
+
+    @Test
+    fun `a Rem read refused for a lost session reads again once reconnected`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val first = factory.lastWebSocket!!
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        answerRemRead(first, ok = false, error = "Authentication required")
+        runCurrent()
+
+        assertEquals(2, factory.socketCount)
+        assertFalse("still waiting for the reconnect", pending.isCompleted)
+        completeReconnect()
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = true)
+
+        val outcome = withTimeoutOrNull(1_000) { pending.await() }
+        assertEquals(listOf("A"), (outcome as RemOutcome.Loaded).notebook.pages.map { it.title })
+    }
+
+    @Test
+    fun `a Rem read still waiting when a command finds the session lost reads again once reconnected`() = runTest {
+        // The INPUT's ERROR beats the WIKI_RESULT, so the read is not the one that noticed.
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        simulateSessionLost()
+        runCurrent()
+
+        assertFalse("still waiting for the reconnect, not NotConnected", pending.isCompleted)
+        completeReconnect()
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = true)
+
+        val outcome = withTimeoutOrNull(1_000) { pending.await() }
+        assertEquals(listOf("A"), (outcome as RemOutcome.Loaded).notebook.pages.map { it.title })
+    }
+
+    @Test
+    fun `a Rem read refused again after the reconnect says the session is lost`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val events = collectEvents()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+        completeReconnect()
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+
+        assertEquals(RemOutcome.SessionLost, withTimeoutOrNull(1_000) { pending.await() })
+        withContext(Dispatchers.Default) {
+            events.await("Reconnect offered") { seen -> seen.any { it is ConnectionEvent.ReconnectRefused } }
+        }
+    }
+
+    @Test
+    fun `a Rem read refused while a message waits tells the chat that message went too`() = runTest {
+        // The WIKI_RESULT can beat the INPUT's own ERROR, which the replaced socket then never delivers.
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        val events = collectEvents()
+        connection.sendMessage("what's on today?", "0xAGENT")
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+        runCurrent()
+
+        assertEquals(2, factory.socketCount)
+        withContext(Dispatchers.Default) {
+            events.await("the chat told") { seen ->
+                seen.any { it is ConnectionEvent.ConnectionError && it.message == AgentConnection.LOST_SESSION_MESSAGE }
+            }
+        }
+        pending.cancel()
+    }
+
+    @Test
+    fun `a Rem read refused within a minute of a recovery says the session is lost`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+        simulateSessionLost()
+        completeReconnect()
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+
+        assertEquals("Reconnect is offered, so not NotConnected", RemOutcome.SessionLost, withTimeoutOrNull(1_000) { pending.await() })
+        assertEquals("and no reconnect by itself", 2, factory.socketCount)
+    }
+
+    @Test
+    fun `a Rem read waiting for a reconnect stops when the connection is torn down`() = runTest {
+        useRecoveringConnection()
+        connection.connect("0xAGENT")
+        simulateConnected("sess-1")
+
+        val pending = async { connection.readRem() }
+        runCurrent()
+        answerRemRead(factory.lastWebSocket!!, ok = false, error = "Authentication required")
+        runCurrent()
+        connection.teardown()
+
+        assertEquals(RemOutcome.NotConnected, withTimeoutOrNull(1_000) { pending.await() })
+    }
+
     @Test
     fun `authentication refusal completes pending EXEC as an error`() = runTest {
         connection.connect("0xAGENT")
@@ -2835,12 +3276,14 @@ class AgentConnectionRobolectricTest {
             withTimeoutOrNull(1_000) { pendingOutcome.await() }
         )
         // Unlike the Work Room refusal, this one refuses every command on the
-        // socket, so the chat still reports it: a message refused alongside the
-        // EXEC must not go unexplained.
-        withContext(Dispatchers.Default) { events.awaitDrained() }
+        // socket: the Host lost the session, so the connection reconnects
+        // (W16AAPPLE-108) rather than showing it as a chat error.
+        withContext(Dispatchers.Default) {
+            events.await("the reconnect") { seen -> seen.any { it is ConnectionEvent.Reconnecting } }
+        }
         assertTrue(
-            "the chat error must still be reported: ${events.seen}",
-            events.seen.any { it is ConnectionEvent.ConnectionError && it.message == "authenticate first" }
+            "not a chat error any more: ${events.seen}",
+            events.seen.none { it is ConnectionEvent.ConnectionError }
         )
     }
 

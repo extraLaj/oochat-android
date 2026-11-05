@@ -3,8 +3,12 @@ package ai.openonion.oochat.ui.chat
 import ai.openonion.oochat.ConnectOnionApplication
 import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.AgentReplyNotifier
+import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
+import ai.openonion.oochat.data.local.CONNECTION_MODE_RELAY
+import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.local.IgnoredIdsManager
 import ai.openonion.oochat.data.local.RecordingResult
+import ai.openonion.oochat.data.local.resolveServerRoute
 import ai.openonion.oochat.data.local.toConnectTarget
 import ai.openonion.oochat.data.repository.AccountClockException
 import ai.openonion.oochat.di.appContainer
@@ -30,6 +34,7 @@ import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.UserMessageState
+import ai.openonion.oochat.domain.model.WorkRooms
 import ai.openonion.oochat.domain.model.canonicalAgentAddress
 import ai.openonion.oochat.domain.model.createError
 import ai.openonion.oochat.domain.model.dedupeUI
@@ -438,6 +443,12 @@ open class ChatViewModel @JvmOverloads constructor(
     // Backing var kept for the many internal reads below (unchanged call
     // sites); mirrored into a StateFlow so NavDrawer's mini account card
     // can show which agent this session is connected to.
+    /** The server [connectToAgent] dialled the target at, for a later Connected to use too. */
+    private var targetDirectUrl: String? = null
+
+    /** The self-hosted relay [connectToAgent] went through, if any (W16AAPPLE-56). Null when direct. */
+    private var targetRelayUrl: String? = null
+
     private var _targetAgentAddress: String = ""
         set(value) {
             field = value
@@ -517,11 +528,11 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /**
      * The conversation is parked on something only the user can answer, so the
-     * run cannot continue until they do. Read by the agent's Home page, which
-     * replaces the chat entirely: a gate opened while the reader is over there
-     * is otherwise invisible, and the turn simply stalls with nothing saying
-     * why. Onboarding is excluded — [awaitingOnboardCode] already owns it and
-     * its own card blocks the chat before a Home page can be reached.
+     * run cannot continue until they do. Read by the agent's Home page when it
+     * has a screen of its own and so replaces the chat: a gate opened while the
+     * reader is over there is otherwise invisible, and the turn simply stalls with
+     * nothing saying why. Onboarding is excluded — [awaitingOnboardCode] already owns
+     * it and its own card blocks the chat before a Home page can be reached.
      */
     val chatAwaitsUser: StateFlow<Boolean> = uiState
         .map { it.listFlags.hasPendingGate }
@@ -570,7 +581,18 @@ open class ChatViewModel @JvmOverloads constructor(
     // and connectToAgent(). It can also see a second Connected value when the
     // Host status is consumed. This stays true until an actual non-connected
     // transition, preventing duplicate index sockets for the same connection.
-    private var syncedCurrentConnection = false
+    // Keyed by agent: a sync already run for agent A must not suppress agent
+    // B's first sync after the user switches, and a non-connected transition
+    // clears it so the next connection syncs again.
+    private var syncedAgentAddress: String? = null
+
+    // An explicit agent selection may refresh Recent Chats on an already-live
+    // socket. Keep that refresh from overlapping the Connected callback's
+    // automatic sync. [recentChatsSyncJobAddress] records which agent that
+    // job is for, so switching agents cancels the old sync instead of letting
+    // it silently swallow the new agent's only sync (which never retried).
+    private var recentChatsSyncJob: Job? = null
+    private var recentChatsSyncJobAddress: String? = null
 
     /**
      * Blocking cards the user has already answered, so [ChatEventReducer] can
@@ -842,7 +864,7 @@ open class ChatViewModel @JvmOverloads constructor(
             connectionState.collect { state ->
                 val atCreation = alreadyCurrent
                 alreadyCurrent = false
-                if (state !is ConnectionState.Connected) syncedCurrentConnection = false
+                if (state !is ConnectionState.Connected) syncedAgentAddress = null
                 when (state) {
                     is ConnectionState.Connected -> {
                         FileLogger.i(LogTags.CHAT_VM, "Connected to ${state.addressOrNull()?.take(16)}")
@@ -851,7 +873,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // opened it), i.e. before ChatScreen has said which
                         // agent we're for — connectToAgent() runs this itself
                         // once the target is known.
-                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, null)
+                        if (_targetAgentAddress.isNotBlank()) onConnectedTo(_targetAgentAddress, targetDirectUrl, targetRelayUrl)
                         settleOutboxedMessages()
                         // Only fires when the previous Disconnected transition
                         // force-failed a still-in-flight Thinking item (see
@@ -908,6 +930,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         // socket, and whether the host queued it is unknown.
                         // Say it did not go, and let the user resend it.
                         answerPendingRuntimeInput(RuntimeInputReply.CONNECTION_LOST)
+
+                        recentChatsSyncJob?.cancel()
+                        recentChatsSyncJob = null
+                        recentChatsSyncJobAddress = null
+                        syncedAgentAddress = null
                     }
                     else -> {}
                 }
@@ -1011,6 +1038,7 @@ open class ChatViewModel @JvmOverloads constructor(
                         // was not runtime input at all: it reached an agent that
                         // had just gone idle and started a turn of its own.
                         is ChatEvent.OutputReceived -> answerPendingRuntimeInput(RuntimeInputReply.TURN_ENDED)
+                        is ChatEvent.AnswerRefused -> markAnswerRefused(event.requestId)
                         // A generic ERROR frame is deliberately not handled: it
                         // says nothing about whether the host took our message,
                         // and the host's own refusal arrives as its own event.
@@ -1101,10 +1129,15 @@ open class ChatViewModel @JvmOverloads constructor(
             val config = configRepository.getConfig()
             if (config != null && config.isValid && !config.agentAddress.isNullOrBlank()) {
                 val target = config.toConnectTarget()
-                FileLogger.i(LogTags.CHAT_VM, "Auto-connect: agent=${target.agentAddress.take(16)}, direct=${target.isDirect}")
+                FileLogger.i(
+                    LogTags.CHAT_VM,
+                    "Auto-connect: agent=${target.agentAddress.take(16)}, direct=${target.isDirect}, " +
+                        "selfHostedRelay=${target.relayUrl != null}"
+                )
                 connectToAgent(
                     address = target.agentAddress,
-                    directUrl = target.directUrl
+                    directUrl = target.directUrl,
+                    relayUrl = target.relayUrl
                 )
             } else {
                 // Reachable after Settings -> "Clear connection data": Reconnect
@@ -1117,11 +1150,13 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Connect to an agent by address or URL. Falls back to the per-agent
-     * saved serverUrl (not just the default relay) when directUrl isn't
-     * passed, mirroring toConnectTarget's default-vs-direct check.
+     * Connect to an agent by address or URL. When neither [directUrl] nor
+     * [relayUrl] is passed, the agent's saved serverUrl and connectionMode
+     * decide the route (resolveServerRoute, the same rule toConnectTarget
+     * uses): a relay-mode agent on a self-hosted relay goes through that
+     * relay, not direct to it (W16AAPPLE-56).
      */
-    fun connectToAgent(address: String, directUrl: String? = null) {
+    fun connectToAgent(address: String, directUrl: String? = null, relayUrl: String? = null) {
         if (address.isBlank()) {
             FileLogger.w(LogTags.CHAT_VM, "Connect attempt with blank address")
             return
@@ -1131,16 +1166,27 @@ open class ChatViewModel @JvmOverloads constructor(
 
         connectJob?.cancel()
         connectJob = launchScoped {
-            val savedServerUrl = directUrl
-                ?: agentRepository.getAgentByAddress(address)?.serverUrl
-                    ?.takeIf { !Constants.isDefaultServerUrl(it) }
+            val savedRoute = if (directUrl != null || relayUrl != null) {
+                null
+            } else {
+                agentRepository.getAgentByAddress(address)
+                    ?.let { resolveServerRoute(it.serverUrl, it.connectionMode) }
+            }
+            val savedServerUrl = directUrl ?: savedRoute?.directUrl
+            val effectiveRelayUrl = relayUrl ?: savedRoute?.relayUrl
 
             // Resolve address via discovery before connecting
             val resolved = agentDiscovery.resolveAgentAddress(address)
             val previousAddress = _targetAgentAddress
             _targetAgentAddress = resolved.address
             val effectiveDirectUrl = resolved.directUrl ?: savedServerUrl
-            FileLogger.i(LogTags.CHAT_VM, "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}")
+            targetDirectUrl = effectiveDirectUrl
+            targetRelayUrl = if (effectiveDirectUrl == null) effectiveRelayUrl else null
+            FileLogger.i(
+                LogTags.CHAT_VM,
+                "Resolved: ${resolved.address.take(16)}..., direct=${effectiveDirectUrl != null}, " +
+                    "selfHostedRelay=${targetRelayUrl != null}"
+            )
 
             // Local history first, and awaited: an unreachable server must
             // still show the previous conversation, and resolving the session
@@ -1161,15 +1207,29 @@ open class ChatViewModel @JvmOverloads constructor(
             // Perform connection, on this conversation's own server session.
             // Its id is settled even before it has a Room row, so a brand-new
             // conversation still connects on a session of its own.
+            //
+            // Re-selecting the agent we are already live on is treated as a
+            // refresh request.
+            val joiningLiveConnection = connectUseCase.isConnected() &&
+                previousAddress.isNotBlank() &&
+                previousAddress.equals(resolved.address, ignoreCase = true)
             val success = connectUseCase.connect(
                 resolved.address,
                 conversationHistory.conversationId,
-                effectiveDirectUrl
+                effectiveDirectUrl,
+                effectiveRelayUrl
             )
             if (success) {
                 // Also run here, not only from the state collector: joining an
                 // already-live shared connection re-emits no Connected state.
-                onConnectedTo(resolved.address, effectiveDirectUrl)
+                // That user action is also a refresh request: Session Sync has
+                // its own index socket, so it does not need to tear down chat.
+                onConnectedTo(
+                    resolved.address,
+                    effectiveDirectUrl,
+                    targetRelayUrl,
+                    refreshRecentChats = joiningLiveConnection
+                )
             } else {
                 FileLogger.e(LogTags.CHAT_VM, "Connection failed or timed out")
             }
@@ -1182,8 +1242,13 @@ open class ChatViewModel @JvmOverloads constructor(
      * the Connected transition and [connectToAgent], since with one shared
      * connection only one of the two fires on any given path.
      */
-    private suspend fun onConnectedTo(agentAddress: String, directUrl: String?) {
-        saveAgentIfNeeded(agentAddress, directUrl)
+    private suspend fun onConnectedTo(
+        agentAddress: String,
+        directUrl: String?,
+        relayUrl: String?,
+        refreshRecentChats: Boolean = false
+    ) {
+        saveAgentIfNeeded(agentAddress, directUrl, relayUrl)
         activateRecentChatsIdentity()
         val forceNew = startFreshOnNextConnect
         startFreshOnNextConnect = false
@@ -1195,7 +1260,8 @@ open class ChatViewModel @JvmOverloads constructor(
         val joined = connectionState.value as? ConnectionState.Connected
         if (joined != null) {
             _awaitingOnboardCode.value = false
-            startRecentChatsSync(agentAddress, directUrl)
+            rememberForColdStart(agentAddress, directUrl, relayUrl)
+            startRecentChatsSync(agentAddress, directUrl, relayUrl, force = refreshRecentChats)
         }
         // And only now, with the conversation resolved above, can the Host's answer be matched to it.
         joined?.let { actOnHostAnswer(it) }
@@ -1211,19 +1277,38 @@ open class ChatViewModel @JvmOverloads constructor(
 
     private suspend fun startRecentChatsSync(
         agentAddress: String,
-        directUrl: String?
+        directUrl: String?,
+        relayUrl: String?,
+        force: Boolean = false
     ) {
-        if (syncedCurrentConnection) return
-        val agent = agentRepository.getAgentByAddress(canonicalAgentAddress(agentAddress)) ?: return
-        syncedCurrentConnection = true
-        val effectiveDirectUrl = directUrl
-            ?: agent.serverUrl.takeIf { !Constants.isDefaultServerUrl(it) }
+        val agentKey = canonicalAgentAddress(agentAddress)
+        // Already synced this exact agent on this connection: nothing to do
+        // (unless the caller is an explicit refresh, e.g. re-selecting it).
+        if (!force && syncedAgentAddress == agentKey) return
+        if (recentChatsSyncJob?.isActive == true) {
+            if (recentChatsSyncJobAddress == agentKey) return
+            recentChatsSyncJob?.cancel()
+            recentChatsSyncJob = null
+            recentChatsSyncJobAddress = null
+        }
+        val agent = agentRepository.getAgentByAddress(agentKey) ?: return
+        syncedAgentAddress = agentKey
+        // The route the chat used; without one, the agent's own saved route
+        // (a relay-mode agent on a self-hosted relay is indexed through that relay).
+        val savedRoute = if (directUrl == null && relayUrl == null) {
+            resolveServerRoute(agent.serverUrl, agent.connectionMode)
+        } else {
+            null
+        }
+        val effectiveDirectUrl = directUrl ?: savedRoute?.directUrl
+        val effectiveRelayUrl = if (effectiveDirectUrl == null) relayUrl ?: savedRoute?.relayUrl else null
 
         // This is deliberately detached from the connection setup. An older
         // Host, a timeout, or an index failure must not hold the chat screen
         // closed; Room keeps showing the last safe local list.
-        viewModelScope.launch {
-            when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl)) {
+        recentChatsSyncJobAddress = agentKey
+        recentChatsSyncJob = viewModelScope.launch {
+            when (val result = recentChatsSync.sync(agent.id, agent.address, effectiveDirectUrl, effectiveRelayUrl)) {
                 RecentChatsSyncResult.Synced ->
                     FileLogger.i(LogTags.CHAT_VM, "Recent Chat sync completed")
                 RecentChatsSyncResult.MemoryDisabled ->
@@ -1266,8 +1351,11 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     private fun onHostIdle() {
         val inProgress = _uiState.value.chatItems.filter { it.isInProgress() }
-        if (inProgress.isEmpty()) return
-        val settled = inProgress.resolveRunningItems().associateBy { it.id }
+        // A Claude Code or Codex run is never "in progress" for the streaming toggle (its
+        // card is how the run is followed), but an idle Host means it is over all the same.
+        val unseenRuns = _uiState.value.chatItems.mapNotNull(WorkRooms::endedUnseen)
+        if (inProgress.isEmpty() && unseenRuns.isEmpty()) return
+        val settled = (inProgress.resolveRunningItems() + unseenRuns).associateBy { it.id }
         _uiState.update { state -> state.copy(chatItems = state.chatItems.map { settled[it.id] ?: it }) }
         val owningSessionId = conversationHistory.activeSessionId.value
         settled.values.forEach { item -> launchScoped { conversationHistory.persistMessage(item, owningSessionId) } }
@@ -1681,7 +1769,46 @@ open class ChatViewModel @JvmOverloads constructor(
         launchScoped { conversationHistory.persistMessage(item) }
     }
 
-    private suspend fun saveAgentIfNeeded(agentAddress: String, directUrl: String?) {
+    /**
+     * Makes [agentAddress] the agent a cold start reconnects to, however this
+     * screen reached it (a link, the drawer, the agent list). Saved with the
+     * resolved address and server this screen used, so Loading dials the same.
+     */
+    private suspend fun rememberForColdStart(agentAddress: String, directUrl: String?, relayUrl: String?) {
+        runCatchingCancellable {
+            val address = canonicalAgentAddress(agentAddress)
+            val saved = configRepository.getConfig()
+            val agent = agentRepository.getAgentByAddress(address)
+            // No URL before connectToAgent has dialled: use the agent's own route.
+            val route = if (directUrl == null && relayUrl == null) {
+                agent?.let { resolveServerRoute(it.serverUrl, it.connectionMode) }
+            } else {
+                null
+            }
+            val effectiveDirectUrl = directUrl ?: route?.directUrl
+            val effectiveRelayUrl = if (effectiveDirectUrl == null) relayUrl ?: route?.relayUrl else null
+            val serverUrl = effectiveDirectUrl ?: effectiveRelayUrl ?: Constants.DEFAULT_SERVER_URL
+            // Recorded with the URL, so Loading goes through a self-hosted relay
+            // rather than dialling it direct (W16AAPPLE-56).
+            val connectionMode = if (effectiveDirectUrl != null) CONNECTION_MODE_DIRECT else CONNECTION_MODE_RELAY
+            val sameServer = saved?.serverUrl == serverUrl ||
+                (saved != null && Constants.isDefaultServerUrl(saved.serverUrl) && Constants.isDefaultServerUrl(serverUrl))
+            // The mode only matters off the default relay; an older config there has none recorded.
+            val sameMode = Constants.isDefaultServerUrl(serverUrl) || saved?.connectionMode == connectionMode
+            if (saved?.agentAddress == address && sameServer && sameMode) return@runCatchingCancellable
+            val apiKey = if (saved?.agentAddress == address) saved.apiKey else agent?.apiKey
+            configRepository.saveConfig(
+                (saved ?: ConnectionConfig.default()).copy(
+                    serverUrl = serverUrl,
+                    agentAddress = address,
+                    apiKey = apiKey,
+                    connectionMode = connectionMode
+                )
+            )
+        }.onFailure { e -> FileLogger.w(LogTags.CHAT_VM, "Failed to save the cold-start agent: ${e.message}") }
+    }
+
+    private suspend fun saveAgentIfNeeded(agentAddress: String, directUrl: String?, relayUrl: String?) {
         // Saved in the same form as every other path saves it. The lookup
         // ignores case anyway, but a row saved as typed kept capitals the
         // rest of the app no longer writes (W16AAPPLE-57).
@@ -1694,9 +1821,14 @@ open class ChatViewModel @JvmOverloads constructor(
                         id = java.util.UUID.randomUUID().toString(),
                         address = address,
                         name = "Agent ${address.take(8)}...",
-                        serverUrl = directUrl ?: Constants.DEFAULT_SERVER_URL,
+                        // A self-hosted relay is kept too, so the next connect goes through it.
+                        serverUrl = directUrl ?: relayUrl ?: Constants.DEFAULT_SERVER_URL,
                         createdAt = System.currentTimeMillis(),
-                        isActive = true
+                        isActive = true,
+                        // Reached direct, so it must be saved as direct: a
+                        // custom serverUrl under the "relay" default would be
+                        // dialled as a self-hosted relay next time.
+                        connectionMode = if (directUrl != null) CONNECTION_MODE_DIRECT else CONNECTION_MODE_RELAY
                     )
                 )
             }
@@ -2696,11 +2828,37 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     fun onReturnedToForeground() {
         connectUseCase.retryNow()
+        if (_targetAgentAddress.isNotBlank() && connectionState.value is ConnectionState.Connected) {
+            launchScoped {
+                startRecentChatsSync(
+                    agentAddress = _targetAgentAddress,
+                    directUrl = targetDirectUrl,
+                    relayUrl = targetRelayUrl,
+                    force = true
+                )
+            }
+        }
         agentReplyNotifier.clearReplyNotifications()
     }
 
-    fun respond(answer: String) {
-        launchScoped { connectUseCase.respond(answer) }
+    /**
+     * Answer the ask_user card [itemId], with that card's own request id. An
+     * older question can still be on screen after another device answered it,
+     * and its answer must not be sent as one to the newer question.
+     */
+    fun respond(itemId: String, answer: String) {
+        val question = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.AskUser>()
+            .firstOrNull { it.id == itemId }
+        if (question == null || question.answer != null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring duplicate/unknown ask_user answer for $itemId")
+            return
+        }
+        val answered = question.copy(answer = answer)
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == itemId) answered else it })
+        }
+        launchScoped { connectUseCase.respond(answer, question.requestId) }
     }
 
     /**
@@ -2821,12 +2979,46 @@ open class ChatViewModel @JvmOverloads constructor(
             state.copy(chatItems = state.chatItems.map { if (it.id == itemId) decided else it })
         }
         launchScoped {
-            connectUseCase.respondToApproval(approved, scope, mode, feedback)
+            connectUseCase.respondToApproval(approved, scope, mode, feedback, gate.requestId)
             // Persisted only now that it's answered: an open gate replayed from
             // history would offer buttons for a question the server has closed,
             // but the record of what was approved belongs in the transcript.
             conversationHistory.persistMessage(decided)
         }
+    }
+
+    /**
+     * The Host refused this device's answer: it was no longer waiting for one
+     * (another device answered first, or the turn ended). The card says so
+     * instead of keeping an answer that was never applied. Nothing is re-sent.
+     * Matched by id; with none, only if exactly one answered card was sent
+     * without an id, since otherwise there is no telling which was refused.
+     */
+    private fun markAnswerRefused(requestId: String?) {
+        val answered = _uiState.value.chatItems.filter {
+            (it is ChatItem.ApprovalNeeded && it.decision != null) || (it is ChatItem.AskUser && it.answer != null)
+        }
+        val card = if (requestId != null) {
+            answered.lastOrNull { it.answerRequestId() == requestId }
+        } else {
+            answered.filter { it.answerRequestId() == null }.singleOrNull()
+        } ?: return
+        val refused = when (card) {
+            is ChatItem.ApprovalNeeded -> card.copy(decision = card.decision?.copy(refused = true))
+            is ChatItem.AskUser -> card.copy(refused = true)
+            else -> return
+        }
+        _uiState.update { state ->
+            state.copy(chatItems = state.chatItems.map { if (it.id == card.id) refused else it })
+        }
+        // Ask_user cards are not saved (see TranscriptItemPayload).
+        if (refused is ChatItem.ApprovalNeeded) launchScoped { conversationHistory.persistMessage(refused) }
+    }
+
+    private fun ChatItem.answerRequestId(): String? = when (this) {
+        is ChatItem.ApprovalNeeded -> requestId
+        is ChatItem.AskUser -> requestId
+        else -> null
     }
 
     /**
@@ -2915,7 +3107,9 @@ open class ChatViewModel @JvmOverloads constructor(
             // UI. Awaiting (rather than fire-and-forget) means a
             // process kill between clearChat and the next launch
             // can't leave the persistence half-done.
-            val snapshot = _uiState.value.chatItems.map { it.id }
+            // With the outer tool call of each run: its result can still be on its way, and
+            // must not come back as a card of its own.
+            val snapshot = _uiState.value.chatItems.map { it.id } + WorkRooms.parentToolCallIds(_uiState.value.chatItems)
             ignoredIdsManager.ignoreAll(_targetAgentAddress, snapshot)
             // Wipe the active session's persisted log too, so the drawer's
             // preview/count for this conversation reflects the clear.

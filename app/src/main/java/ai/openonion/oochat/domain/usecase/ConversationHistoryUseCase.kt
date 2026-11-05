@@ -11,6 +11,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.UserMessageState
+import ai.openonion.oochat.domain.model.WorkRooms
 import ai.openonion.oochat.domain.model.resolveFalseFailures
 import ai.openonion.oochat.domain.model.stableAssistantId
 import ai.openonion.oochat.util.FileLogger
@@ -429,6 +430,9 @@ class ConversationHistoryUseCase(
      * so both decode a row exactly the same way.
      */
     private fun List<ChatMessage>.toChatItems(): List<ChatItem> =
+        decodeRows().let(WorkRooms::withoutParentToolCards)
+
+    private fun List<ChatMessage>.decodeRows(): List<ChatItem> =
         mapNotNull { msg ->
             // Transcript rows carry their shape in `payload` with empty
             // `content`, so they decode before the role branch sees them. One

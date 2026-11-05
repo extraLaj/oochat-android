@@ -189,6 +189,19 @@ class SessionSyncClientTest {
     }
 
     @Test
+    fun `a self-hosted relay index goes through that relay with the relay route`() = runTest {
+        // W16AAPPLE-56: a relay-mode agent on its own relay is indexed through that relay, not the client's.
+        val result = async { client.fetch("0xagent", relayUrl = "https://my-relay.example") }
+        runCurrent()
+
+        assertEquals("https://my-relay.example/ws/input", factory.request.url.toString())
+        factory.listener.onOpen(factory.socket, response())
+        assertEquals("0xagent", json(0)["to"]!!.jsonPrimitive.content)
+
+        result.cancel()
+    }
+
+    @Test
     fun `ordinary chat CONNECTED after offering the extension is unsupported`() = runTest {
         val result = async { client.fetch("0xagent") }
         runCurrent()

@@ -50,7 +50,7 @@ import java.time.format.DateTimeFormatter
 /**
  * Caps the chat column's width on tablets and unfolded foldables
  * instead of letting a line run edge-to-edge. chatBody is 15sp, and a
- * Manrope glyph there averages ~8dp, so 600dp of column holds roughly 70
+ * glyph there averages ~8dp, so 600dp of column holds roughly 70
  * characters once list/bubble padding is subtracted — the middle of the
  * 60-75 char comfortable-measure range. Any phone is narrower than this, so
  * widthIn is a no-op there. Shared with the composer, which has to line up
@@ -63,7 +63,7 @@ fun MessageList(
     items: List<ChatItem>,
     timestamps: Map<String, Long>,
     wasCleared: Boolean,
-    onRespond: (String) -> Unit,
+    onRespond: (itemId: String, answer: String) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
     onPlanReviewResponse: (message: String) -> Unit,
@@ -85,6 +85,8 @@ fun MessageList(
     conversationKey: String? = null,
     hasOlderMessages: Boolean = false,
     onLoadOlderMessages: () -> Unit = {},
+    // Opens a Claude Code or Codex run's Work Room, by its invocation id (W16AAPPLE-33).
+    onOpenWorkRoom: (invocationId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Each turn's thoughts ride on its newest one (see groupReasoningByTurn).
@@ -331,7 +333,8 @@ fun MessageList(
                         openThoughtGroups = openThoughtGroups,
                         onToggleThoughts = { key ->
                             openThoughtGroups = if (key in openThoughtGroups) openThoughtGroups - key else openThoughtGroups + key
-                        }
+                        },
+                        onOpenWorkRoom = onOpenWorkRoom
                     )
                 }
             }
@@ -345,7 +348,7 @@ private fun ChatItemWrapper(
     startsRun: Boolean = true,
     endsRun: Boolean = true,
     timestamps: Map<String, Long>,
-    onRespond: (String) -> Unit,
+    onRespond: (itemId: String, answer: String) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
     onPlanReviewResponse: (message: String) -> Unit,
@@ -357,7 +360,8 @@ private fun ChatItemWrapper(
     hasLiveConnection: Boolean = true,
     thoughtGroup: ThoughtGroup? = null,
     openThoughtGroups: Set<String> = emptySet(),
-    onToggleThoughts: (String) -> Unit = {}
+    onToggleThoughts: (String) -> Unit = {},
+    onOpenWorkRoom: (String) -> Unit = {}
 ) {
     // One timestamp per run, on its last message — a time on every bubble in a
     // burst repeats the same minute three times over.
@@ -369,7 +373,7 @@ private fun ChatItemWrapper(
         ChatItemBubble(
             item = item,
             timestamp = timestamp,
-            onRespond = { answer -> onGateResolved(item.id); onRespond(answer) },
+            onRespond = { answer -> onGateResolved(item.id); onRespond(item.id, answer) },
             onApprove = { approved, scope, mode, feedback ->
                 onGateResolved(item.id)
                 onApprove(item.id, approved, scope, mode, feedback)
@@ -390,7 +394,8 @@ private fun ChatItemWrapper(
             onResend = onResend,
             earlierThoughts = thoughtGroup?.earlier.orEmpty(),
             showAllThoughts = thoughtGroup != null && thoughtGroup.key in openThoughtGroups,
-            onToggleThoughts = thoughtGroup?.let { group -> { onToggleThoughts(group.key) } }
+            onToggleThoughts = thoughtGroup?.let { group -> { onToggleThoughts(group.key) } },
+            onOpenWorkRoom = onOpenWorkRoom
         )
     }
     // The run boundary carries the spacing: `lg` between runs, `xs` inside one,

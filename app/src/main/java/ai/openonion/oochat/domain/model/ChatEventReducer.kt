@@ -32,8 +32,9 @@ object ChatEventReducer {
         event: ChatEvent,
         ignoredIds: Set<String>,
         resolvedGateIds: Set<String> = emptySet()
-    ): ReduceResult =
-        when (event) {
+    ): ReduceResult {
+        foldWorkRoom(current, event, ignoredIds, resolvedGateIds)?.let { return it }
+        return when (event) {
             is ChatEvent.ChatItemReceived -> {
                 val existingTool = (event.item as? ChatItem.ToolCall)
                     ?.let { incoming -> current.indexOfFirst { it is ChatItem.ToolCall && it.id == incoming.id } }
@@ -250,6 +251,8 @@ object ChatEventReducer {
             // caller — see ChatEvent.RuntimeInputAcknowledged's own doc.
             is ChatEvent.RuntimeInputAcknowledged -> ReduceResult(current)
             is ChatEvent.RuntimeInputRejected -> ReduceResult(current)
+            // Handled by the ViewModel, which marks the card.
+            is ChatEvent.AnswerRefused -> ReduceResult(current)
 
             is ChatEvent.ConnectionErrorOccurred -> {
                 // Attach to whichever Turn/Thinking bubble was in flight —
@@ -290,6 +293,35 @@ object ChatEventReducer {
                 }
             }
         }
+    }
+
+    /**
+     * Claude Code and Codex runs (W16AAPPLE-33): folded by [WorkRooms] rather
+     * than appended, whether they arrive as a received or an updated item.
+     * Null for every other event.
+     */
+    private fun foldWorkRoom(
+        current: List<ChatItem>,
+        event: ChatEvent,
+        ignoredIds: Set<String>,
+        resolvedGateIds: Set<String>
+    ): ReduceResult? {
+        val item = when (event) {
+            is ChatEvent.ChatItemReceived -> event.item
+            is ChatEvent.ChatItemUpdated -> event.item
+            else -> return null
+        }
+        val append = { list: List<ChatItem>, added: ChatItem -> ChatEventHelpers.appendPinningGates(list, added, resolvedGateIds) }
+        return when {
+            item !is ChatItem.ProviderInvocation && item !is ChatItem.ProviderActivityUpdate &&
+                !WorkRooms.isParentOfShownRun(current, item) -> null
+            item.id in ignoredIds -> ReduceResult(current)
+            item is ChatItem.ProviderInvocation -> WorkRooms.foldInvocation(current, item, append) ?: ReduceResult(current)
+            item is ChatItem.ProviderActivityUpdate -> WorkRooms.foldActivity(current, item, append) ?: ReduceResult(current)
+            // The outer tool call's own card: the Work Room card already is it.
+            else -> ReduceResult(current)
+        }
+    }
 }
 
 /**

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import cash.z.ecc.android.bip39.Mnemonics
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
@@ -31,9 +32,9 @@ class KeyManagerMnemonicTest {
 
     private val phrase12 =
         "legal winner thank year wave sausage worth useful legal winner thank yellow"
-    private val address12 = "0xc6f2ac5598970c79633714d3eb5c34d7bfc3e92da58c7354b37996d9a4af3ab2"
+    private val address12 = "0xf8405257284c15e67fd759703d0c04afdf2f216153b9781946f096cae1990a95"
     private val phrase24 = (List(23) { "abandon" } + "art").joinToString(" ")
-    private val address24 = "0x1de352e44cd333672593f2334a730e180aaf290de89aa16d480de594e34e2961"
+    private val address24 = "0x8f0603db74882f8040f8c153f76cfe51f5296a9118a702b7f86a6f183a6866f8"
 
     // ── first launch ──────────────────────────────────────────────────
 
@@ -144,15 +145,15 @@ class KeyManagerMnemonicTest {
         // used to route only 12 and 24 to the phrase path, so these fell
         // through to hex and were refused as "Invalid key length".
         //
-        // Addresses from python-mnemonic 0.21 + PyNaCl, seed[:32] — the same
+        // Addresses from the connectonion SDK (v1.9.2b28), the same SLIP-0010
         // derivation as the other phrases in this file.
         val phrases = mapOf(
             (List(14) { "abandon" } + "address").joinToString(" ") to
-                "0x8a5945abdc29e319078cc86b26d8dfec1bae4e950c4355a03f1cd85e20d32061",
+                "0xd7ca67119a20dcf17260a9e7b07c7db79a4452beabc849143bb50ce37784ca16",
             (List(17) { "abandon" } + "agent").joinToString(" ") to
-                "0xd9b452bed8b921b07b43450ae0df1bd9b14dcc72f4831d2a45d47a86ecb45d75",
+                "0x0e9d0b749ea3788a66d3dc7d68171f96560bac25fe6c9c67456f6161dbaa1c64",
             (List(20) { "abandon" } + "admit").joinToString(" ") to
-                "0xe052c05765d9629f50e1b03f41c2d789176975ac7089f228b9c3d1ede47d2c92"
+                "0x96ef0856a854247b15aec93351545b86f5b515e6bc1092fe12a2351c88169cec"
         )
 
         for ((phrase, address) in phrases) {
@@ -178,6 +179,99 @@ class KeyManagerMnemonicTest {
 
         assertEquals(address12, keyManager.importFromPhraseOrHex(messy).address)
         assertEquals(KeyManager.BackupExport.Phrase(phrase12), keyManager.exportBackup())
+    }
+
+    // ── identities minted before SLIP-0010 ────────────────────────────
+    //
+    // Before W16AAPPLE-97 a phrase derived the key from the first 32 bytes of
+    // its BIP39 seed. Those installs keep their key; the phrase beside it now
+    // derives a different one, which the app has to say.
+
+    /** What the app wrote for [phrase12] before the switch: the seed[:32] key, and the phrase. */
+    private fun seedPreSlip10Install() {
+        val seedHalf = "878386efb78845b3355bd15ea4d39ef97d179cb712b77d5c12b6be415fffeffe"
+        val publicKey = "c6f2ac5598970c79633714d3eb5c34d7bfc3e92da58c7354b37996d9a4af3ab2"
+        // The plain-file fallback SafePreferencesWrapper lands on under
+        // Robolectric — see KeyManagerPersistenceTest.
+        context.getSharedPreferences("${KeyManager.PREFS_NAME}_standard", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("address", "0x$publicKey")
+            .putString("public_key", publicKey)
+            .putString("private_key", seedHalf + publicKey)
+            .putString("mnemonic", phrase12)
+            .commit()
+    }
+
+    private val preSlip10Address12 = "0xc6f2ac5598970c79633714d3eb5c34d7bfc3e92da58c7354b37996d9a4af3ab2"
+
+    @Test
+    fun `an update keeps a pre-SLIP-0010 identity's stored key and address`() {
+        seedPreSlip10Install()
+
+        assertEquals(preSlip10Address12, keyManager.loadOrGenerate().address)
+        assertEquals(preSlip10Address12, keyManager.load()?.address)
+    }
+
+    @Test
+    fun `a stored phrase that no longer derives the stored key is reported`() {
+        seedPreSlip10Install()
+
+        assertTrue(keyManager.hasLegacyDerivation())
+        // The phrase is still kept, but the key is what restores this identity.
+        val backup = keyManager.exportBackup() as KeyManager.BackupExport.Phrase
+        assertEquals(phrase12, backup.mnemonic)
+        assertEquals(keyManager.load()!!.privateKey.toHex(), backup.legacyPrivateKeyHex)
+        assertEquals(preSlip10Address12, keyManager.keysFromHex(backup.legacyPrivateKeyHex!!).address)
+    }
+
+    @Test
+    fun `restoring from the old phrase moves to the SDK's address and clears the warning`() {
+        seedPreSlip10Install()
+        assertTrue(keyManager.hasLegacyDerivation())
+
+        keyManager.importFromPhraseOrHex(phrase12)
+
+        assertEquals(address12, keyManager.load()?.address)
+        assertFalse(keyManager.hasLegacyDerivation())
+        assertEquals(KeyManager.BackupExport.Phrase(phrase12), keyManager.exportBackup())
+    }
+
+    @Test
+    fun `saving a new key under the same phrase rechecks rather than serving the cached answer`() {
+        // Only the key changes here; the stored phrase is not touched, so the
+        // reset in saveMnemonic() never runs. The one in save() is what has to
+        // drop the cached "legacy".
+        seedPreSlip10Install()
+        assertTrue(keyManager.hasLegacyDerivation())
+
+        keyManager.save(keyManager.keysFromMnemonic(phrase12))
+
+        assertFalse(keyManager.hasLegacyDerivation())
+    }
+
+    @Test
+    fun `a current identity, a hex import and no identity at all are not legacy`() {
+        assertFalse("no identity", keyManager.hasLegacyDerivation())
+
+        keyManager.loadOrGenerate()
+        assertFalse("freshly minted", keyManager.hasLegacyDerivation())
+
+        keyManager.importFromPhraseOrHex(phrase24)
+        assertFalse("restored phrase", keyManager.hasLegacyDerivation())
+
+        keyManager.importFromPhraseOrHex(TestIdentity.hexKey())
+        assertFalse("hex import has no phrase to disagree with", keyManager.hasLegacyDerivation())
+    }
+
+    @Test
+    fun `a hex import is unchanged - the key it is given is the key it keeps`() {
+        // Same 128 hex characters, same address, before and after W16AAPPLE-97:
+        // no phrase is involved, so no derivation is either.
+        val oldKey = "878386efb78845b3355bd15ea4d39ef97d179cb712b77d5c12b6be415fffeffe" +
+            "c6f2ac5598970c79633714d3eb5c34d7bfc3e92da58c7354b37996d9a4af3ab2"
+
+        assertEquals(preSlip10Address12, keyManager.importFromPhraseOrHex(oldKey).address)
+        assertEquals(KeyManager.BackupExport.LegacyHexKey(oldKey), keyManager.exportBackup())
     }
 
     // ── reset ─────────────────────────────────────────────────────────
@@ -212,4 +306,6 @@ class KeyManagerMnemonicTest {
             keyManager.sign(loaded!!, """{"timestamp":1760000000}""")
         )
     }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }

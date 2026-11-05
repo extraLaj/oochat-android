@@ -110,6 +110,27 @@ class SessionSyncRepositoryImpl(
         }
     }
 
+    override suspend fun advanceCursor(
+        identityAddress: String,
+        agentId: String,
+        cursor: String
+    ) {
+        require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
+        require(agentId.isNotBlank()) { "agentId must not be blank" }
+        require(cursor.isNotBlank()) { "a Session Sync cursor must not be blank" }
+
+        database.withTransaction {
+            dao.saveState(
+                SessionSyncStateEntity(
+                    identityAddress = identityAddress,
+                    agentId = agentId,
+                    cursor = cursor,
+                    updatedAt = clock()
+                )
+            )
+        }
+    }
+
     private fun prepare(snapshot: SessionSyncSnapshot): List<PreparedSummary> {
         val removedIds = snapshot.removedSessionIds.toSet()
         require(removedIds.none(String::isBlank)) { "removed session ids must not be blank" }

@@ -22,7 +22,8 @@ internal fun ChatItemBubble(
     // groupReasoningByTurn. Only read for a reasoning item.
     earlierThoughts: List<ChatItem.Thinking> = emptyList(),
     showAllThoughts: Boolean = false,
-    onToggleThoughts: (() -> Unit)? = null
+    onToggleThoughts: (() -> Unit)? = null,
+    onOpenWorkRoom: (invocationId: String) -> Unit = {}
 ) {
     when (item) {
         is ChatItem.User -> UserBubble(item, timestamp, renderMarkdown, showSender, onResend)
@@ -43,6 +44,9 @@ internal fun ChatItemBubble(
         }
         is ChatItem.Turn -> TurnBubble(item, onRetry, renderMarkdown)
         is ChatItem.ToolCall -> ToolCallDispatch(item)
+        is ChatItem.ProviderInvocation -> WorkRoomCard(item, onOpen = { onOpenWorkRoom(item.id) })
+        // Folded into its run's card by the reducer; never in the list itself.
+        is ChatItem.ProviderActivityUpdate -> Unit
         is ChatItem.AskUser -> AskUserCard(item, onRespond)
         is ChatItem.ApprovalNeeded -> ApprovalCard(item, onApprove)
         // Deliberately one call site for both variants. Compose gives each

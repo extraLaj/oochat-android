@@ -12,6 +12,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.UNKNOWN_SESSION_STATUS
@@ -115,9 +116,16 @@ interface ConnectToAgentUseCaseContract {
      *
      * @param conversationId Local conversation to resume the server session
      *   of; null when it has no persisted row yet, which starts a fresh one
+     * @param relayUrl Relay to go through when not direct (a self-hosted one);
+     *   null for the default relay
      * @return true if connected successfully, false on failure/timeout
      */
-    suspend fun connect(agentAddress: String, conversationId: String? = null, directUrl: String? = null): Boolean
+    suspend fun connect(
+        agentAddress: String,
+        conversationId: String? = null,
+        directUrl: String? = null,
+        relayUrl: String? = null
+    ): Boolean
 
     /**
      * Move the live connection onto another conversation's server session —
@@ -146,10 +154,13 @@ interface ConnectToAgentUseCaseContract {
      */
     suspend fun executeTool(request: ExecRequest): ExecOutcome
 
+    /** The connected agent's Rem notebook — see ConnectionRepository.readRem. */
+    suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
+
     /**
-     * Reply to an `ask_user` event.
+     * Reply to an `ask_user` event; [requestId] is that event's id.
      */
-    suspend fun respond(answer: String)
+    suspend fun respond(answer: String, requestId: String? = null)
 
     /**
      * Ask the agent to gracefully stop its current run — it finishes the
@@ -168,8 +179,15 @@ interface ConnectToAgentUseCaseContract {
      *   "reject_explain" (ask the agent to explain before proceeding)
      * @param feedback free-text reason the LLM sees when [approved] is
      *   false, e.g. "use yarn instead". Ignored when [approved] is true.
+     * @param requestId the `approval_needed` event's id
      */
-    suspend fun respondToApproval(approved: Boolean, scope: String = "once", mode: String? = null, feedback: String? = null)
+    suspend fun respondToApproval(
+        approved: Boolean,
+        scope: String = "once",
+        mode: String? = null,
+        feedback: String? = null,
+        requestId: String? = null
+    )
 
     /**
      * Reply to an `ONBOARD_REQUIRED` event with an invite code or payment.

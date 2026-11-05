@@ -115,8 +115,8 @@ interface AppContainer {
      * Persisted protocol-session store (session_states), one row per local
      * conversation — the connection restores and saves each conversation's
      * own wire session through it. Memory-gated: with the Memory toggle off
-     * reads return null, so every connection starts a fresh server session
-     * instead of resuming the saved one.
+     * reads return null, so each newly opened chat starts a fresh server
+     * session instead of resuming the saved one.
      */
     val sessionStore: SessionStore
 
@@ -246,8 +246,8 @@ class DefaultAppContainer(context: Context) : AppContainer {
                 withContext(Dispatchers.IO) { keyManager.loadOrGenerate().address }
             },
             syncEnabled = { appSettings.memoryEnabled.first() },
-            fetch = { agentAddress, directUrl, cursor ->
-                client.fetch(agentAddress, directUrl, cursor)
+            fetch = { agentAddress, directUrl, relayUrl, cursor ->
+                client.fetch(agentAddress, directUrl, cursor, relayUrl = relayUrl)
             }
         )
     }

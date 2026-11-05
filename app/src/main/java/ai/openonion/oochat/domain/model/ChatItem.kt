@@ -126,7 +126,13 @@ sealed class ChatItem {
         override val id: String,
         val text: String,
         val options: List<String>,
-        val multiSelect: Boolean
+        val multiSelect: Boolean,
+        /** The Host's id for this question, sent back as `request_id`. Null when the event had none. */
+        val requestId: String? = null,
+        /** What this device answered. Null while the question is open. Set once, by respond. */
+        val answer: String? = null,
+        /** The Host refused [answer] (STALE_ANSWER): it was no longer waiting for one. */
+        val refused: Boolean = false
     ) : ChatItem()
 
     data class ApprovalNeeded(
@@ -136,7 +142,9 @@ sealed class ChatItem {
         val description: String? = null,
         val batchRemaining: List<BatchToolPreview>? = null,
         /** Null while the gate is still open. Set once, by respondToApproval. */
-        val decision: ApprovalDecision? = null
+        val decision: ApprovalDecision? = null,
+        /** The Host's id for this request, sent back as `request_id`. Null when the event had none. */
+        val requestId: String? = null
     ) : ChatItem()
 
     data class OnboardRequired(
@@ -268,6 +276,46 @@ sealed class ChatItem {
         val triggeredBy: String? = null,
         val turnsLeft: Int? = null
     ) : ChatItem()
+
+    /**
+     * One Claude Code or Codex run the agent started: the card for its Work
+     * Room (W16AAPPLE-33). [id] is the Host's `invocationId`, which every
+     * frame about the run carries, so each `provider_invocation` replaces this
+     * one in place and its `provider_activity` frames land in [activities].
+     * See [WorkRooms] for how frames are folded, and docs/protocol.md.
+     */
+    data class ProviderInvocation(
+        override val id: String,
+        /** The outer agent's `codex`/`claude_code` tool call this run is; its own card is hidden. */
+        val parentToolCallId: String? = null,
+        val workroomId: String? = null,
+        /** "codex" or "claude_code"; kept raw, the Host may add providers. */
+        val provider: String = "",
+        val providerDisplayName: String? = null,
+        val taskTitle: String? = null,
+        val status: ProviderInvocationStatus = ProviderInvocationStatus.RUNNING,
+        val currentSummary: String? = null,
+        val resultSummary: String? = null,
+        val errorSummary: String? = null,
+        val elapsedMs: Long? = null,
+        /** Orders frames for the same run; an older one never overwrites a newer. */
+        val stateRevision: Long? = null,
+        val activities: List<ProviderActivity> = emptyList()
+    ) : ChatItem()
+
+    /**
+     * One `provider_activity` frame on its way to its [ProviderInvocation].
+     * Never shown or saved itself: [ChatEventReducer] folds it into the card
+     * with [invocationId] (see [WorkRooms.foldActivity]).
+     */
+    data class ProviderActivityUpdate(
+        val invocationId: String,
+        val parentToolCallId: String? = null,
+        val provider: String = "",
+        val activity: ProviderActivity
+    ) : ChatItem() {
+        override val id: String get() = invocationId
+    }
 }
 
 enum class ThinkingStatus { RUNNING, DONE, ERROR }
@@ -304,7 +352,9 @@ data class ApprovalDecision(
     val scope: String,
     val mode: String?,
     // Free-text reason given on a rejection — see APPROVAL_RESPONSE.feedback.
-    val feedback: String? = null
+    val feedback: String? = null,
+    // The Host refused this answer (STALE_ANSWER): another device answered first.
+    val refused: Boolean = false
 )
 
 /**

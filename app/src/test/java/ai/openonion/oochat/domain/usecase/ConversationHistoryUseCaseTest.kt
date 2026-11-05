@@ -11,6 +11,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.ThinkingStatus
+import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.model.sessionUsageTotals
 import ai.openonion.oochat.domain.model.stableAssistantId
 import kotlinx.coroutines.CompletableDeferred
@@ -698,6 +699,33 @@ class ConversationHistoryUseCaseTest {
         assertEquals(listOf("file:///a.jpg"), (items[0] as ChatItem.User).images)
         assertEquals(session.id, useCase.activeSessionId.value)
         assertEquals(mapOf("m1" to 100L, "m2" to 200L), useCase.itemTimestamps.value)
+    }
+
+    @Test
+    fun `a reloaded conversation shows a Work Room run without its own codex tool card`() = runTest(testDispatcher) {
+        // W16AAPPLE-33: a row saved before the run retired it (or by an older
+        // build) must not bring the parent tool card back beside the run.
+        val session = sessionRepo.createSession("agent-1", "Login page")
+        val parent = ChatItem.ToolCall(id = "call-1", name = "codex", status = ToolStatus.DONE)
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", parentToolCallId = "call-1", provider = "codex")
+        listOf(parent, run).forEachIndexed { i, item ->
+            val payload = TranscriptItemCodec.toPayload(item)!!
+            messageRepo.createMessage(
+                ChatMessage(
+                    id = item.id,
+                    sessionId = session.id,
+                    role = Role.SYSTEM,
+                    content = "",
+                    timestamp = 100L + i,
+                    itemType = payload::class.simpleName,
+                    payload = TranscriptItemCodec.encode(payload)
+                )
+            )
+        }
+
+        val items = useCase.switchToSession(session.id)
+
+        assertEquals(listOf("codex:call-1"), items.map { it.id })
     }
 
     @Test

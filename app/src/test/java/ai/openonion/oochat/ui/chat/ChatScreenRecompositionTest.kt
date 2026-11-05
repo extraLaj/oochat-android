@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ChatMessage
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
+import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
@@ -152,7 +153,7 @@ class ChatScreenRecompositionTest {
             ),
             // Session Sync has its own integration tests. This suite measures
             // Compose invalidation and must not load production identity crypto.
-            recentChatsSync = RecentChatsSync { _, _, _ -> RecentChatsSyncResult.Unsupported },
+            recentChatsSync = RecentChatsSync { _, _, _, _ -> RecentChatsSyncResult.Unsupported },
             initialMyAddress = "0xTEST",
             networkMonitor = RecompFakeNetworkMonitor(),
         )
@@ -341,7 +342,10 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override val agentProfile: StateFlow<AgentLiveProfile?> = MutableStateFlow(null)
     override val approvalMode: StateFlow<ApprovalMode> = MutableStateFlow(ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
-    override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
+    val dashboard = MutableStateFlow<String?>(null)
+    override val dashboardHtml: StateFlow<String?> = dashboard
+    val controlCenter = MutableStateFlow<ControlCenterApp?>(null)
+    override val controlCenterApp: StateFlow<ControlCenterApp?> = controlCenter
 
     private val events = MutableSharedFlow<ChatEvent>(
         extraBufferCapacity = 64,
@@ -353,7 +357,7 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     private var liveSessionId: String? = null
 
     override fun isConnected(): Boolean = connected
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean {
         liveSessionId = conversationId
         return true
     }
@@ -361,9 +365,9 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override suspend fun switchConversation(conversationId: String?) { liveSessionId = conversationId }
     override suspend fun sendMessage(content: String, agentAddress: String, images: List<String>?, files: List<OutgoingFileAttachment>?) = Unit
     override suspend fun executeTool(request: ExecRequest): ExecOutcome = ExecOutcome.NotSent("Not used in recomposition tests")
-    override suspend fun respond(answer: String) = Unit
+    override suspend fun respond(answer: String, requestId: String?) = Unit
     override suspend fun interrupt() = Unit
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) = Unit
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) = Unit
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) = Unit
     override suspend fun respondToPlanReview(message: String) = Unit
     override suspend fun respondToUlwTurnsReached(action: String, turns: Int?, mode: String?) = Unit

@@ -14,6 +14,7 @@ import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.network.AgentConnection
@@ -112,9 +113,15 @@ class ConnectToAgentUseCase(
      *
      * @param agentAddress Agent address (0x...) or URL for discovery
      * @param directUrl Direct connection URL (null for relay mode); overridden if discovery resolves a URL
+     * @param relayUrl Relay to go through in relay mode; null for the default relay
      * @return true if connected successfully, false if timed out or failed
      */
-    override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean {
+    override suspend fun connect(
+        agentAddress: String,
+        conversationId: String?,
+        directUrl: String?,
+        relayUrl: String?
+    ): Boolean {
         val resolved = agentDiscovery.resolveAgentAddress(agentAddress)
         val effectiveAddress = resolved.address
         val effectiveDirectUrl = resolved.directUrl ?: directUrl
@@ -123,7 +130,7 @@ class ConnectToAgentUseCase(
         // The server may reject this if the session was already attached to
         // another connection (e.g. a previous instance that didn't cleanly
         // disconnect) or if the session expired on the server.
-        if (tryConnectOnce(effectiveAddress, conversationId, effectiveDirectUrl, attempt = 1)) return true
+        if (tryConnectOnce(effectiveAddress, conversationId, effectiveDirectUrl, relayUrl, attempt = 1)) return true
 
         // A relay that already named the reason — the agent has no socket of
         // its own — has answered the question. Re-asking it costs another
@@ -149,7 +156,7 @@ class ConnectToAgentUseCase(
         // away the messages queued while offline (W16AAPPLE-84).
         FileLogger.w(LogTags.CONNECT_USE_CASE, "First attempt failed; retrying on the same session")
 
-        return tryConnectOnce(effectiveAddress, conversationId, effectiveDirectUrl, attempt = 2)
+        return tryConnectOnce(effectiveAddress, conversationId, effectiveDirectUrl, relayUrl, attempt = 2)
     }
 
     override suspend fun switchConversation(conversationId: String?) {
@@ -175,6 +182,7 @@ class ConnectToAgentUseCase(
         address: String,
         conversationId: String?,
         directUrl: String?,
+        relayUrl: String?,
         attempt: Int
     ): Boolean {
         val repo = getOrCreateRepository()
@@ -200,7 +208,7 @@ class ConnectToAgentUseCase(
                     .first()
             }
             val stateDeferred = async {
-                repo.connect(address, conversationId, directUrl)
+                repo.connect(address, conversationId, directUrl, relayUrl)
                 withTimeoutOrNull(connectionTimeoutMs) {
                     // Wait until state leaves Connecting/Reconnecting. An Error,
                     // a stale-session one included, ends the wait at once.
@@ -248,6 +256,8 @@ class ConnectToAgentUseCase(
         return getOrCreateRepository().executeTool(request)
     }
 
+    override suspend fun readRem(): RemOutcome = getOrCreateRepository().readRem()
+
     override fun observeEvents(): Flow<ChatEvent> {
         return getOrCreateRepository().observeEvents()
     }
@@ -260,16 +270,16 @@ class ConnectToAgentUseCase(
         getOrCreateRepository().releaseSessionStatus()
     }
 
-    override suspend fun respond(answer: String) {
-        getOrCreateRepository().respond(answer)
+    override suspend fun respond(answer: String, requestId: String?) {
+        getOrCreateRepository().respond(answer, requestId)
     }
 
     override suspend fun interrupt() {
         getOrCreateRepository().interrupt()
     }
 
-    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?) {
-        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback)
+    override suspend fun respondToApproval(approved: Boolean, scope: String, mode: String?, feedback: String?, requestId: String?) {
+        getOrCreateRepository().respondToApproval(approved, scope, mode, feedback, requestId)
     }
 
     override suspend fun respondToOnboard(method: String, inviteCode: String?, payment: Double?) {

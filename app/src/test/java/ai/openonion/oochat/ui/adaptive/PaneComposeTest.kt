@@ -1,4 +1,5 @@
 package ai.openonion.oochat.ui.adaptive
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -34,6 +35,9 @@ class PaneComposeTest {
         composeRule.setContent {
             ChatWithHome(
                 placement = HomePlacement.BESIDE_CHAT,
+                tab = HomeTab.CHAT,
+                onTabChange = {},
+                homeLabel = "Home",
                 chat = { modifier -> Pane(modifier) { Box(Modifier.fillMaxSize().testTag("chat")) } },
                 home = { modifier -> Pane(modifier) { Box(Modifier.fillMaxSize().testTag("home")) } }
             )

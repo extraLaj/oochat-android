@@ -136,6 +136,9 @@ abstract class RelayResumeTestBase {
 
         @Volatile var connectsTurnedAway = 0
 
+        /** The conversation each INPUT went out on: the session its socket last CONNECTed with. */
+        val inputSessions = CopyOnWriteArrayList<String?>()
+
         override fun receive(socket: FakeOipSocket, frame: JsonObject) {
             val type = frame.string("type")
             if (type == "CONNECT") {
@@ -150,6 +153,7 @@ abstract class RelayResumeTestBase {
                 return
             }
             if (type == "CONNECT") frame.string("session_id")?.let { sessionIds[socket] = it }
+            if (type == "INPUT") inputSessions += sessionIds[socket]
             super.receive(socket, frame)
         }
 
@@ -217,7 +221,7 @@ abstract class RelayResumeTestBase {
         private val inner: ConnectToAgentUseCase
     ) : ConnectToAgentUseCaseContract by inner {
         val finished = java.util.concurrent.atomic.AtomicInteger()
-        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?): Boolean =
+        override suspend fun connect(agentAddress: String, conversationId: String?, directUrl: String?, relayUrl: String?): Boolean =
             inner.connect(agentAddress, conversationId, directUrl).also { finished.incrementAndGet() }
     }
 

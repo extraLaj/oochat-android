@@ -99,6 +99,11 @@ class ProtocolFrameCoverageTest {
         ),
         FrameFixture("OUTPUT", """{"type":"OUTPUT","result":"Finished"}""", ConnectionEvent.OutputReceived::class),
         FrameFixture("RUNTIME_INPUT_ACK", """{"type":"RUNTIME_INPUT_ACK","id":"host-input-1"}""", ConnectionEvent.RuntimeInputAcknowledged::class),
+        FrameFixture(
+            "WIKI_RESULT",
+            """{"type":"WIKI_RESULT","request_id":"read-1","ok":false,"error":"co rem is not available on this Host"}""",
+            ConnectionEvent.RemResultReceived::class
+        ),
         FrameFixture("ERROR: generic", """{"type":"ERROR","message":"Something failed"}""", ConnectionEvent.ConnectionError::class),
         FrameFixture(
             "ERROR: unsupported protocol",
