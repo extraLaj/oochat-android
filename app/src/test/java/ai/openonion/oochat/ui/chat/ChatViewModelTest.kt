@@ -26,6 +26,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
@@ -2779,6 +2780,32 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `clearing a chat during a Work Room run keeps the run's late codex tool card away`() = runTest(testDispatcher) {
+        // W16AAPPLE-33: the run replaced its parent ToolCall, so the parent's id
+        // was never on screen; the clear must still ignore it, or the outer
+        // tool_result that lands when the run ends brings a lone card back.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(
+                ChatItem.ProviderInvocation(id = "codex:call-1", parentToolCallId = "call-1", provider = "codex", stateRevision = 1)
+            )
+        )
+        testScheduler.runCurrent()
+        vm.clearChat()
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(ChatItem.ToolCall(id = "call-1", name = "codex", status = ToolStatus.DONE, result = "done"))
+        )
+        testScheduler.runCurrent()
+
+        assertTrue(vm.uiState.value.chatItems.isEmpty())
+    }
+
+    @Test
     fun `clearChat in agent A does not filter replays in agent B`() = runTest(testDispatcher) {
         val addressA = validHexAddress(0xA)
         val addressB = validHexAddress(0xB)
@@ -5414,6 +5441,30 @@ class ChatViewModelTest {
     }
 
     // ── CONNECTED status: connected (idle) ──────────────────────────────
+
+    @Test
+    fun `a Work Room left working says it ended once the Host says the session is idle`() = runTest(testDispatcher) {
+        // W16AAPPLE-33: the run finished while the socket was down, and an idle Host replays nothing.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(
+                ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", stateRevision = 1)
+            )
+        )
+        testScheduler.runCurrent()
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        testScheduler.runCurrent()
+
+        connectUseCase.markConnected(address, status = ServerSessionStatus.CONNECTED)
+        testScheduler.runCurrent()
+
+        val run = vm.uiState.value.chatItems.first { it.id == "codex:call-1" } as ChatItem.ProviderInvocation
+        assertEquals(ProviderInvocationStatus.ENDED, run.status)
+    }
 
     @Test
     fun `a card left spinning is settled once the Host says the session is idle`() = runTest(testDispatcher) {

@@ -138,6 +138,62 @@ class WorkRoomsTest {
     }
 
     @Test
+    fun `a revision between two seen ones is still stale`() {
+        // rev 1, then rev 3, then a replayed rev 2: the card must remember it is on 3.
+        var items = reduce(listOf(user), run(revision = 1)).chatItems
+        items = reduce(items, run(revision = 3, status = ProviderInvocationStatus.COMPLETED)).chatItems
+
+        val result = reduce(items, run(revision = 2, status = ProviderInvocationStatus.RUNNING))
+
+        assertSame(items, result.chatItems)
+    }
+
+    @Test
+    fun `a compatibility step keeps its place when it finishes`() {
+        var items = reduce(listOf(user), run()).chatItems
+        items = reduce(items, step("x", Int.MAX_VALUE, legacy = true)).chatItems
+        items = reduce(items, step("y", Int.MAX_VALUE, legacy = true)).chatItems
+
+        items = reduce(items, step("x", Int.MAX_VALUE, ProviderActivityStatus.COMPLETED, legacy = true)).chatItems
+
+        val card = items.single { it is ChatItem.ProviderInvocation } as ChatItem.ProviderInvocation
+        assertEquals(listOf("x", "y"), card.activities.map { it.id })
+    }
+
+    @Test
+    fun `a saved card takes an off-screen fold without losing what it had`() {
+        val saved = run(revision = 2, status = ProviderInvocationStatus.COMPLETED)
+            .copy(activities = listOf(ProviderActivity("a", 1, "command", ProviderActivityStatus.COMPLETED, "t", "")))
+        // A step folded against an empty list starts a bare card: no title, a guessed status, no revision.
+        val partial = ChatItem.ProviderInvocation(
+            id = saved.id,
+            provider = "codex",
+            activities = listOf(ProviderActivity("b", 2, "command", ProviderActivityStatus.RUNNING, "t", ""))
+        )
+
+        val merged = WorkRooms.mergeStored(saved, partial)
+
+        assertEquals("Add a login page", merged.taskTitle)
+        assertEquals(ProviderInvocationStatus.COMPLETED, merged.status)
+        assertEquals(listOf("a", "b"), merged.activities.map { it.id })
+    }
+
+    @Test
+    fun `a saved conversation never shows a run's own tool card`() {
+        val saved = listOf(user, parentCard, run(), parentCard.copy(status = ToolStatus.DONE))
+
+        assertEquals(listOf("u-1", "codex:call-1"), WorkRooms.withoutParentToolCards(saved).map { it.id })
+    }
+
+    @Test
+    fun `only a run still working is ended by an idle Host`() {
+        assertEquals(ProviderInvocationStatus.ENDED, WorkRooms.endedUnseen(run())?.status)
+        assertEquals(ProviderInvocationStatus.ENDED, WorkRooms.endedUnseen(run(status = ProviderInvocationStatus.AWAITING_APPROVAL))?.status)
+        assertNull(WorkRooms.endedUnseen(run(status = ProviderInvocationStatus.COMPLETED)))
+        assertNull(WorkRooms.endedUnseen(parentCard))
+    }
+
+    @Test
     fun `a cleared run stays cleared`() {
         val result = ChatEventReducer.reduce(listOf(user), ChatEvent.ChatItemUpdated(run()), ignoredIds = setOf("codex:call-1"))
 

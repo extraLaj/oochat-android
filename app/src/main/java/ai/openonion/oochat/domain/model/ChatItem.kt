@@ -276,6 +276,46 @@ sealed class ChatItem {
         val triggeredBy: String? = null,
         val turnsLeft: Int? = null
     ) : ChatItem()
+
+    /**
+     * One Claude Code or Codex run the agent started: the card for its Work
+     * Room (W16AAPPLE-33). [id] is the Host's `invocationId`, which every
+     * frame about the run carries, so each `provider_invocation` replaces this
+     * one in place and its `provider_activity` frames land in [activities].
+     * See [WorkRooms] for how frames are folded, and docs/protocol.md.
+     */
+    data class ProviderInvocation(
+        override val id: String,
+        /** The outer agent's `codex`/`claude_code` tool call this run is; its own card is hidden. */
+        val parentToolCallId: String? = null,
+        val workroomId: String? = null,
+        /** "codex" or "claude_code"; kept raw, the Host may add providers. */
+        val provider: String = "",
+        val providerDisplayName: String? = null,
+        val taskTitle: String? = null,
+        val status: ProviderInvocationStatus = ProviderInvocationStatus.RUNNING,
+        val currentSummary: String? = null,
+        val resultSummary: String? = null,
+        val errorSummary: String? = null,
+        val elapsedMs: Long? = null,
+        /** Orders frames for the same run; an older one never overwrites a newer. */
+        val stateRevision: Long? = null,
+        val activities: List<ProviderActivity> = emptyList()
+    ) : ChatItem()
+
+    /**
+     * One `provider_activity` frame on its way to its [ProviderInvocation].
+     * Never shown or saved itself: [ChatEventReducer] folds it into the card
+     * with [invocationId] (see [WorkRooms.foldActivity]).
+     */
+    data class ProviderActivityUpdate(
+        val invocationId: String,
+        val parentToolCallId: String? = null,
+        val provider: String = "",
+        val activity: ProviderActivity
+    ) : ChatItem() {
+        override val id: String get() = invocationId
+    }
 }
 
 enum class ThinkingStatus { RUNNING, DONE, ERROR }

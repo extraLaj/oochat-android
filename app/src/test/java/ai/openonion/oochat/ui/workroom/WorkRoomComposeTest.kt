@@ -5,9 +5,12 @@ import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.ui.chat.components.ChatItemBubble
+import ai.openonion.oochat.ui.chat.components.WorkRoomCard
+import ai.openonion.oochat.ui.navigation.Routes
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
@@ -61,7 +64,8 @@ class WorkRoomComposeTest {
         composeRule.onNodeWithText("Codex · Work Room").assertIsDisplayed()
         composeRule.onNodeWithText("Add a login page").assertIsDisplayed()
         composeRule.onNodeWithText("Working").assertIsDisplayed()
-        composeRule.onNodeWithText("Working in the selected workspace").assertIsDisplayed()
+        // The newest step, not the Host's "Working in the selected workspace", which never changes.
+        composeRule.onNodeWithText("Run the requested tests").assertIsDisplayed()
         composeRule.onNodeWithText("2 steps").assertIsDisplayed()
 
         composeRule.onNodeWithText("Open Work Room").performClick()
@@ -91,6 +95,38 @@ class WorkRoomComposeTest {
         composeRule.onNodeWithText("Failed").assertIsDisplayed()
         composeRule.onNodeWithText("The provider reported an error").assertIsDisplayed()
         composeRule.onNodeWithText("Took 1 min 5 s").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a stopped run does not still say it is working`() {
+        // A Host-made Stop frame carries the running summary over.
+        val stopped = running.copy(status = ProviderInvocationStatus.CANCELLED)
+        composeRule.setContent { ConnectOnionTheme { WorkRoomCard(stopped, onOpen = {}) } }
+
+        composeRule.onNodeWithText("Stopped").assertIsDisplayed()
+        composeRule.onNodeWithText("Working in the selected workspace").assertDoesNotExist()
+        composeRule.onNodeWithText("Run the requested tests").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a run that ended unseen says so rather than guessing how`() {
+        val ended = running.copy(status = ProviderInvocationStatus.ENDED)
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = ended, onNavigateBack = {}) } }
+
+        composeRule.onNodeWithText("Ended").assertIsDisplayed()
+        composeRule.onNodeWithText(WorkRoomText.ENDED_UNSEEN).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a running step's spinner is read out`() {
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = running, onNavigateBack = {}) } }
+
+        composeRule.onNodeWithContentDescription("Running").assertExists()
+    }
+
+    @Test
+    fun `the room's route carries an invocation id with its colon`() {
+        assertEquals("work_room/codex%3Acall-1", Routes.workRoom("codex:call-1"))
     }
 
     @Test

@@ -6,6 +6,8 @@ import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
 import ai.openonion.oochat.data.local.db.entity.ChatSessionEntity
 import ai.openonion.oochat.data.local.mapper.TranscriptItemCodec
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.ProviderActivity
+import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.UserMessageState
@@ -104,6 +106,49 @@ class PersistenceTransactionTest {
         assertEquals("u1", inserted.id)
         assertEquals("hello", inserted.content)
         assertEquals(Role.USER.name, inserted.role)
+    }
+
+    private suspend fun savedRun(sessionId: String) = database.messageDao().getMessagesListBySession(sessionId)
+        .mapNotNull { row -> row.payload?.let(TranscriptItemCodec::decode) as? ChatItem.ProviderInvocation }
+        .single()
+
+    @Test
+    fun `a Work Room run retires its outer tool call's row`() = runTest(testDispatcher) {
+        // W16AAPPLE-33: saved before the run started, it would come back as a raw tool card on reload.
+        val sessionId = "session-1"
+        insertSession(sessionId, "Existing")
+        persist(sessionId, ChatItem.ToolCall(id = "call-1", name = "codex", args = mapOf("prompt" to "build it")))
+
+        persist(sessionId, ChatItem.ProviderInvocation(id = "codex:call-1", parentToolCallId = "call-1", provider = "codex", stateRevision = 1))
+
+        assertEquals(listOf("codex:call-1"), database.messageDao().getMessagesListBySession(sessionId).map { it.id })
+    }
+
+    @Test
+    fun `a run folded while its conversation was off screen is merged into the saved card`() = runTest(testDispatcher) {
+        val sessionId = "session-1"
+        insertSession(sessionId, "Existing")
+        val step = { id: String, sequence: Int ->
+            ProviderActivity(id, sequence, "command", ProviderActivityStatus.COMPLETED, "Run the requested tests", "")
+        }
+        persist(
+            sessionId,
+            ChatItem.ProviderInvocation(
+                id = "codex:call-1",
+                provider = "codex",
+                taskTitle = "Add a login page",
+                stateRevision = 2,
+                activities = listOf(step("a", 1))
+            )
+        )
+
+        // Off screen, a step is folded against an empty list: a card with that step and nothing else.
+        persist(sessionId, ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", activities = listOf(step("b", 2))))
+
+        val run = savedRun(sessionId)
+        assertEquals("Add a login page", run.taskTitle)
+        assertEquals(2L, run.stateRevision)
+        assertEquals(listOf("a", "b"), run.activities.map { it.id })
     }
 
     @Test

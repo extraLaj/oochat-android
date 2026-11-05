@@ -86,20 +86,21 @@ class ProtocolParserWorkRoomTest {
     }
 
     @Test
-    fun `a compatibility tool_call for a run is a step of it, by name only`() {
+    fun `a compatibility tool_call for a run is a step of it, under the generic title`() {
+        // As Codex sends it (useful_tools/codex.py): the name is the raw command itself.
         val update = itemOf(
             parse(
-                """{"type":"tool_call","tool_id":"item-9","name":"shell","args":{"command":"rm -rf /tmp/x"},
+                """{"type":"tool_call","tool_id":"item-9","name":"rm -rf /Users/jo/secret","args":{"command":"rm -rf /Users/jo/secret"},
                 "status":"in_progress","invocationId":"codex:call-1","parentToolCallId":"call-1"}"""
             )
         ) as ChatItem.ProviderActivityUpdate
 
         assertEquals("codex:call-1", update.invocationId)
         assertEquals("item-9", update.activity.id)
-        assertEquals("shell", update.activity.title)
+        assertEquals("Use a provider tool", update.activity.title)
         assertEquals(ProviderActivityStatus.RUNNING, update.activity.status)
         assertTrue(update.activity.legacy)
-        assertTrue("the command is not carried", update.activity.summary.isEmpty())
+        assertTrue("neither the name nor the command is carried", "rm -rf" !in update.activity.title + update.activity.summary)
     }
 
     @Test
