@@ -63,6 +63,9 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `thinking` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `tool_call` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `tool_result` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
+| `provider_invocation` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_activity` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_message`, `provider_artifact`, `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-34, -40) | - |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -1365,6 +1368,61 @@ running), `ApprovalModeTest` (no tap reaches an unattended mode on either
 catalogue), `SessionActivityTest`, `ChatViewModelTest` (cycling and exit on a
 1.7+ Host; each status line), `ServerErrorTextTest`, `TranscriptItemCodecTest`,
 `ChatTopBarComposeTest` and `ApprovalModeControlsComposeTest`.
+
+## Work Rooms
+
+A Host with connectonion's Codex or Claude Code plugin (`co ai` installs both)
+can hand a task to that coding agent. The run is one **Work Room**
+(W16AAPPLE-33), the same view O Chat opens for it. These frames describe it,
+as `plugins/coding_agents.py`, `useful_tools/codex.py` and
+`core/provider_events.py` send them:
+
+| Frame | Fields read | Effect |
+|---|---|---|
+| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
+| `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
+| `tool_call` / `tool_result` carrying `invocationId` | `tool_id`, `status` | A step from a Host that sends no `provider_activity` for it, after the native steps, under the Host's generic title "Use a provider tool". Its `name` is not shown: for Codex it is the raw command or file path. |
+
+They are folded (`WorkRooms`, through `ChatEventReducer`) the way the Host
+nests them for replay (`_nest_provider_invocations` in
+`network/host/session/ui.py`):
+
+- One card per `invocationId`. A frame is usually sent twice, live and again
+  when the turn commits (a turn that is cancelled sends it live only), and a
+  reconnect replays some, so a later frame replaces the card in place and one
+  with a lower `stateRevision` than the card's changes nothing. A frame names
+  only what changed: a field it leaves out keeps its value.
+- The card takes the place of the outer agent's `codex`/`claude_code` tool card
+  (`parentToolCallId`), which is the same run, and that tool card is not shown
+  again when its `tool_result` arrives.
+- Steps are updated in place by `activityId` and kept in `sequence` order, so a
+  step keeps its place when it finishes. A native step is never replaced by a
+  compatibility `tool_call` with the same id. A step that arrives before its run
+  starts the card.
+- A frame's trace `id` moves the replay cursor (`last_msg_id`) like any other.
+
+`provider_activity` is decoded on its own (`ProviderFrames`) rather than as a
+`ServerEvent`, whose `files` is a list of objects, so the shared decode would
+drop it.
+
+The card is saved with its steps (`TranscriptItemPayload.ProviderInvocation`).
+Frames for a conversation that is not on screen are folded on their own, so
+saving merges them into the stored card (`WorkRooms.mergeStored`) rather than
+replacing it. Saving a run also deletes its outer tool call's row, and a
+conversation read back from Room never shows a run's tool card. A clear-chat
+ignores the outer tool call too, so its late result cannot bring it back. The
+Control Center app receives the card in the Host's nested shape.
+
+A run still working when the Host answers CONNECTED with `connected` (idle) or
+says it has no record of the session ended while the phone was not listening,
+and an idle Host replays nothing, so the card becomes **Ended** (an outcome this
+app cannot know) instead of spinning. A later frame for the run still replaces it.
+
+The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
+which reads the run from the chat's own list, so it follows new frames live.
+It is read-only so far: messages, artifacts, approvals, Stop and permission
+profiles in the room are W16AAPPLE-34 to -37 and -43, and the local and remote
+handover states are W16AAPPLE-40.
 
 ## Control Center
 

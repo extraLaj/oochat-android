@@ -17,6 +17,7 @@ import ai.openonion.oochat.ui.recovery.RecoveryScreen
 import ai.openonion.oochat.ui.rem.RemScreenWrapper
 import ai.openonion.oochat.ui.settings.SettingsScreen
 import ai.openonion.oochat.ui.theme.Motion
+import ai.openonion.oochat.ui.workroom.WorkRoomScreenWrapper
 import ai.openonion.oochat.util.truncateMiddle
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -64,6 +65,10 @@ object Routes {
     const val LOGS = "logs"
     const val CONTROL_CENTER = "control_center"
     const val REM = "rem"
+    const val WORK_ROOM = "work_room"
+
+    /** A Claude Code or Codex run's Work Room; invocation ids hold a ':', so the id is encoded. */
+    fun workRoom(invocationId: String) = "$WORK_ROOM/${Uri.encode(invocationId)}"
 
     /** SavedStateHandle key used to hand a picked agent address back from AGENT_DISCOVERY. */
     const val RESULT_SELECTED_AGENT_ADDRESS = "selected_agent_address"
@@ -222,6 +227,9 @@ fun NavigationGraph(
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)
                     },
+                    onNavigateToWorkRoom = { invocationId ->
+                        navController.navigate(Routes.workRoom(invocationId))
+                    },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
                     homeInLayout = homeInLayout
@@ -307,6 +315,9 @@ fun NavigationGraph(
                     },
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)
+                    },
+                    onNavigateToWorkRoom = { invocationId ->
+                        navController.navigate(Routes.workRoom(invocationId))
                     },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
@@ -447,6 +458,24 @@ fun NavigationGraph(
             )
         }
 
+        // A Claude Code or Codex run's Work Room (W16AAPPLE-33), from its card in the chat. It
+        // reads the run from the chat's ViewModel, so like the Control Center it borrows the chat
+        // entry, which is always under it on the stack.
+        composable(
+            route = "${Routes.WORK_ROOM}/{invocationId}",
+            arguments = listOf(navArgument("invocationId") { type = NavType.StringType })
+        ) { entry ->
+            WorkRoomScreenWrapper(
+                invocationId = entry.arguments?.getString("invocationId").orEmpty(),
+                chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
+                    runCatching { navController.getBackStackEntry(route) }.getOrNull()
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
         // The agent's Home on a screen of its own, which only a Control Center app the device cannot
         // host has: the screen says why. Any other Home is in the chat's layout, beside it or as a
         // tab. Reached only from the chat top bar, and only once the agent has sent its app, so the
@@ -494,6 +523,7 @@ private val DRILL_DOWN_ROUTES = listOf(
     Routes.SETTINGS,
     Routes.LOGS,
     Routes.REM,
+    Routes.WORK_ROOM,
     Routes.CONTROL_CENTER
 )
 

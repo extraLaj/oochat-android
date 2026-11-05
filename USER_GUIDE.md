@@ -183,6 +183,18 @@ Passwords, keys and tokens in a page show as `[redacted]`. Locations on the
 owner's computer show as `[path removed]`, or as `~` for their home folder, and
 the notebook's own location is never shown.
 
+## 5c. Work Rooms: Claude Code and Codex
+
+An agent that can use Claude Code or Codex may hand a coding task to one of
+them. When it does, the chat shows a card for that run instead of a tool call:
+which coding agent, the task, and whether it is working, waiting for your
+decision, completed, failed or stopped. A run that finished while your phone
+was not connected says **Ended**, since its result never reached the phone. Tap **Open Work Room** to follow it: the
+room lists each step the coding agent takes, such as updating files or running
+tests, with the files it changed, and says how the run ended. It keeps updating
+while you watch. You only see the steps the agent's Host describes, never the
+raw commands it ran.
+
 ---
 
 ## 6. Deciding what the agent may do
