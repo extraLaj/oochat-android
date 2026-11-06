@@ -17,6 +17,7 @@ import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanPriority
 import ai.openonion.oochat.domain.model.PlanStatus
+import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ThinkingStatus
@@ -1171,6 +1172,13 @@ sealed class ConnectionEvent {
 
     /** The Host refused an answer to [requestId] (STALE_ANSWER). */
     data class AnswerRefused(val requestId: String?) : ConnectionEvent()
+
+    /**
+     * `PROVIDER_INPUT_ACK`: the Host's answer to a message typed into a Work
+     * Room (W16AAPPLE-35). Like [AnswerRefused], it settles something the
+     * screen owns and is not a chat item.
+     */
+    data class ProviderInputAcked(val ack: ProviderInputAck) : ConnectionEvent()
     data class ConnectionError(
         val message: String,
         /** Machine-readable ERROR code, when the Host supplied one. */

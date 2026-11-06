@@ -77,6 +77,12 @@ sealed class ChatEvent {
 
     /** The Host refused this device's answer to [requestId]; another device answered first. */
     data class AnswerRefused(val requestId: String?) : ChatEvent()
+
+    /**
+     * The Host's answer to a message typed into a Work Room (W16AAPPLE-35).
+     * Settles that room's draft, which the ViewModel owns; not a chat item.
+     */
+    data class ProviderInputAcked(val ack: ProviderInputAck) : ChatEvent()
 }
 
 /**
