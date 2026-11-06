@@ -64,6 +64,8 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterSnapshot
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
 import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
+import ai.openonion.oochat.ui.workroom.WorkRoomDraft
+import ai.openonion.oochat.ui.workroom.WorkRoomInputs
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
 import ai.openonion.oochat.util.LogTags
@@ -262,6 +264,13 @@ open class ChatViewModel @JvmOverloads constructor(
     private val controlCenterDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ChatUiState())
+
+    // What is typed into each Work Room (W16AAPPLE-35). Here rather than on
+    // the room's own screen, so a draft outlives leaving the room.
+    private val workRoomInputs = WorkRoomInputs(viewModelScope, send = { connectUseCase.sendProviderInput(it) })
+
+    /** Each Work Room's draft and send state, by invocation id. */
+    val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
 
     // The streaming toggle only filters in-progress items from what's
     // exposed; the wire protocol has no token-level streaming to actually
@@ -956,6 +965,12 @@ open class ChatViewModel @JvmOverloads constructor(
             // already on its way out.
             runCatchingCancellable {
                 connectUseCase.observeEvents().collect { event ->
+                    // Settles a Work Room draft (W16AAPPLE-35), not the chat: the room
+                    // waiting on it is whichever one sent it, so no conversation routing.
+                    if (event is ChatEvent.ProviderInputAcked) {
+                        workRoomInputs.onAck(event.ack)
+                        return@collect
+                    }
                     // Every conversation has its own server session, so a
                     // session_sync replays only this conversation's history —
                     // no attribution needed. What still needs routing is the
@@ -2844,6 +2859,23 @@ open class ChatViewModel @JvmOverloads constructor(
      * older question can still be on screen after another device answered it,
      * and its answer must not be sent as one to the newer question.
      */
+    /** Typing in the Work Room for [invocationId]. */
+    fun editWorkRoomDraft(invocationId: String, text: String) {
+        workRoomInputs.edit(invocationId, text)
+    }
+
+    /**
+     * Send the Work Room draft for [invocationId] as `PROVIDER_INPUT`, at the
+     * run's revision as this screen holds it. Nothing happens once the run has
+     * left the chat: the room says so, and there is nothing to steer.
+     */
+    fun sendWorkRoomInput(invocationId: String) {
+        val run = _uiState.value.chatItems
+            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+            ?: return
+        workRoomInputs.send(run)
+    }
+
     fun respond(itemId: String, answer: String) {
         val question = _uiState.value.chatItems
             .filterIsInstance<ChatItem.AskUser>()
