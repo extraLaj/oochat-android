@@ -176,7 +176,7 @@ class ConnectionRepositoryImplTest {
             images: List<String>?,
             files: List<FileAttachment>?
         ) { enqueued += Triple(agentAddress, sessionId, prompt) }
-        override fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit) = Unit
+        override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Unit) = Unit
         override fun clear(agentAddress: String) { clearCount++ }
     }
 

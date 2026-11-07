@@ -24,35 +24,23 @@ interface PendingMessageSink {
     fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>? = null)
 
     /**
-     * Removes the messages for [agentAddress] that belong on [sessionId],
-     * oldest first — its own, plus any queued before there was a session to
-     * name — handing each to [send] as it is read. The overload below also
-     * accepts the local conversation fallback used by fresh Memory-off
-     * sessions. A message queued for a different conversation stays put:
-     * flushing it here would send it as this conversation.
+     * Removes the messages for [agentAddress] that belong on [sessionId] or
+     * [conversationId], oldest first — its own, plus any queued before there
+     * was a session to name — handing each to [send] as it is read. A message
+     * queued for a different conversation stays put: flushing it here would
+     * send it as this conversation.
      *
      * A callback rather than a returned list, and that is the point: an
      * attachment is base64, so materializing the whole queue at once meant
      * every queued attachment resident simultaneously. One message is decoded
      * at a time and is free again as soon as it has been sent.
      */
-    fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit)
-
-    /**
-     * Variant used by the live connection, which also knows the local
-     * conversation it is serving. A row queued while there was no confirmed
-     * server session is tagged with that local id, so a Memory-off connection
-     * (whose Host session id is freshly minted) can still flush it safely.
-     *
-     * The default keeps simple test and legacy implementations source
-     * compatible; they retain the original session-only matching behaviour.
-     */
     fun drain(
         agentAddress: String,
         sessionId: String?,
         conversationId: String?,
         send: (QueuedMessage) -> Unit
-    ) = drain(agentAddress, sessionId, send)
+    )
 
     /** Discards every message queued for [agentAddress] without sending them. */
     fun clear(agentAddress: String)
@@ -86,10 +74,6 @@ class InMemoryPendingMessageSink : PendingMessageSink {
             }
             entries.add(Entry(agentAddress, sessionId, QueuedMessage(prompt, images, files)))
         }
-    }
-
-    override fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit) {
-        drain(agentAddress, sessionId, null, send)
     }
 
     override fun drain(

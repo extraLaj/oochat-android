@@ -24,7 +24,21 @@ class SessionSyncRepositoryImpl(
         // Never read a cursor without knowing exactly who and which agent it belongs to.
         require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
         require(agentId.isNotBlank()) { "agentId must not be blank" }
-        return dao.getCursor(identityAddress, agentId)
+        // An empty cursor is the persisted marker row used by a fresh install
+        // that disables Memory before it has ever completed a sync.
+        return dao.getCursor(identityAddress, agentId)?.takeIf(String::isNotBlank)
+    }
+
+    override suspend fun markMemoryDisabled(identityAddress: String, agentId: String) {
+        require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
+        require(agentId.isNotBlank()) { "agentId must not be blank" }
+        dao.markMemoryDisabled(identityAddress, agentId, clock())
+    }
+
+    override suspend fun isMemoryDisabledSinceSync(identityAddress: String, agentId: String): Boolean {
+        require(identityAddress.isNotBlank()) { "identityAddress must not be blank" }
+        require(agentId.isNotBlank()) { "agentId must not be blank" }
+        return dao.getState(identityAddress, agentId)?.memoryDisabledSinceSync == true
     }
 
     override suspend fun reconcile(
@@ -104,7 +118,8 @@ class SessionSyncRepositoryImpl(
                     identityAddress = identityAddress,
                     agentId = agentId,
                     cursor = snapshot.cursor,
-                    updatedAt = clock()
+                    updatedAt = clock(),
+                    memoryDisabledSinceSync = false
                 )
             )
         }
@@ -125,7 +140,8 @@ class SessionSyncRepositoryImpl(
                     identityAddress = identityAddress,
                     agentId = agentId,
                     cursor = cursor,
-                    updatedAt = clock()
+                    updatedAt = clock(),
+                    memoryDisabledSinceSync = false
                 )
             )
         }

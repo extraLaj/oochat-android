@@ -144,7 +144,7 @@ class RoomPendingMessageSinkTest {
         repeat(3) { i -> sink.enqueue(agent, session, "m-$i", null, listOf(file("f-$i.pdf", 1024))) }
 
         val remainingWhileDraining = mutableListOf<Int>()
-        sink.drain(agent, session) { remainingWhileDraining += db.pendingMessageDao().countForAgent(agent) }
+        sink.drain(agent, session, null) { remainingWhileDraining += db.pendingMessageDao().countForAgent(agent) }
 
         assertEquals(
             "the queue must shrink one message at a time as each is handed over",

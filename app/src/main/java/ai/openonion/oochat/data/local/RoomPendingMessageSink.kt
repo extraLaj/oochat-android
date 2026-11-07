@@ -83,10 +83,6 @@ class RoomPendingMessageSink(
         }
     }
 
-    override fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit) {
-        drain(agentAddress, sessionId, null, send)
-    }
-
     override fun drain(
         agentAddress: String,
         sessionId: String?,

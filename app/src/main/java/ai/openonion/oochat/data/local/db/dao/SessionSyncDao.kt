@@ -19,9 +19,31 @@ interface SessionSyncDao {
     )
     suspend fun getCursor(identityAddress: String, agentId: String): String?
 
+    /** Returns the complete persisted sync state for this identity and agent. */
+    @Query(
+        "SELECT * FROM session_sync_states " +
+            "WHERE identity_address = :identityAddress AND agent_id = :agentId"
+    )
+    suspend fun getState(identityAddress: String, agentId: String): SessionSyncStateEntity?
+
     /** Replaces only the small cursor row; it cannot affect chat messages. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveState(state: SessionSyncStateEntity)
+
+    /** Marks Memory off while preserving any cursor already saved for the pair. */
+    @Transaction
+    suspend fun markMemoryDisabled(identityAddress: String, agentId: String, updatedAt: Long) {
+        val current = getState(identityAddress, agentId)
+        saveState(
+            SessionSyncStateEntity(
+                identityAddress = identityAddress,
+                agentId = agentId,
+                cursor = current?.cursor.orEmpty(),
+                updatedAt = updatedAt,
+                memoryDisabledSinceSync = true
+            )
+        )
+    }
 
     /** Looks up the owner before an existing chat is changed. */
     @Query("SELECT * FROM chat_sessions WHERE id = :sessionId")

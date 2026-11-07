@@ -336,6 +336,44 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
+    fun `a message queued after a Memory-off session drops flushes on a fresh Host session`() {
+        val outbox = InMemoryPendingMessageSink()
+        connection = AgentConnection(
+            keyManager,
+            webSocketFactory = factory,
+            signer = { _, _ -> "fake-signature" },
+            pendingMessageSink = outbox,
+            remParseDispatcher = Dispatchers.Unconfined
+        )
+        connection.setSession(SessionState(sessionId = "old-host-session"), "conversation-A")
+        connection.connect("0xAGENT")
+        simulateConnected("old-host-session")
+
+        // Keep the queued row in the same local conversation, but make the
+        // next connection receive a newly minted Memory-off Host session.
+        connection.teardown()
+        connection.sendMessage("queued after the socket drop", "0xAGENT")
+
+        val replacement = AgentConnection(
+            keyManager,
+            webSocketFactory = factory,
+            signer = { _, _ -> "fake-signature" },
+            pendingMessageSink = outbox,
+            remParseDispatcher = Dispatchers.Unconfined
+        )
+        replacement.setSession(null, "conversation-A")
+        replacement.connect("0xAGENT")
+        simulateConnected("fresh-host-session")
+
+        assertTrue(
+            "the conversation-tagged row must follow the conversation, not the old Host session: " +
+                factory.lastWebSocket!!.sentMessages,
+            factory.lastWebSocket!!.sentMessages.any { it.contains("queued after the socket drop") }
+        )
+        connection = replacement
+    }
+
+    @Test
     fun `the flush sends queued messages in order, one at a time`() {
         // Order is the contract; "one at a time" is why the sink hands them
         // over through a callback instead of returning the whole outbox, whose

@@ -877,7 +877,7 @@ class AgentConnection(
             FileLogger.w(LogTags.AGENT_CONN, "Connection not ready, queuing message${if (!files.isNullOrEmpty()) " (${files.size} file(s))" else ""}")
             pendingMessageSink.enqueue(
                 agentAddress,
-                _currentSession?.sessionId ?: currentConversationId,
+                pendingMessageRouteId(),
                 prompt,
                 images,
                 files
@@ -893,13 +893,20 @@ class AgentConnection(
             FileLogger.w(LogTags.AGENT_CONN, "Socket refused the write, queuing instead")
             pendingMessageSink.enqueue(
                 agentAddress,
-                _currentSession?.sessionId ?: currentConversationId,
+                pendingMessageRouteId(),
                 prompt,
                 images,
                 files
             )
         }
     }
+
+    /**
+     * Conversation identity survives a Memory-off reconnect; the Host session
+     * id does not. Prefer it whenever the connection is serving a known local
+     * conversation so queued rows can be flushed by a fresh Host session.
+     */
+    private fun pendingMessageRouteId(): String? = currentConversationId ?: _currentSession?.sessionId
 
     /** @return false when the socket refused the write, so the caller can queue it. */
     private fun sendMessageInternal(prompt: String, agentAddress: String, images: List<String>? = null, files: List<FileAttachment>? = null): Boolean {
