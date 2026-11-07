@@ -26,6 +26,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.ServerSessionStatus
@@ -59,6 +60,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConnection
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.stringField
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
@@ -240,6 +242,12 @@ class ChatViewModelTest {
 
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
+
+        val providerInputs = mutableListOf<ai.openonion.oochat.domain.model.ProviderInput>()
+        override suspend fun sendProviderInput(input: ai.openonion.oochat.domain.model.ProviderInput): Boolean {
+            providerInputs += input
+            return true
+        }
 
         var lastApproval: Boolean? = null
         var lastApprovalScope: String? = null
@@ -2801,6 +2809,61 @@ class ChatViewModelTest {
         connectUseCase.emit(ChatEvent.ChatItemUpdated(run.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)))
         testScheduler.runCurrent()
         assertFalse(vm.isAgentWorking.value)
+    }
+
+    @Test
+    fun `a Work Room message goes out at the run's revision and its draft clears once the Host accepts it`() = runTest(testDispatcher) {
+        // W16AAPPLE-35.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", parentToolCallId = "call-1", provider = "codex", stateRevision = 3)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run))
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run.copy(stateRevision = 4)))
+        testScheduler.runCurrent()
+
+        vm.editWorkRoomDraft("codex:call-1", "Use the existing auth helper")
+        vm.sendWorkRoomInput("codex:call-1")
+        testScheduler.runCurrent()
+
+        val sent = connectUseCase.providerInputs.single()
+        assertEquals("codex:call-1", sent.invocationId)
+        assertEquals("the newest revision the screen holds", 4L, sent.stateRevision)
+        assertEquals("Use the existing auth helper", sent.text)
+        assertEquals(true, vm.workRoomDrafts.value["codex:call-1"]?.sending)
+
+        connectUseCase.emit(ChatEvent.ProviderInputAcked(ProviderInputAck(sent.requestId, "codex:call-1", accepted = true, stateRevision = 4)))
+        testScheduler.runCurrent()
+
+        assertNull(vm.workRoomDrafts.value["codex:call-1"])
+    }
+
+    @Test
+    fun `a refused Work Room message stays in its draft with the reason`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", stateRevision = 4))
+        )
+        testScheduler.runCurrent()
+        vm.editWorkRoomDraft("codex:call-1", "Use the existing auth helper")
+        vm.sendWorkRoomInput("codex:call-1")
+        testScheduler.runCurrent()
+        val requestId = connectUseCase.providerInputs.single().requestId
+
+        connectUseCase.emit(
+            ChatEvent.ProviderInputAcked(ProviderInputAck(requestId, "codex:call-1", accepted = false, reason = "not_active"))
+        )
+        testScheduler.runCurrent()
+
+        val draft = vm.workRoomDrafts.value.getValue("codex:call-1")
+        assertEquals("Use the existing auth helper", draft.text)
+        assertEquals(false, draft.sending)
+        assertEquals(WorkRoomText.inputRefused("not_active"), draft.error)
+        assertEquals("the chat is not touched", listOf("codex:call-1"), vm.uiState.value.chatItems.map { it.id })
     }
 
     @Test

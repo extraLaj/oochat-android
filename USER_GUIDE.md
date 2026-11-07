@@ -195,6 +195,15 @@ tests, with the files it changed, and says how the run ended. It keeps updating
 while you watch. You only see the steps the agent's Host describes, never the
 raw commands it ran.
 
+To steer the run, type into the field at the bottom of the room and tap Send.
+The message goes to the coding agent itself, not to the agent that started it.
+It leaves the field only once the coding agent has taken it; until then the
+field is locked and Send shows a spinner. If it is refused, or no answer comes
+within a minute, your text stays where it is with the reason above it, so you
+can send it again. Each room keeps its own draft, even if you go back to the
+chat. Codex takes a message while it works, and a finished run of either can
+be resumed with one. Claude Code takes a message only once its run has ended.
+
 ---
 
 ## 6. Deciding what the agent may do

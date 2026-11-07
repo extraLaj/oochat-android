@@ -6,6 +6,8 @@ import ai.openonion.oochat.data.protocol.ProtocolDescriptor
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
+import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.knownIssue
@@ -41,6 +43,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Protocol
 import okhttp3.Request
@@ -2919,6 +2922,54 @@ class AgentConnectionRobolectricTest {
 
         assertEquals(RemOutcome.NotConnected, connection.readRem())
         assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("WIKI_READ") })
+    }
+
+    // Work Room messages (W16AAPPLE-35)
+
+    @Test
+    fun `a Work Room message goes out as a signed PROVIDER_INPUT in the Host's shape`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        val wentOut = connection.sendProviderInput(ProviderInput("codex:call-1", 4, "Use the existing auth helper", "req-1"))
+
+        assertTrue(wentOut)
+        val sent = factory.lastWebSocket!!.sentMessages.single()
+        assertEquals("fake-signature", Json.parseToJsonElement(sent).jsonObject.getValue("signature").jsonPrimitive.content)
+        val command = signedCommand(sent)
+        assertEquals("PROVIDER_INPUT", command.getValue("type").jsonPrimitive.content)
+        assertEquals("codex:call-1", command.getValue("invocationId").jsonPrimitive.content)
+        assertEquals(4L, command.getValue("stateRevision").jsonPrimitive.long)
+        assertEquals("Use the existing auth helper", command.getValue("text").jsonPrimitive.content)
+        assertEquals("req-1", command.getValue("requestId").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `no Work Room message goes out before the connection is ready, and none is queued`() = runTest {
+        connection.connect("0xAGENT")
+
+        assertFalse(connection.sendProviderInput(ProviderInput("codex:call-1", 4, "hello", "req-1")))
+        simulateConnected()
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("PROVIDER_INPUT") })
+    }
+
+    @Test
+    fun `the Host's answer to a Work Room message is passed on`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"PROVIDER_INPUT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":true,"stateRevision":4}"""
+        )
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+
+        assertEquals(
+            listOf(ProviderInputAck("req-1", "codex:call-1", accepted = true, stateRevision = 4)),
+            events.seen.filterIsInstance<ConnectionEvent.ProviderInputAcked>().map { it.ack }
+        )
     }
 
     // ── the Host losing this connection's session (W16AAPPLE-108) ──

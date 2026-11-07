@@ -45,6 +45,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `PROVIDER_INPUT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a message typed into a Work Room (W16AAPPLE-35) |
 | `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
 
@@ -66,6 +67,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `provider_invocation` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_activity` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_message`, `provider_artifact`, `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-34, -40) | - |
+| `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
 | `assistant` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -1427,9 +1429,54 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-It is read-only so far: messages, artifacts, approvals, Stop and permission
-profiles in the room are W16AAPPLE-34 to -37 and -43, and the local and remote
-handover states are W16AAPPLE-40.
+Provider messages and artifacts, approvals, Stop and permission profiles in the
+room are W16AAPPLE-34, -36, -37 and -43, and the local and remote handover
+states are W16AAPPLE-40.
+
+### Messages typed into a Work Room
+
+The room's field steers the run (W16AAPPLE-35). It sends a signed
+`PROVIDER_INPUT`, never an outer `INPUT`, so the message goes to the coding
+agent and not to the agent that started it (connectonion
+`docs/codex-tool-frontend-contract.md`, "Direct Work Room messages"):
+
+| Field | Value |
+| --- | --- |
+| `invocationId` | The run's id. |
+| `stateRevision` | The run's revision as the screen holds it. The Host refuses the message (`state_changed`) if the run has moved on since, so a message is never applied to a state the user did not see. |
+| `text` | As typed, at most 12,000 characters (the Host's limit; the field stops there). |
+| `requestId` | A fresh UUID, which the answer names. |
+
+The Host answers with `PROVIDER_INPUT_ACK` (`requestId`, `invocationId`,
+`accepted`, and `stateRevision` and `reason` when it has them). It sends
+`accepted: true` only once the provider itself has taken the text: Codex's
+`turn/steer` on a live run, or the first native turn of a finished run it has
+resumed. Queuing the message on the Host is not an acceptance.
+
+`WorkRoomInputs` (owned by `ChatViewModel`, so a draft outlives leaving the
+room) keeps one draft per run and clears it only on that positive ACK for the
+request that carried it. Otherwise the text stays and the room says why:
+
+- **A refusal.** By `reason`: `state_changed`, `state_unconfirmed` and
+  `invalid_revision` say the run moved on; `not_active`,
+  `unsupported_provider`, `terminal_owns_session`, `provider_start_failed`
+  and `invalid_request` each have their own sentence, and any other reason a
+  general one. The code itself is never shown.
+- **No answer within 60 seconds** (the EXEC wait, since resuming a run can be
+  slow). The room says the message may still arrive. The request is still
+  listened for: a late acceptance clears the draft, unless the user has since
+  changed it.
+- **Not sent at all**, because no connection has finished CONNECT. Never
+  queued: by the time a queued message went out, the run it was written for
+  could have moved on.
+
+While a message waits, the field is locked and Send is a spinner. A run that
+has no `stateRevision` takes no message, nor does a Claude Code run that is
+still working: the Host steers only a live Codex run (`unsupported_provider`),
+and Claude Code takes a message once its run has ended. The ACK reaches the
+ViewModel as `ChatEvent.ProviderInputAcked`, which the reducer leaves alone and
+which is handled ahead of the per-conversation routing, since the draft it
+settles belongs to a room, not a chat.
 
 ## Control Center
 

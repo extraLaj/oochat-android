@@ -51,4 +51,36 @@ internal object WorkRoomText {
     }
 
     fun steps(count: Int): String = if (count == 1) "1 step" else "$count steps"
+
+    /** What the Work Room's message field says while empty. */
+    fun inputPlaceholder(run: ChatItem.ProviderInvocation): String = "Message ${providerName(run)}"
+
+    // Why a Work Room message did not go through (W16AAPPLE-35). The draft is
+    // kept in every case, so none of them asks the user to type it again.
+
+    const val INPUT_NOT_CONNECTED = "Not connected to the agent. Your message is kept; send it again once connected."
+
+    /** No ACK in time. It may still arrive, which would clear the draft; until then, sending again could send it twice. */
+    const val INPUT_NO_ANSWER = "No answer from the agent yet. Your message is kept, but it may still reach the run, so check before sending it again."
+
+    const val INPUT_NOT_READY = "This run cannot take a message yet."
+
+    const val INPUT_CLAUDE_BUSY = "Claude Code takes a message once this run has ended."
+
+    /**
+     * A refusal, by the Host's reason (connectonion `ws_router/session.py`,
+     * `network/io/websocket.py` `request_provider_input`,
+     * `network/host/provider_workroom.py`). Never the reason itself: it is a
+     * code, not a sentence.
+     */
+    fun inputRefused(reason: String?): String = when (reason) {
+        "state_changed", "state_unconfirmed", "invalid_revision" ->
+            "The run moved on before your message reached it. Check where it is now, then send again."
+        "not_active" -> "This run is not taking messages right now. The agent may be busy with another turn."
+        "unsupported_provider" -> INPUT_CLAUDE_BUSY
+        "terminal_owns_session" -> "This session is being driven from the agent's own terminal, so it cannot take messages from here."
+        "provider_start_failed" -> "The coding agent could not start with your message. Try sending it again."
+        "invalid_request" -> "The agent could not read that message."
+        else -> "The agent did not take your message."
+    }
 }
