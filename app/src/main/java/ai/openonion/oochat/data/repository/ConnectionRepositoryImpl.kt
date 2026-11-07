@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.update
@@ -224,7 +225,18 @@ class ConnectionRepositoryImpl(
     // connection a ViewModel routinely subscribes *after* CONNECTED landed,
     // and this is what conversation-resume reconciles against. Replay is
     // safe — merging a transcript the local copy already has is a no-op.
-    private val _serverTranscript = MutableStateFlow<ChatEvent.ServerTranscriptReceived?>(null)
+    // Null between conversations, so a collector that runs late sees the latest
+    // state and never a transcript for a conversation it has since left.
+    private val _serverTranscript = MutableStateFlow<TranscriptDelivery?>(null)
+
+    /**
+     * One CONNECTED's transcript. A plain class, so equality is identity: a
+     * StateFlow skips a value equal to the last one its collector saw, and a
+     * conversation's transcript replayed after switching away and back is an
+     * equal value. Unwrapped, that second replay was lost whenever the
+     * collector did not run while the value was null in between (W16AAPPLE-104).
+     */
+    private class TranscriptDelivery(val event: ChatEvent.ServerTranscriptReceived)
 
     private var eventCollectionJob: Job? = null
 
@@ -272,12 +284,14 @@ class ConnectionRepositoryImpl(
                             // on. Assistant entries only; the session is this
                             // conversation's alone, so the whole transcript
                             // belongs to it and needs no further attribution.
-                            _serverTranscript.value = ChatEvent.ServerTranscriptReceived(
-                                entries = session.messages.orEmpty().mapNotNull { msg ->
-                                    msg.content?.takeIf { msg.role.equals("assistant", ignoreCase = true) }
-                                        ?.let { ServerTranscriptEntry(content = it) }
-                                },
-                                turn = session.turn
+                            _serverTranscript.value = TranscriptDelivery(
+                                ChatEvent.ServerTranscriptReceived(
+                                    entries = session.messages.orEmpty().mapNotNull { msg ->
+                                        msg.content?.takeIf { msg.role.equals("assistant", ignoreCase = true) }
+                                            ?.let { ServerTranscriptEntry(content = it) }
+                                    },
+                                    turn = session.turn
+                                )
                             )
                         }
                     }
@@ -474,7 +488,7 @@ class ConnectionRepositoryImpl(
     }
 
     override fun observeEvents(): Flow<ChatEvent> =
-        merge(_chatEvents.asSharedFlow(), _serverTranscript.filterNotNull())
+        merge(_chatEvents.asSharedFlow(), _serverTranscript.filterNotNull().map { it.event })
 
     override fun releaseServerTranscript() {
         // The whole transcript, held only so a subscriber that joined after
