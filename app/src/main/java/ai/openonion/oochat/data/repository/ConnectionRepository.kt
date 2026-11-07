@@ -13,6 +13,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -190,6 +191,14 @@ interface ConnectionRepository {
      * the Host; anyone else gets [RemOutcome.NotOwner] and no content.
      */
     suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
+
+    /**
+     * Send a message typed into a Work Room (W16AAPPLE-35). False when it did
+     * not go out (no connection that has finished CONNECT); the answer is a
+     * [ai.openonion.oochat.domain.model.ChatEvent.ProviderInputAcked] on
+     * [observeEvents].
+     */
+    suspend fun sendProviderInput(input: ProviderInput): Boolean = false
 
     /**
      * Respond to ask_user event.

@@ -2,6 +2,7 @@ package ai.openonion.oochat.network
 
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -131,5 +132,47 @@ class ProtocolParserWorkRoomTest {
 
         assertTrue(result.event !is ConnectionEvent.ChatItemUpdated)
         assertTrue(result.event != ConnectionEvent.Unknown)
+    }
+
+    // W16AAPPLE-35: the Host's answer to a Work Room message (ws_router/session.py, useful_tools/codex.py).
+
+    @Test
+    fun `an accepted PROVIDER_INPUT_ACK names the request it answers`() {
+        val result = parse(
+            """{"type":"PROVIDER_INPUT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":true,"stateRevision":4}"""
+        )
+
+        assertEquals(
+            ConnectionEvent.ProviderInputAcked(ProviderInputAck("req-1", "codex:call-1", accepted = true, stateRevision = 4)),
+            result.event
+        )
+    }
+
+    @Test
+    fun `a refused PROVIDER_INPUT_ACK carries its reason`() {
+        val result = parse(
+            """{"type":"PROVIDER_INPUT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":false,"stateRevision":5,"reason":"state_changed"}"""
+        )
+
+        assertEquals(
+            ConnectionEvent.ProviderInputAcked(
+                ProviderInputAck("req-1", "codex:call-1", accepted = false, stateRevision = 5, reason = "state_changed")
+            ),
+            result.event
+        )
+    }
+
+    @Test
+    fun `an ACK that does not say accepted is a refusal`() {
+        val result = parse("""{"type":"PROVIDER_INPUT_ACK","requestId":"req-1","invocationId":null}""")
+
+        assertEquals(false, (result.event as ConnectionEvent.ProviderInputAcked).ack.accepted)
+    }
+
+    @Test
+    fun `an ACK naming no request answers nothing`() {
+        val result = parse("""{"type":"PROVIDER_INPUT_ACK","requestId":"","accepted":true}""")
+
+        assertEquals(ConnectionEvent.Unknown, result.event)
     }
 }

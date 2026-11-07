@@ -9,10 +9,13 @@ import ai.openonion.oochat.ui.chat.components.WorkRoomCard
 import ai.openonion.oochat.ui.navigation.Routes
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -142,5 +145,78 @@ class WorkRoomComposeTest {
         composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = null, onNavigateBack = {}) } }
 
         composeRule.onNodeWithText("This Work Room is no longer in the chat.").assertIsDisplayed()
+    }
+
+    // W16AAPPLE-35: steering the run from its room.
+
+    private val steerable = running.copy(stateRevision = 4)
+
+    @Test
+    fun `typing into the room and sending it`() {
+        var typed: String? = null
+        var sends = 0
+        composeRule.setContent {
+            ConnectOnionTheme {
+                WorkRoomScreen(
+                    run = steerable,
+                    onNavigateBack = {},
+                    draft = WorkRoomDraft(text = "Use the existing auth helper"),
+                    onDraftChange = { typed = it },
+                    onSend = { sends++ }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Use the existing auth helper").performTextReplacement("Use the existing auth helper, not a new one")
+        composeRule.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+
+        assertEquals("Use the existing auth helper, not a new one", typed)
+        assertEquals(1, sends)
+    }
+
+    @Test
+    fun `an empty field names the provider and cannot send`() {
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = steerable, onNavigateBack = {}) } }
+
+        composeRule.onNodeWithText("Message Codex").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Send").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `a send waiting on the provider shows it is sending and cannot be sent again`() {
+        composeRule.setContent {
+            ConnectOnionTheme {
+                WorkRoomScreen(run = steerable, onNavigateBack = {}, draft = WorkRoomDraft(text = "hello", sending = true))
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Sending").assertExists()
+        composeRule.onNodeWithContentDescription("Send").assertDoesNotExist()
+        composeRule.onNodeWithText("hello").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `a send that did not go through keeps the text and says why`() {
+        val error = WorkRoomText.inputRefused("state_changed")
+        composeRule.setContent {
+            ConnectOnionTheme {
+                WorkRoomScreen(run = steerable, onNavigateBack = {}, draft = WorkRoomDraft(text = "hello", error = error))
+            }
+        }
+
+        composeRule.onNodeWithText(error).assertIsDisplayed()
+        composeRule.onNodeWithText("hello").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Send").assertIsEnabled()
+    }
+
+    @Test
+    fun `a Claude Code run still working says when it will take a message`() {
+        val claude = steerable.copy(id = "claude_code:call-2", provider = "claude_code")
+        composeRule.setContent {
+            ConnectOnionTheme { WorkRoomScreen(run = claude, onNavigateBack = {}, draft = WorkRoomDraft(text = "hello")) }
+        }
+
+        composeRule.onNodeWithText(WorkRoomText.INPUT_CLAUDE_BUSY).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Send").assertIsNotEnabled()
     }
 }

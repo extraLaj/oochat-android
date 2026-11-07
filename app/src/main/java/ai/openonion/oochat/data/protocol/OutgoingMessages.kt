@@ -106,6 +106,28 @@ data class RemReadMessage(
     val type: String = "WIKI_READ"
 )
 
+/**
+ * A message typed into a Claude Code or Codex Work Room (W16AAPPLE-35):
+ * connectonion `ws_router/session.py`'s `PROVIDER_INPUT`. Answered by a
+ * `PROVIDER_INPUT_ACK` with the same [requestId]. camelCase on the wire, like
+ * every Work Room frame. The Host refuses it unless [stateRevision] is the
+ * run's current one, and caps [text] at [MAX_TEXT_LENGTH]. Signed like every
+ * other command.
+ */
+@Serializable
+data class ProviderInputMessage(
+    val invocationId: String,
+    val stateRevision: Long,
+    val text: String,
+    val requestId: String,
+    val type: String = "PROVIDER_INPUT"
+) {
+    companion object {
+        /** The Host's limit on [text] (`len(text) > 12_000` is refused as invalid_request). */
+        const val MAX_TEXT_LENGTH = 12_000
+    }
+}
+
 @Serializable
 data class PongMessage(
     val type: String = "PONG"

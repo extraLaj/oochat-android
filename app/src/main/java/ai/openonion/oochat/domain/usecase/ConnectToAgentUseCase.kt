@@ -14,6 +14,7 @@ import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -257,6 +258,9 @@ class ConnectToAgentUseCase(
     }
 
     override suspend fun readRem(): RemOutcome = getOrCreateRepository().readRem()
+
+    override suspend fun sendProviderInput(input: ProviderInput): Boolean =
+        getOrCreateRepository().sendProviderInput(input)
 
     override fun observeEvents(): Flow<ChatEvent> {
         return getOrCreateRepository().observeEvents()

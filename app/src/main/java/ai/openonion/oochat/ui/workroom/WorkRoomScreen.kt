@@ -65,25 +65,42 @@ fun WorkRoomScreenWrapper(
         factory = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
     )
     val state by viewModel.uiState.collectAsState()
+    val drafts by viewModel.workRoomDrafts.collectAsState()
     val run = state.chatItems.firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId }
         as ChatItem.ProviderInvocation?
-    WorkRoomScreen(run = run, onNavigateBack = onNavigateBack)
+    WorkRoomScreen(
+        run = run,
+        onNavigateBack = onNavigateBack,
+        draft = drafts[invocationId] ?: WorkRoomDraft(),
+        onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
+        onSend = { viewModel.sendWorkRoomInput(invocationId) }
+    )
 }
 
 /**
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
  * a phone: the task and where it stands, then each step the provider took, as
- * the Host describes it. Read-only for now; replying, approving and Stop come
- * with W16AAPPLE-35 to -37. [run] is null once the chat no longer holds it.
+ * the Host describes it, and a field to steer it (W16AAPPLE-35). Approving and
+ * Stop come with W16AAPPLE-36 and -37. [run] is null once the chat no longer
+ * holds it.
  */
 @Composable
-fun WorkRoomScreen(run: ChatItem.ProviderInvocation?, onNavigateBack: () -> Unit) {
+fun WorkRoomScreen(
+    run: ChatItem.ProviderInvocation?,
+    onNavigateBack: () -> Unit,
+    draft: WorkRoomDraft = WorkRoomDraft(),
+    onDraftChange: (String) -> Unit = {},
+    onSend: () -> Unit = {}
+) {
     Scaffold(
         topBar = {
             BackTopAppBar(
                 title = run?.let { "${WorkRoomText.providerName(it)} Work Room" } ?: "Work Room",
                 onNavigateBack = onNavigateBack
             )
+        },
+        bottomBar = {
+            if (run != null) WorkRoomComposer(run, draft, onDraftChange, onSend)
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {

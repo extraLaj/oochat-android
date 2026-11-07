@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
@@ -456,6 +457,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.AnswerRefused -> {
                         _chatEvents.tryEmit(ChatEvent.AnswerRefused(event.requestId))
                     }
+                    is ConnectionEvent.ProviderInputAcked -> {
+                        _chatEvents.tryEmit(ChatEvent.ProviderInputAcked(event.ack))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
@@ -743,6 +747,9 @@ class ConnectionRepositoryImpl(
 
     override suspend fun readRem(): RemOutcome =
         withContext(Dispatchers.IO) { connection?.readRem() ?: RemOutcome.NotConnected }
+
+    override suspend fun sendProviderInput(input: ProviderInput): Boolean =
+        withContext(Dispatchers.IO) { connection?.sendProviderInput(input) ?: false }
 
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {

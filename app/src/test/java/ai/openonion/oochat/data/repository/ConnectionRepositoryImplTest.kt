@@ -11,6 +11,7 @@ import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.PlanStatus
+import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
@@ -1015,6 +1016,25 @@ class ConnectionRepositoryImplTest {
         // request at all instead.
         assertNull("a request reached the relay", server.takeRequest(1, TimeUnit.SECONDS)?.path)
         assertNull(repo.agentProfile.value)
+    }
+
+    @Test
+    fun `the Host's answer to a Work Room message reaches the chat`() = runBlocking {
+        // Real dispatchers, as in the OnboardRequired forwarding test above.
+        val ack = """{"type":"PROVIDER_INPUT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":false,"reason":"not_active"}"""
+        repository.connect(publishedAgent)
+        simulateConnected()
+
+        val received = withTimeout(3000L) {
+            val answer = async { repository.observeEvents().first { it is ChatEvent.ProviderInputAcked } }
+            while (answer.isActive) {
+                simulateFrame(ack)
+                delay(20)
+            }
+            answer.await() as ChatEvent.ProviderInputAcked
+        }
+
+        assertEquals(ProviderInputAck("req-1", "codex:call-1", accepted = false, reason = "not_active"), received.ack)
     }
 
     @Test

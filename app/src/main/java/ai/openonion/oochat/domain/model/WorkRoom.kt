@@ -1,6 +1,33 @@
 package ai.openonion.oochat.domain.model
 
 /**
+ * A message typed into a Work Room (W16AAPPLE-35), as `PROVIDER_INPUT` carries
+ * it: the run it steers, the [stateRevision] the user last saw it at (the Host
+ * refuses it if the run has moved on since), the text, and the id its
+ * `PROVIDER_INPUT_ACK` will answer to.
+ */
+data class ProviderInput(
+    val invocationId: String,
+    val stateRevision: Long,
+    val text: String,
+    val requestId: String
+)
+
+/**
+ * The Host's answer to a [ProviderInput]. [accepted] only once the provider
+ * itself took the text (Codex's `turn/steer`, or a resumed run's first turn),
+ * never on the Host merely queueing it; a refusal says why in [reason]
+ * (connectonion `network/host/ws_router/session.py`, `useful_tools/codex.py`).
+ */
+data class ProviderInputAck(
+    val requestId: String,
+    val invocationId: String?,
+    val accepted: Boolean,
+    val stateRevision: Long? = null,
+    val reason: String? = null
+)
+
+/**
  * Where a Claude Code or Codex run stands, from `provider_invocation`'s
  * `status`. The Host's own values (connectonion `plugins/coding_agents.py`,
  * `useful_tools/codex.py`); anything else reads as [RUNNING], since only the

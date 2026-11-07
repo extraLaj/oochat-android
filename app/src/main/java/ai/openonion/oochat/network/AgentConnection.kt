@@ -15,6 +15,7 @@ import ai.openonion.oochat.data.protocol.OnboardSubmitMessage
 import ai.openonion.oochat.data.protocol.OnboardSubmitPayload
 import ai.openonion.oochat.data.protocol.PlanReviewResponse
 import ai.openonion.oochat.data.protocol.PongMessage
+import ai.openonion.oochat.data.protocol.ProviderInputMessage
 import ai.openonion.oochat.data.protocol.RemReadMessage
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.SessionStatusQuery
@@ -24,6 +25,7 @@ import ai.openonion.oochat.data.protocol.UlwResponse
 import ai.openonion.oochat.di.sharedHttpClient
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
+import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
@@ -939,6 +941,34 @@ class AgentConnection(
 
     fun respond(answer: String, requestId: String? = null) {
         sendSigned(AskUserResponse(answer = answer, requestId = requestId))
+    }
+
+    /**
+     * Send a message typed into a Work Room (W16AAPPLE-35) as a signed
+     * `PROVIDER_INPUT`. True only when the frame went out on a connection that
+     * has finished CONNECT; whether the provider took it is the
+     * `PROVIDER_INPUT_ACK` with the same request id, passed up as
+     * [ConnectionEvent.ProviderInputAcked].
+     *
+     * Never queued: the run it steers may have moved on by the time a queued
+     * frame went out, and the draft stays on screen to send again instead.
+     */
+    fun sendProviderInput(input: ProviderInput): Boolean {
+        val socket = webSocket?.takeIf { isConnectionReady } ?: return false
+        val frame = signedCommand(
+            ProviderInputMessage(
+                invocationId = input.invocationId,
+                stateRevision = input.stateRevision,
+                text = input.text,
+                requestId = input.requestId
+            )
+        ) ?: return false
+        // Never the text: it is the user's own instruction to the provider.
+        FileLogger.i(
+            LogTags.AGENT_CONN,
+            "PROVIDER_INPUT -> request_id=${input.requestId.take(8)} revision=${input.stateRevision} ${input.text.length} chars"
+        )
+        return socket.send(frame)
     }
 
     /**
@@ -1960,6 +1990,15 @@ class AgentConnection(
                 is ConnectionEvent.AnswerRefused -> {
                     // Not a ConnectionError, for the same reason as below.
                     FileLogger.w(LogTags.AGENT_CONN, "STALE_ANSWER for ${event.requestId}")
+                    _events.tryEmit(event)
+                }
+                is ConnectionEvent.ProviderInputAcked -> {
+                    val ack = event.ack
+                    FileLogger.i(
+                        LogTags.AGENT_CONN,
+                        "PROVIDER_INPUT_ACK <- request_id=${ack.requestId.take(8)} " +
+                            if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
+                    )
                     _events.tryEmit(event)
                 }
                 is ConnectionEvent.RuntimeInputRejected -> {

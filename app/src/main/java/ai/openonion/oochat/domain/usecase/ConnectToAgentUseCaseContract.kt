@@ -12,6 +12,7 @@ import ai.openonion.oochat.domain.model.NO_CONTROL_CENTER_APP
 import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -156,6 +157,9 @@ interface ConnectToAgentUseCaseContract {
 
     /** The connected agent's Rem notebook — see ConnectionRepository.readRem. */
     suspend fun readRem(): RemOutcome = RemOutcome.NotConnected
+
+    /** A message typed into a Work Room: see ConnectionRepository.sendProviderInput. */
+    suspend fun sendProviderInput(input: ProviderInput): Boolean = false
 
     /**
      * Reply to an `ask_user` event; [requestId] is that event's id.
