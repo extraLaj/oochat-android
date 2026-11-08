@@ -39,6 +39,20 @@ class DirectSocketUrlTest {
     }
 
     @Test
+    fun `a URL that already ends in ws, as the Host announces it, is not given a second one`() {
+        // W16AAPPLE-118: used to be dialled at /ws/ws, which the Host refuses.
+        assertEquals("ws://10.5.27.133:8797/ws", dialled("ws://10.5.27.133:8797/ws"))
+        assertEquals("wss://agent.example.com/ws", dialled("https://agent.example.com/ws/"))
+        assertEquals("wss://example.com/agents/sam/ws", dialled("wss://example.com/agents/sam/ws"))
+    }
+
+    @Test
+    fun `a ws that is only part of the last segment is still given its own ws`() {
+        assertEquals("wss://example.com/news/ws", dialled("https://example.com/news"))
+        assertEquals("ws://ws/ws", dialled("http://ws"))
+    }
+
+    @Test
     fun `the scheme is read in any case, and surrounding spaces are ignored`() {
         assertEquals("wss://agent.example.com/ws", dialled("  HTTPS://agent.example.com "))
         assertEquals("wss://agent.example.com/ws", dialled("WSS://agent.example.com"))

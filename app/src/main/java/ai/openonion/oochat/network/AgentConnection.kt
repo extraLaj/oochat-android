@@ -2027,13 +2027,19 @@ class AgentConnection(
          * with no scheme. A `wss://host` used to become `ws://wss://host/ws`,
          * dialled at a host called "wss" (W16AAPPLE-54), and `https://host/`
          * a `//ws` path (W16AAPPLE-55).
+         *
+         * A URL that already ends in `/ws`, as the Host announces its socket
+         * (`ws://ip:port/ws`), is dialled as is, the same as the ConnectOnion
+         * client: the Host accepts only the exact path `/ws`, and appending
+         * another made it `/ws/ws` (W16AAPPLE-118).
          */
         internal fun directSocketUrl(serverUrl: String): String {
             val trimmed = serverUrl.trim()
             val scheme = SCHEME.find(trimmed)?.groupValues?.get(1)?.lowercase()
             val hostAndPath = trimmed.replace(SCHEME, "").trimEnd('/')
             val protocol = if (scheme == "https" || scheme == "wss") "wss" else "ws"
-            return "$protocol://$hostAndPath/ws"
+            val socketPath = if (hostAndPath.endsWith("/ws")) hostAndPath else "$hostAndPath/ws"
+            return "$protocol://$socketPath"
         }
         const val CONNECT_TIMEOUT_SECONDS = 30L
         const val READ_TIMEOUT_SECONDS = 600L

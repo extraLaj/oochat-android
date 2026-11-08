@@ -2368,6 +2368,14 @@ class AgentConnectionRobolectricTest {
         assertEquals("https://agent.example.com/ws", dialled())
     }
 
+    @Test
+    fun `a direct URL that already ends in ws is dialled there, not at ws ws`() {
+        // The socket the Host announces (W16AAPPLE-118); it refuses /ws/ws.
+        connection.connect(agent, directUrl = "ws://10.5.27.133:8797/ws")
+
+        assertEquals("http://10.5.27.133:8797/ws", dialled())
+    }
+
     // ── the invite-code gate holds reconnects, on every way a socket ends ──
     //
     // While ONBOARD_REQUIRED is unanswered the next move is the user's; a
