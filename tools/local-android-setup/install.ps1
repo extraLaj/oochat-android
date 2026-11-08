@@ -141,26 +141,20 @@ if (-not $Yes) {
 
 New-Item -ItemType Directory -Force -Path $LocalDir, $AvdDir | Out-Null
 
-# --- Java (only needed to build from source, not to install the APK) -----------
+# --- Java (sdkmanager needs 17+; the Gradle build needs exactly 17) -------------
 Write-Step 'Checking for a Java runtime'
-$javaOk = $false
-$java = Get-Command java -ErrorAction SilentlyContinue
-if ($java) {
+$javaMajor = 0
+if (Get-Command java -ErrorAction SilentlyContinue) {
     $raw = (& java -version 2>&1 | Select-Object -First 1) -join ''
     Write-Info "Found: $raw"
-    if ($raw -match 'version "17') { $javaOk = $true }
-    else { Write-Info 'The Gradle build needs exactly JDK 17.' }
-} else {
-    Write-Info 'No java on PATH.'
+    if ($raw -match 'version "(\d+)') { $javaMajor = [int]$Matches[1] }
 }
-if (-not $javaOk) {
-    Write-Info ''
-    Write-Info 'This is not fatal. JDK 17 is needed only to build from source or to'
-    Write-Info 'run the test suite. Installing the pre-built APK does not need it.'
-    Write-Info 'If you do want to build:'
-    Write-Info '  https://adoptium.net/temurin/releases/?version=17'
-    Write-Info ''
+if ($javaMajor -lt 17) {
+    Stop-WithHelp 'Java 17 or newer is needed: the Android SDK manager runs on it.' @(
+        'Install JDK 17 (also what building from source needs), then re-run:',
+        '  https://adoptium.net/temurin/releases/?version=17')
 }
+if ($javaMajor -ne 17) { Write-Info 'Building from source needs exactly JDK 17; installing does not.' }
 
 # --- Command-line tools ---------------------------------------------------------
 $sdkManager = Join-Path $SdkDir 'cmdline-tools\latest\bin\sdkmanager.bat'

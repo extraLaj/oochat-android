@@ -172,32 +172,21 @@ fi
 
 mkdir -p "$LOCAL_DIR" "$AVD_DIR"
 
-# --- Java (only needed to build from source, not to install the APK) ---------
+# --- Java (sdkmanager needs 17+; the Gradle build needs exactly 17) -----------
 step "Checking for a Java runtime"
-JAVA_OK=0
+JAVA_MAJOR=0
 if command -v java >/dev/null 2>&1; then
-  # `|| true` is load-bearing. macOS ships a /usr/bin/java stub that exists on
-  # PATH but exits non-zero when no JDK is installed, and under `set -e` a bare
-  # assignment from a failing command substitution kills the script outright —
-  # silently, right after we have told the user this check is not fatal.
+  # `|| true`: macOS's /usr/bin/java stub exits non-zero with no JDK, which kills a `set -e` script.
   JAVA_RAW="$(java -version 2>&1 | head -1 || true)"
   JAVA_MAJOR="$(printf '%s' "$JAVA_RAW" | sed -n 's/.*version "\([0-9]*\).*/\1/p' || true)"
-  if [ "${JAVA_MAJOR:-0}" = "17" ]; then
-    info "Found: $JAVA_RAW"
-    JAVA_OK=1
-  else
-    info "Found $JAVA_RAW — the Gradle build needs exactly JDK 17."
-  fi
-else
-  info "No java on PATH."
+  info "Found: $JAVA_RAW"
 fi
-if [ "$JAVA_OK" = "0" ]; then
-  info ""
-  info "This is not fatal. JDK 17 is needed only to build from source or to run"
-  info "the test suite. Installing and running the pre-built APK does not need it."
-  info "If you do want to build:  https://adoptium.net/temurin/releases/?version=17"
-  info ""
+if [ "${JAVA_MAJOR:-0}" -lt 17 ]; then
+  fail "Java 17 or newer is needed: the Android SDK manager runs on it." \
+       "Install JDK 17 (also what building from source needs), then re-run:" \
+       "  https://adoptium.net/temurin/releases/?version=17"
 fi
+[ "$JAVA_MAJOR" = "17" ] || info "Building from source needs exactly JDK 17; installing does not."
 
 # --- Command-line tools -------------------------------------------------------
 SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
