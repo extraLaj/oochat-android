@@ -10,7 +10,6 @@ import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
-import ai.openonion.oochat.knownIssue
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -2349,27 +2348,24 @@ class AgentConnectionRobolectricTest {
         assertTrue("relay after direct kept the direct routing", sendAndReadInput(connection, agent).containsKey("to"))
     }
 
-    // Known issues in direct-URL handling: openWebSocket strips only an
-    // http(s) scheme and picks TLS by startsWith("https"), and appends "/ws"
-    // to whatever is left. Both validators accept ws:// and wss:// server URLs.
+    // Direct-URL handling (W16AAPPLE-54, W16AAPPLE-55); every form is in
+    // DirectSocketUrlTest. OkHttp reports a wss:// request as https:// and a
+    // ws:// one as http://, so these read as such.
 
     @Test
-    fun `known issue - a direct wss URL is dialled at a host called wss`() {
+    fun `a direct wss URL is dialled at its own host over TLS`() {
+        // Used to become ws://wss://agent.example.com/ws: a host called "wss".
         connection.connect(agent, directUrl = "wss://agent.example.com")
 
-        knownIssue("a direct wss://host URL becomes ws://wss://host/ws, so the app dials the host \"wss\"") {
-            assertEquals("https://agent.example.com/ws", dialled())
-        }
+        assertEquals("https://agent.example.com/ws", dialled())
     }
 
     @Test
-    fun `known issue - a direct URL typed with a trailing slash dials a double-slash path`() {
-        // Onboarding trims the slash; the Add/Edit Agent form does not.
+    fun `a direct URL saved with a trailing slash is dialled without a double slash`() {
+        // An agent saved before the Add/Edit Agent form trimmed it still has one.
         connection.connect(agent, directUrl = "https://agent.example.com/")
 
-        knownIssue("a direct URL ending in / is dialled at //ws") {
-            assertEquals("https://agent.example.com/ws", dialled())
-        }
+        assertEquals("https://agent.example.com/ws", dialled())
     }
 
     // ── the invite-code gate holds reconnects, on every way a socket ends ──

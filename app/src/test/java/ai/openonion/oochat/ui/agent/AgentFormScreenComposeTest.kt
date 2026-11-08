@@ -128,6 +128,20 @@ class AgentFormScreenComposeTest {
         assertEquals(address, agent.address)
     }
 
+    @Test
+    fun `a direct URL typed with a trailing slash is saved without it, as Setup saves it`() {
+        var result: AgentProfile? = null
+        setScreen(existingAgent = null) { result = it }
+
+        composeRule.onNodeWithText("Direct Connection").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        serverUrlField().performTextInput("https://agent.example.com/")
+        addressField().performTextInput(address)
+        save()
+
+        assertEquals("https://agent.example.com", (result ?: error("Save handed nothing over")).serverUrl)
+    }
+
     // ── skills only after the Host lets the user in (W16AAPPLE-71) ──────
 
     @Test

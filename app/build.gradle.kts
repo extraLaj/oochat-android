@@ -405,6 +405,7 @@ val regressionSuite = mapOf(
     "direct (/ws) and relay (/ws/input)" to listOf(
         "network.AgentConnectionRobolectricTest",
         "network.AgentConnectionTest",
+        "network.DirectSocketUrlTest",
         "network.ProtocolParserTest",
         "data.local.ConnectionConfigTest",
         "ConstantsTest",
