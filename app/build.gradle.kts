@@ -432,6 +432,9 @@ val regressionSuite = mapOf(
         "domain.model.WorkRoomsTest",
         "ui.workroom.WorkRoomComposeTest",
         "ui.workroom.WorkRoomInputsTest",
+        "network.ProtocolParserWorkRoomApprovalTest",
+        "ui.workroom.WorkRoomApprovalComposeTest",
+        "ui.chat.WorkRoomApprovalReconnectTest",
     ),
     "rem notebook" to listOf(
         "domain.model.RemNotebookTest",
