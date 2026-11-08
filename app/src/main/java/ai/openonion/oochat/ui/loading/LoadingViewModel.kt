@@ -55,6 +55,13 @@ sealed class LoadingEvent {
     data object Cancelled : LoadingEvent()
     /** Auto-navigates rather than waiting for user confirmation. */
     data object ConnectSucceeded : LoadingEvent()
+
+    /**
+     * The agent wants an invite code or payment first. Auto-navigates to the
+     * chat's invite-code card too: there is nothing to decide here, and a
+     * "Continue" tap was one step more than the client wants (W16AAPPLE-111).
+     */
+    data object OnboardRequired : LoadingEvent()
 }
 
 /**
@@ -216,8 +223,10 @@ open class LoadingViewModel @JvmOverloads constructor(
                             outcome = LoadingOutcome.ONBOARD_REQUIRED
                         )
                     }
-                    // Wait for the user to tap "Continue to Onboarding" —
-                    // the gate is a manual decision they need to make.
+                    // Straight on to the invite-code card (W16AAPPLE-111).
+                    // Reported, so a late Cancel cannot also navigate.
+                    hasReportedOutcome = true
+                    _events.tryEmit(LoadingEvent.OnboardRequired)
                 } else {
                     onboardDeferred.cancel()
                     val connected = connectDeferred.await()
