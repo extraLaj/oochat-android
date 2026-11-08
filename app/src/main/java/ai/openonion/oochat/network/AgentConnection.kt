@@ -1501,9 +1501,7 @@ class AgentConnection(
     private fun openWebSocket(agentAddress: String, directUrl: String?) {
         val wsUrl = if (directUrl != null) {
             isDirect = true
-            val baseUrl = directUrl.replace(Regex("^https?://"), "")
-            val protocol = if (directUrl.startsWith("https")) "wss" else "ws"
-            "$protocol://$baseUrl/ws"
+            directSocketUrl(directUrl)
         } else {
             isDirect = false
             // Convert relay URL to wss:// if needed
@@ -2018,6 +2016,31 @@ class AgentConnection(
 
     companion object {
         const val DEFAULT_RELAY = "https://oo.openonion.ai"
+
+        private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*)://")
+
+        /**
+         * The socket a direct agent at [serverUrl] is dialled on: its `/ws`.
+         * The server URL can be saved as `https://`, `http://`, `wss://` or
+         * `ws://` (both forms accept all four), with or without a trailing
+         * slash. TLS for `https` and `wss`, plain for `http`, `ws` and a URL
+         * with no scheme. A `wss://host` used to become `ws://wss://host/ws`,
+         * dialled at a host called "wss" (W16AAPPLE-54), and `https://host/`
+         * a `//ws` path (W16AAPPLE-55).
+         *
+         * A URL that already ends in `/ws`, as the Host announces its socket
+         * (`ws://ip:port/ws`), is dialled as is, the same as the ConnectOnion
+         * client: the Host accepts only the exact path `/ws`, and appending
+         * another made it `/ws/ws` (W16AAPPLE-118).
+         */
+        internal fun directSocketUrl(serverUrl: String): String {
+            val trimmed = serverUrl.trim()
+            val scheme = SCHEME.find(trimmed)?.groupValues?.get(1)?.lowercase()
+            val hostAndPath = trimmed.replace(SCHEME, "").trimEnd('/')
+            val protocol = if (scheme == "https" || scheme == "wss") "wss" else "ws"
+            val socketPath = if (hostAndPath.endsWith("/ws")) hostAndPath else "$hostAndPath/ws"
+            return "$protocol://$socketPath"
+        }
         const val CONNECT_TIMEOUT_SECONDS = 30L
         const val READ_TIMEOUT_SECONDS = 600L
         const val WRITE_TIMEOUT_SECONDS = 30L

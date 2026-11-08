@@ -137,7 +137,13 @@ https://oo.openonion.ai
 
 - Relay connections use `wss://.../ws/input` for an HTTPS relay, or
   `ws://.../ws/input` for an HTTP relay.
-- Direct agent connections use the supplied URL and connect to `/ws`.
+- Direct agent connections connect to the server URL's `/ws`
+  (`AgentConnection.directSocketUrl`): `wss://` for an `https://` or `wss://`
+  server, `ws://` for `http://`, `ws://` or no scheme, read in any case, with
+  any trailing slash dropped (W16AAPPLE-54, W16AAPPLE-55). A server URL that
+  already ends in `/ws`, as the Host announces its socket, is dialled as is,
+  as the ConnectOnion client does; the Host accepts only the exact path `/ws`
+  (W16AAPPLE-118).
 
 Which one an agent gets is `resolveServerRoute` in `ConnectionConfig.kt`
 (W16AAPPLE-56), from the agent's saved server URL and `connectionMode`:

@@ -153,7 +153,8 @@ fun AgentFormScreen(
             address = address,
             name = name.trim().ifBlank { defaultAgentName(address) },
             description = description.trim().takeIf { it.isNotBlank() },
-            serverUrl = formState.serverUrl.trim(),
+            // Without a trailing slash, as Setup saves it (W16AAPPLE-55).
+            serverUrl = formState.serverUrl.trim().trimEnd('/'),
             apiKey = formState.apiKey.trim().takeIf { it.isNotBlank() },
             avatarUrl = existingAgent?.avatarUrl,
             createdAt = existingAgent?.createdAt ?: System.currentTimeMillis(),

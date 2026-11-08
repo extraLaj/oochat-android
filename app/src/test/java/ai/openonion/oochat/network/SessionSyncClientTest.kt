@@ -189,6 +189,40 @@ class SessionSyncClientTest {
     }
 
     @Test
+    fun `a direct wss index is dialled at its own host over TLS`() = runTest {
+        // W16AAPPLE-54: used to become ws://wss://agent.example/ws, a host called "wss".
+        val result = async { client.fetch("0xagent", directUrl = "wss://agent.example") }
+        runCurrent()
+
+        // OkHttp reports a wss:// request as https://.
+        assertEquals("https://agent.example/ws", factory.request.url.toString())
+
+        result.cancel()
+    }
+
+    @Test
+    fun `a direct index saved with a trailing slash is dialled without a double slash`() = runTest {
+        // W16AAPPLE-55: an agent saved before the form trimmed its URL still has one.
+        val result = async { client.fetch("0xagent", directUrl = "https://agent.example/") }
+        runCurrent()
+
+        assertEquals("https://agent.example/ws", factory.request.url.toString())
+
+        result.cancel()
+    }
+
+    @Test
+    fun `a direct index saved already ending in ws is dialled there, not at ws ws`() = runTest {
+        // W16AAPPLE-118: the socket the Host announces; it refuses /ws/ws.
+        val result = async { client.fetch("0xagent", directUrl = "ws://10.5.27.133:8797/ws") }
+        runCurrent()
+
+        assertEquals("http://10.5.27.133:8797/ws", factory.request.url.toString())
+
+        result.cancel()
+    }
+
+    @Test
     fun `a self-hosted relay index goes through that relay with the relay route`() = runTest {
         // W16AAPPLE-56: a relay-mode agent on its own relay is indexed through that relay, not the client's.
         val result = async { client.fetch("0xagent", relayUrl = "https://my-relay.example") }
