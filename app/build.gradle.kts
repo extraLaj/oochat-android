@@ -438,6 +438,10 @@ val regressionSuite = mapOf(
         "ui.rem.RemScreenComposeTest",
         "ui.rem.RemViewModelTest",
     ),
+    "sensitive data on screen" to listOf(
+        "util.SensitiveTextTest",
+        "domain.model.ChatItemPrivacyTest",
+    ),
     "slash-command palette" to listOf(
         "ui.chat.components.SlashCommandMatcherTest",
         "ui.chat.components.SlashCommandPaletteComposeTest",

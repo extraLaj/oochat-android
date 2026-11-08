@@ -212,7 +212,7 @@ class ChatScreenshotTest {
                 onRespond = { _, _ -> },
                 onApprove = { _, _, _, _, _ -> },
                 onOnboard = { _, _, _ -> },
-                onPlanReviewResponse = {},
+                onPlanReviewResponse = { _, _ -> },
                 onUlwResponse = { _, _, _ -> },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -235,7 +235,7 @@ class ChatScreenshotTest {
                 onRespond = { _, _ -> },
                 onApprove = { _, _, _, _, _ -> },
                 onOnboard = { _, _, _ -> },
-                onPlanReviewResponse = {},
+                onPlanReviewResponse = { _, _ -> },
                 onUlwResponse = { _, _, _ -> },
                 onResendMessage = {},
                 modifier = Modifier.fillMaxSize(),

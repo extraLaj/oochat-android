@@ -21,6 +21,7 @@ import ai.openonion.oochat.domain.model.ChatEvent
 import ai.openonion.oochat.domain.model.ChatEventReducer
 import ai.openonion.oochat.domain.model.ChatFileAttachment
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.ChatItemPrivacy
 import ai.openonion.oochat.domain.model.ChatListFlags
 import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
@@ -28,6 +29,7 @@ import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionActivity
 import ai.openonion.oochat.domain.model.SessionModes
@@ -62,6 +64,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterChat
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSnapshot
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.ui.dashboard.DashboardDocument
 import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
@@ -69,6 +72,7 @@ import ai.openonion.oochat.ui.workroom.WorkRoomInputs
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
 import ai.openonion.oochat.util.LogTags
+import ai.openonion.oochat.util.SensitiveText
 import ai.openonion.oochat.util.runCatchingCancellable
 import android.Manifest
 import android.app.Application
@@ -261,9 +265,17 @@ open class ChatViewModel @JvmOverloads constructor(
     },
     // Builds the Control Center's copy of the chat, which costs time in proportion to the
     // conversation. A seam for tests.
-    private val controlCenterDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val controlCenterDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    // Redacts the agent's Home page for display (W16AAPPLE-50), which costs time in
+    // proportion to the page. A seam for tests, so a UI test sees the page as soon as it is set.
+    private val displayDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ChatUiState())
+
+    // Declared before the flows that use them: an Eagerly-shared flow can run
+    // its first value during construction.
+    private val displayRedaction = ChatItemPrivacy.Cache()
+    private val controlCenterRedaction = ChatItemPrivacy.Cache()
 
     // What is typed into each Work Room (W16AAPPLE-35). Here rather than on
     // the room's own screen, so a draft outlives leaving the room.
@@ -277,15 +289,57 @@ open class ChatViewModel @JvmOverloads constructor(
     // toggle. _uiState stays unfiltered so items reappear if re-enabled.
     // Eagerly shared because awaitingOnboardCode and tests read .value
     // synchronously.
+    //
+    // Everything this exposes is redacted for display (W16AAPPLE-50, see
+    // [ChatItemPrivacy]); _uiState keeps the items as they came, and every
+    // reply to the agent is built from those.
     val uiState: StateFlow<ChatUiState> = combine(_uiState, appSettings.streamingResponses) { state, streaming ->
         // The `hasInProgress` check is not just an optimisation: with nothing
         // to filter, returning the state untouched hands the same list
         // instance downstream, which is what lets Compose skip the unchanged
         // bubbles. `filterNot` would have handed over a fresh N-element list
-        // that compares equal but recomposes the lot.
-        if (streaming || !state.listFlags.hasInProgress) state
+        // that compares equal but recomposes the lot. [displayRedaction]
+        // keeps that identity too.
+        val shown = if (streaming || !state.listFlags.hasInProgress) state
         else state.copy(chatItems = state.chatItems.filterNot { it.isInProgress() })
+        shown.redactedForDisplay()
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ChatUiState())
+
+    private fun ChatUiState.redactedForDisplay(): ChatUiState {
+        val items = displayRedaction.redact(chatItems)
+        val shownError = error?.redactedForDisplay()
+        return if (items === chatItems && shownError == error) this
+        else copy(chatItems = items, error = shownError)
+    }
+
+    private fun AppError.redactedForDisplay(): AppError {
+        val shown = SensitiveText.errorText(message)
+        if (shown == message) return this
+        return when (this) {
+            is AppError.NetworkError -> copy(message = shown)
+            is AppError.ValidationError -> copy(message = shown)
+            is AppError.SessionError -> copy(message = shown)
+            is AppError.PersistenceError -> copy(message = shown)
+            is AppError.AuthenticationError -> copy(message = shown)
+            is AppError.PermissionError -> copy(message = shown)
+            is AppError.UnknownError -> copy(message = shown)
+        }
+    }
+
+    /** A direct command's output is content, so only redacted; its error text may be a raw payload. */
+    private fun ExecUiItem.redactedForDisplay(): ExecUiItem = when (val o = outcome) {
+        null -> this
+        is ExecOutcome.Success -> copy(outcome = o.copy(result = SensitiveText.redact(o.result)))
+        is ExecOutcome.Error -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
+        is ExecOutcome.NotSent -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
+        is ExecOutcome.Unknown -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
+    }
+
+    /** The Todo List as the panel draws it; an entry with nothing to hide stays the same instance. */
+    private fun redactPlan(entries: List<PlanEntry>): List<PlanEntry> = entries.map { entry ->
+        val shown = SensitiveText.redact(entry.content)
+        if (shown == entry.content) entry else entry.copy(content = shown)
+    }
 
     // Display timestamps, session list, and active-session tracking now
     // live in ConversationHistoryUseCase (extracted — see its class doc);
@@ -307,7 +361,8 @@ open class ChatViewModel @JvmOverloads constructor(
      * scopes that actually need it.
      */
     val conversationTitle: StateFlow<String> = combine(sessions, activeSessionId) { list, id ->
-        list.firstOrNull { it.id == id }?.title ?: "ConnectOnion"
+        // A title is cut from the first message, so it can carry what that did (W16AAPPLE-50).
+        list.firstOrNull { it.id == id }?.title?.let(SensitiveText::redactWithoutPaths) ?: "ConnectOnion"
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "ConnectOnion")
 
     /**
@@ -343,7 +398,9 @@ open class ChatViewModel @JvmOverloads constructor(
     // concurrent commands can complete in any order without updating the
     // wrong result card.
     private val _execItems = MutableStateFlow<List<ExecUiItem>>(emptyList())
-    val execItems: StateFlow<List<ExecUiItem>> = _execItems.asStateFlow()
+    val execItems: StateFlow<List<ExecUiItem>> = _execItems
+        .map { items -> items.map { it.redactedForDisplay() } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Connection state from use case (single source of truth)
     val connectionState: StateFlow<ConnectionState> = connectUseCase.connectionState
@@ -369,15 +426,26 @@ open class ChatViewModel @JvmOverloads constructor(
     // The agent's own Home page, or null when it hasn't sent one for this
     // connection — which is also what gates the top bar's entry point, since
     // nothing on the wire says "this agent has no dashboard". Untrusted
-    // agent-authored HTML; see ConnectionRepository.dashboardHtml.
+    // agent-authored HTML; see ConnectionRepository.dashboardHtml. Redacted
+    // like the transcript (W16AAPPLE-50), its skill buttons aside: see
+    // DashboardDocument.redactForDisplay. A page that arrives later is redacted
+    // on [displayDispatcher], since one can be large; a page gone is passed on
+    // at once, with nothing to redact, so the Home entry goes when it does.
+    // The page already there when this is built is redacted here, on the
+    // caller's thread, so the Home entry does not blink out and back.
     val dashboardHtml: StateFlow<String?> = connectUseCase.dashboardHtml
+        .map { html -> html?.let { withContext(displayDispatcher) { DashboardDocument.redactForDisplay(it) } } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, connectUseCase.dashboardHtml.value?.let(DashboardDocument::redactForDisplay))
 
     // See ConnectionRepository.controlCenterApp.
     val controlCenterApp: StateFlow<ControlCenterApp?> = connectUseCase.controlCenterApp
 
     // The agent's current Todo List for this conversation, rendered as a
-    // panel above the transcript; see ConnectionRepository.plan.
+    // panel above the transcript; see ConnectionRepository.plan. Drawn, never
+    // sent back, so redacted like the transcript (W16AAPPLE-50).
     val plan: StateFlow<List<PlanEntry>> = connectUseCase.plan
+        .map(::redactPlan)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, redactPlan(connectUseCase.plan.value))
 
     // Settings' "Custom instructions" free text — silently prepended to
     // every outgoing prompt in sendMessage(), never to the displayed/
@@ -506,7 +574,7 @@ open class ChatViewModel @JvmOverloads constructor(
                 agentAddress = agent.address,
                 name = agent.name,
                 status = status,
-                sessions = sessions.map { DrawerEntry(id = it.id, title = it.title) }
+                sessions = sessions.map { DrawerEntry(id = it.id, title = SensitiveText.redactWithoutPaths(it.title)) }
             )
         }
         // Eagerly (not WhileSubscribed): must reflect the true agent/status
@@ -727,7 +795,8 @@ open class ChatViewModel @JvmOverloads constructor(
         .distinctUntilChanged()
         .conflate()
         .transform { items ->
-            emit(ControlCenterChat.of(items))
+            // Redacted like the chat screen (W16AAPPLE-50): the app draws it too.
+            emit(ControlCenterChat.of(controlCenterRedaction.redact(items)))
             delay(CONTROL_CENTER_CHAT_INTERVAL_MS)
         }
         .flowOn(controlCenterDispatcher)
@@ -2028,8 +2097,24 @@ open class ChatViewModel @JvmOverloads constructor(
      * it. The failed marker stays where it is: that attempt really did fail,
      * and the new reply lands after it.
      */
-    fun retryFailedTurn(content: String, images: List<String>? = null, files: List<String>? = null) {
-        sendMessage(content, images, files, echoUserMessage = false, waitForRunningTurn = false)
+    fun retryFailedTurn(userMessageId: String) {
+        // Looked up here, not handed over by the screen: the screen only has
+        // the message redacted (W16AAPPLE-50), and a retry must send what the
+        // user typed, not `[redacted]` or `~`.
+        val user = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.User>()
+            .lastOrNull { it.id == userMessageId } ?: return
+        // Retried files are local file:// paths from the earlier send (see
+        // ChatFileAttachment); sendMessage re-stores them the same way it stores
+        // a fresh SAF pick, recovering the original name off the path itself
+        // (see FileAttachmentStoreImpl.writeToAppStorage's own doc).
+        sendMessage(
+            user.content,
+            user.images,
+            user.files?.map { it.path },
+            echoUserMessage = false,
+            waitForRunningTurn = false
+        )
     }
 
     /** Requests from the Control Center app, already checked by ControlCenterHost. */
@@ -2892,6 +2977,24 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
+     * Answer the ask_user card [itemId] with its option at [optionIndex], as
+     * the agent wrote it. By position, not by text: the card shows the options
+     * redacted (W16AAPPLE-50), and two options can redact to the same text.
+     */
+    fun respondWithOption(itemId: String, optionIndex: Int) {
+        val option = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.AskUser>()
+            .firstOrNull { it.id == itemId }
+            ?.options
+            ?.getOrNull(optionIndex)
+        if (option == null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring unknown ask_user option $optionIndex for $itemId")
+            return
+        }
+        respond(itemId, option)
+    }
+
+    /**
      * Send a direct tool command and expose its eventual EXEC_RESULT to the
      * UI. The pending item is added synchronously so the user sees immediate
      * feedback while the connection waits for the agent.
@@ -3069,9 +3172,20 @@ open class ChatViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Reply to a plan_review checkpoint with free-text feedback. */
-    fun respondToPlanReview(message: String) {
-        launchScoped { connectUseCase.respondToPlanReview(message) }
+    /**
+     * Reply to the plan_review card [itemId]. The message is built from that
+     * card's plan as the agent sent it, not the redacted copy the screen shows
+     * (W16AAPPLE-50), since an approval quotes the plan back.
+     */
+    fun respondToPlanReview(itemId: String, reply: PlanReviewReply) {
+        val plan = _uiState.value.chatItems
+            .filterIsInstance<ChatItem.PlanReviewItem>()
+            .firstOrNull { it.id == itemId }
+        if (plan == null) {
+            FileLogger.w(LogTags.CHAT_VM, "Ignoring plan_review reply for unknown card $itemId")
+            return
+        }
+        launchScoped { connectUseCase.respondToPlanReview(reply.message(plan.planContent)) }
     }
 
     /** Reply to a ulw_turns_reached checkpoint. */

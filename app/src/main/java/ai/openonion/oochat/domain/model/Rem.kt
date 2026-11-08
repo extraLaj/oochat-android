@@ -1,5 +1,6 @@
 package ai.openonion.oochat.domain.model
 
+import ai.openonion.oochat.util.SensitiveText
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -108,61 +109,15 @@ data class RemNotebook(val pages: List<RemPage>) {
 /**
  * What a Rem page may not show on a phone (W16AAPPLE-69: no credentials or
  * private paths). Pages are written from the owner's mail, chats and files,
- * so a pasted key or a path on their machine can end up in one. Rules run in
- * order, most specific first, so a token inside a path is caught as a token.
+ * so a pasted key or a path on their machine can end up in one. The app-wide
+ * rules ([SensitiveText], W16AAPPLE-50), plus no absolute path at all: a page
+ * has no reason to name a location on the owner's computer.
  */
 internal object RemPrivacy {
-    const val REDACTED = "[redacted]"
-    const val PATH_REMOVED = "[path removed]"
+    const val REDACTED = SensitiveText.REDACTED
+    const val PATH_REMOVED = SensitiveText.PATH_REMOVED
 
-    private val PRIVATE_KEY_BLOCK = Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----""")
-
-    /** `https://user:secret@host` keeps the user and loses the secret. */
-    private val URL_CREDENTIALS = Regex("""(\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:)[^\s/@]+@""")
-
-    /** Shapes that are a credential wherever they appear. */
-    private val TOKENS = listOf(
-        Regex("""\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{16,}"""), // Anthropic, OpenAI
-        Regex("""\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}"""), // GitHub
-        Regex("""\bxox[abposr]-[A-Za-z0-9-]{10,}"""), // Slack
-        Regex("""\bAKIA[0-9A-Z]{16}\b"""), // AWS access key
-        Regex("""\bAIza[0-9A-Za-z_-]{35}"""), // Google API key
-        Regex("""\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"""), // JWT
-    )
-
-    private val BEARER = Regex("""(?i)\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}=*""")
-
-    /** `password: …`, `api key = …`. Only with `:` or `=`, so prose like "the token expired" is left alone. */
-    private val NAMED_SECRET = Regex(
-        """(?i)\b((?:client[ _-]?)?secret|password|passwd|pwd|(?:access[ _-]?|refresh[ _-]?|auth[ _-]?)?token|api[ _-]?key|private[ _-]?key|invite[ _-]?code)(\s*[:=]\s*)(["'`]?)[^\s"'`,;)\]]{4,}\3"""
-    )
-
-    /** `OPENAI_API_KEY=…`, `CO_INVITE_CODE=…` as written in an env file. */
-    private val ENV_SECRET = Regex("""\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CODE))(\s*=\s*)\S+""")
-
-    private val HOME_FOLDER = Regex("""(?:/Users|/home)/[^/\s]+|[A-Za-z]:[\\/]Users[\\/][^\\/\s]+""")
-
-    /**
-     * Any other absolute path of two segments or more. Not after a word
-     * character, `:`, `/`, `.` or `~`, so a URL's path, a relative link such
-     * as `../orgs/x.md` and a path already shortened to `~/…` stay as they are.
-     */
-    private val UNIX_PATH = Regex("""(?<![\w:/.~\]])/(?:[^\s/()\[\]<>"'`]+/)+[^\s/()\[\]<>"'`,;]*""")
-    private val WINDOWS_PATH = Regex("""\b[A-Za-z]:[\\/](?:[^\s\\/()<>"'`]+[\\/])*[^\s\\/()<>"'`,;]*""")
-
-    fun sanitize(text: String): String {
-        var out = text.replace(PRIVATE_KEY_BLOCK, "[private key removed]")
-        out = out.replace(URL_CREDENTIALS) { "${it.groupValues[1]}$REDACTED@" }
-        TOKENS.forEach { out = out.replace(it, REDACTED) }
-        out = out.replace(BEARER) { "${it.groupValues[1]} $REDACTED" }
-        out = out.replace(NAMED_SECRET) { "${it.groupValues[1]}${it.groupValues[2]}$REDACTED" }
-        out = out.replace(ENV_SECRET) { "${it.groupValues[1]}${it.groupValues[2]}$REDACTED" }
-        // Home folders read better as `~`; whatever absolute path is left goes.
-        out = out.replace(HOME_FOLDER, "~")
-        out = out.replace(UNIX_PATH, PATH_REMOVED)
-        out = out.replace(WINDOWS_PATH, PATH_REMOVED)
-        return out
-    }
+    fun sanitize(text: String): String = SensitiveText.redactWithoutPaths(text)
 }
 
 /**

@@ -112,7 +112,7 @@ class ChatControlsLabelledComposeTest {
                 onRespond = { _, _ -> },
                 onApprove = { _, _, _, _, _ -> },
                 onOnboard = { _, _, _ -> },
-                onPlanReviewResponse = {},
+                onPlanReviewResponse = { _, _ -> },
                 onUlwResponse = { _, _, _ -> },
                 onResendMessage = {},
                 modifier = Modifier.requiredHeight(6000.dp)

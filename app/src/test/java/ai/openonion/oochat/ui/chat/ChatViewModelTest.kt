@@ -26,6 +26,10 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.PlanEntry
+import ai.openonion.oochat.domain.model.PlanPriority
+import ai.openonion.oochat.domain.model.PlanReviewReply
+import ai.openonion.oochat.domain.model.PlanStatus
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.Role
@@ -61,6 +65,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
 import ai.openonion.oochat.ui.workroom.WorkRoomText
+import ai.openonion.oochat.util.SensitiveText
 import ai.openonion.oochat.util.stringField
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
@@ -143,6 +148,9 @@ class ChatViewModelTest {
 
         val _dashboardHtml = MutableStateFlow<String?>(null)
         override val dashboardHtml: StateFlow<String?> = _dashboardHtml
+
+        val _plan = MutableStateFlow<List<PlanEntry>>(emptyList())
+        override val plan: StateFlow<List<PlanEntry>> = _plan
 
         private val _events = MutableSharedFlow<ChatEvent>(
             extraBufferCapacity = 64,
@@ -846,7 +854,7 @@ class ChatViewModelTest {
         val userBubbles = vm.uiState.value.chatItems.count { it is ChatItem.User }
         val sent = connectUseCase.sentMessages.size
 
-        vm.retryFailedTurn("hello")
+        vm.retryFailedTurn(vm.uiState.value.chatItems.filterIsInstance<ChatItem.User>().last().id)
         testSchedulerKeepRunning()
 
         assertEquals(
@@ -2067,7 +2075,7 @@ class ChatViewModelTest {
             assertEquals(AgentConnection.LOST_SESSION_MESSAGE, failed.content)
             assertEquals("not sent again by itself", listOf("what's on today?"), connectUseCase.sentMessages.map { it.content })
 
-            vm.retryFailedTurn("what's on today?")
+            vm.retryFailedTurn(items[bubble].id)
             testScheduler.runCurrent()
 
             assertEquals(listOf("what's on today?", "what's on today?"), connectUseCase.sentMessages.map { it.content })
@@ -3854,10 +3862,153 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `respondToPlanReview forwards the message to the use case`() = runTest(testDispatcher) {
-        vm.respondToPlanReview("Plan approved. Implement now. Do NOT re-enter plan mode.")
+    fun `respondToPlanReview sends web's approval wording with the plan`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.PlanReviewItem(id = "plan-1", planContent = "1. Do it")))
         testScheduler.runCurrent()
-        assertEquals("Plan approved. Implement now. Do NOT re-enter plan mode.", connectUseCase.lastPlanReviewMessage)
+
+        vm.respondToPlanReview("plan-1", PlanReviewReply.Approve)
+        testScheduler.runCurrent()
+
+        assertEquals(
+            "Plan approved. Implement now. Do NOT re-enter plan mode.\n\n---\n\n1. Do it",
+            connectUseCase.lastPlanReviewMessage
+        )
+    }
+
+    @Test
+    fun `respondToPlanReview sends the rejection with the user's feedback`() = runTest(testDispatcher) {
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.PlanReviewItem(id = "plan-1", planContent = "1. Do it")))
+        testScheduler.runCurrent()
+
+        vm.respondToPlanReview("plan-1", PlanReviewReply.Reject("smaller steps"))
+        testScheduler.runCurrent()
+
+        assertEquals("Plan rejected. Revise with write_plan(). Feedback: smaller steps", connectUseCase.lastPlanReviewMessage)
+    }
+
+    // ── what the screen may show (W16AAPPLE-50) ─────────────────────────
+
+    @Test
+    fun `the screen gets agent text redacted while the reply keeps it`() = runTest(testDispatcher) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.Agent(id = "a-1", content = "Saved OPENAI_API_KEY=abc123secret to /Users/priya/app/.env")
+            )
+        )
+        testScheduler.runCurrent()
+
+        val shown = vm.uiState.value.chatItems.filterIsInstance<ChatItem.Agent>().single().content
+        assertEquals("Saved OPENAI_API_KEY=[redacted] to ~/app/.env", shown)
+    }
+
+    @Test
+    fun `an approved plan quotes the plan as the agent wrote it, not as shown`() = runTest(testDispatcher) {
+        val plan = "1. Edit /Users/priya/app/main.kt"
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.PlanReviewItem(id = "plan-1", planContent = plan)))
+        testScheduler.runCurrent()
+        assertEquals(
+            "1. Edit ~/app/main.kt",
+            vm.uiState.value.chatItems.filterIsInstance<ChatItem.PlanReviewItem>().single().planContent
+        )
+
+        vm.respondToPlanReview("plan-1", PlanReviewReply.Approve)
+        testScheduler.runCurrent()
+
+        assertTrue(connectUseCase.lastPlanReviewMessage!!.endsWith(plan))
+    }
+
+    @Test
+    fun `a tapped option is answered as the agent wrote it`() = runTest(testDispatcher) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.AskUser(
+                    id = "q-1",
+                    text = "Where?",
+                    options = listOf("/home/priya/work", "Somewhere else"),
+                    multiSelect = false,
+                    requestId = "ask-1"
+                )
+            )
+        )
+        testScheduler.runCurrent()
+        assertEquals("~/work", question("q-1").options.first())
+
+        vm.respondWithOption("q-1", 0)
+        testScheduler.runCurrent()
+
+        assertEquals("/home/priya/work", connectUseCase.lastRespond)
+        assertEquals("~/work", question("q-1").answer)
+    }
+
+    @Test
+    fun `of two options that look alike once redacted, the tapped one is answered`() = runTest(testDispatcher) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.AskUser(
+                    id = "q-1",
+                    text = "Which folder?",
+                    options = listOf("/home/priya/work", "/Users/priya/work"),
+                    multiSelect = false,
+                    requestId = "ask-1"
+                )
+            )
+        )
+        testScheduler.runCurrent()
+        assertEquals(listOf("~/work", "~/work"), question("q-1").options)
+
+        vm.respondWithOption("q-1", 1)
+        testScheduler.runCurrent()
+
+        assertEquals("/Users/priya/work", connectUseCase.lastRespond)
+    }
+
+    @Test
+    fun `Retry sends the message the user typed, not the one on screen`() {
+        vm.connectToAgent(validHexAddress())
+        testSchedulerKeepRunning()
+        connectUseCase.markConnected()
+        val typed = "Set OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuv in /home/priya/app/.env"
+
+        vm.sendMessage(typed)
+        testSchedulerKeepRunning()
+        val shown = vm.uiState.value.chatItems.filterIsInstance<ChatItem.User>().last()
+        assertEquals("Set OPENAI_API_KEY=[redacted] in ~/app/.env", shown.content)
+
+        vm.retryFailedTurn(shown.id)
+        testSchedulerKeepRunning()
+
+        assertEquals(listOf(typed, typed), connectUseCase.sentMessages.map { it.content })
+    }
+
+    @Test
+    fun `the live Todo List is shown redacted`() = runTest(testDispatcher) {
+        connectUseCase._plan.value = listOf(
+            PlanEntry("Rotate OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuv", PlanPriority.HIGH, PlanStatus.IN_PROGRESS),
+            PlanEntry("Edit /home/priya/app/main.kt", PlanPriority.MEDIUM, PlanStatus.PENDING),
+        )
+        testScheduler.runCurrent()
+
+        assertEquals(
+            listOf("Rotate OPENAI_API_KEY=[redacted]", "Edit ~/app/main.kt"),
+            vm.plan.value.map { it.content }
+        )
+    }
+
+    @Test
+    fun `a raw provider payload in a failed turn is never shown`() = runTest(testDispatcher) {
+        connectUseCase.emit(
+            ChatEvent.ChatItemReceived(
+                ChatItem.Thinking(
+                    id = "t-1",
+                    status = ThinkingStatus.ERROR,
+                    content = "Error code: 400 - {'type': 'error', 'error': {'message': 'prompt too long'}}"
+                )
+            )
+        )
+        testScheduler.runCurrent()
+
+        val shown = vm.uiState.value.chatItems.filterIsInstance<ChatItem.Thinking>().single().content
+        assertEquals(SensitiveText.UNREADABLE_ERROR, shown)
     }
 
     @Test

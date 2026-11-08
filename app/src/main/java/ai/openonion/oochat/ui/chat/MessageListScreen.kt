@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ThoughtGroup
 import ai.openonion.oochat.domain.model.UserMessageState
@@ -63,13 +64,17 @@ fun MessageList(
     items: List<ChatItem>,
     timestamps: Map<String, Long>,
     wasCleared: Boolean,
-    onRespond: (itemId: String, answer: String) -> Unit,
+    // The ask_user option the user tapped, by position (see ChatViewModel.respondWithOption).
+    onRespond: (itemId: String, optionIndex: Int) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
-    onPlanReviewResponse: (message: String) -> Unit,
+    onPlanReviewResponse: (itemId: String, reply: PlanReviewReply) -> Unit,
     onUlwResponse: (action: String, turns: Int?, mode: String?) -> Unit,
     onGateResolved: (itemId: String) -> Unit = {},
-    onRetry: (content: String, images: List<String>?, files: List<String>?) -> Unit = { _, _, _ -> },
+    // Re-runs the failed turn of the user message with this id. An id, not its
+    // text: the list drawn here is redacted (W16AAPPLE-50), so its text is not
+    // what the user sent.
+    onRetry: (userMessageId: String) -> Unit = {},
     // Resends one of the user's own messages that never left the device. Keyed
     // by the bubble's id, not by "the last message", so it revives the message
     // the user actually tapped.
@@ -284,14 +289,7 @@ fun MessageList(
                 // died hours ago. (It was always built for these too; a long error
                 // message just squeezed the button to zero width, hiding it.)
                 val onItemRetry: (() -> Unit)? = if (item.isFailedAssistantTurn() && index == items.lastIndex) {
-                    findPrecedingUserMessage(items, index)?.let { user ->
-                        // Retried files are local file:// paths from the earlier
-                        // send (see ChatFileAttachment) — ChatViewModel.sendMessage
-                        // re-stores them the same way it stores a fresh SAF pick,
-                        // recovering the original name off the path itself (see
-                        // FileAttachmentStoreImpl.writeToAppStorage's own doc).
-                        { onRetry(user.content, user.images, user.files?.map { it.path }) }
-                    }
+                    findPrecedingUserMessage(items, index)?.let { user -> { onRetry(user.id) } }
                 } else {
                     null
                 }
@@ -348,10 +346,10 @@ private fun ChatItemWrapper(
     startsRun: Boolean = true,
     endsRun: Boolean = true,
     timestamps: Map<String, Long>,
-    onRespond: (itemId: String, answer: String) -> Unit,
+    onRespond: (itemId: String, optionIndex: Int) -> Unit,
     onApprove: (itemId: String, approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
-    onPlanReviewResponse: (message: String) -> Unit,
+    onPlanReviewResponse: (itemId: String, reply: PlanReviewReply) -> Unit,
     onUlwResponse: (action: String, turns: Int?, mode: String?) -> Unit,
     onGateResolved: (itemId: String) -> Unit,
     renderMarkdown: Boolean,
@@ -373,7 +371,7 @@ private fun ChatItemWrapper(
         ChatItemBubble(
             item = item,
             timestamp = timestamp,
-            onRespond = { answer -> onGateResolved(item.id); onRespond(item.id, answer) },
+            onRespond = { optionIndex -> onGateResolved(item.id); onRespond(item.id, optionIndex) },
             onApprove = { approved, scope, mode, feedback ->
                 onGateResolved(item.id)
                 onApprove(item.id, approved, scope, mode, feedback)
@@ -382,7 +380,7 @@ private fun ChatItemWrapper(
                 onGateResolved(item.id)
                 onOnboard(method, code, payment)
             },
-            onPlanReviewResponse = { message -> onGateResolved(item.id); onPlanReviewResponse(message) },
+            onPlanReviewResponse = { reply -> onGateResolved(item.id); onPlanReviewResponse(item.id, reply) },
             onUlwResponse = { action, turns, mode ->
                 onGateResolved(item.id)
                 onUlwResponse(action, turns, mode)

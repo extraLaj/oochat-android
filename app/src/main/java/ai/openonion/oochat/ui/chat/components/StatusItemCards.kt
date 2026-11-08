@@ -4,6 +4,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
+import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
@@ -428,7 +429,7 @@ private enum class PlanReviewOutcome { APPROVED, REJECTED }
 @Composable
 internal fun PlanReviewCard(
     item: ChatItem.PlanReviewItem,
-    onPlanReviewResponse: (String) -> Unit
+    onPlanReviewResponse: (PlanReviewReply) -> Unit
 ) {
     var outcome by remember(item.id) { mutableStateOf<PlanReviewOutcome?>(null) }
     var rejecting by remember(item.id) { mutableStateOf(false) }
@@ -496,7 +497,7 @@ internal fun PlanReviewCard(
                         shape = MaterialTheme.shapes.large,
                         onClick = {
                             outcome = PlanReviewOutcome.REJECTED
-                            onPlanReviewResponse("Plan rejected. Revise with write_plan(). Feedback: $feedback")
+                            onPlanReviewResponse(PlanReviewReply.Reject(feedback))
                         },
                         modifier = Modifier.weight(1f).heightIn(min = ButtonToken.Compact)
                     ) {
@@ -519,9 +520,7 @@ internal fun PlanReviewCard(
                         shape = MaterialTheme.shapes.large,
                         onClick = {
                             outcome = PlanReviewOutcome.APPROVED
-                            onPlanReviewResponse(
-                                "Plan approved. Implement now. Do NOT re-enter plan mode.\n\n---\n\n${item.planContent}"
-                            )
+                            onPlanReviewResponse(PlanReviewReply.Approve)
                         },
                         modifier = Modifier.weight(1f).heightIn(min = ButtonToken.Compact)
                     ) {
