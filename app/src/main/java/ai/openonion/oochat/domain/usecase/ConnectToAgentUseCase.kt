@@ -266,8 +266,8 @@ class ConnectToAgentUseCase(
         return getOrCreateRepository().observeEvents()
     }
 
-    override fun releaseServerTranscript() {
-        getOrCreateRepository().releaseServerTranscript()
+    override fun releaseServerTranscript(merged: ChatEvent.ServerTranscriptReceived) {
+        getOrCreateRepository().releaseServerTranscript(merged)
     }
 
     override fun releaseSessionStatus() {
