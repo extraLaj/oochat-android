@@ -229,6 +229,8 @@ or whose reach the Host could not check, shows only **Deny**: the Host would
 refuse it even if you allowed it. A request still waiting when the connection
 drops is still there when it comes back.
 
+<img src="screenshots/work-room-approval-room.png" alt="A Claude Code Work Room waiting for a decision: a request to make workspace file changes to hello.txt, scoped to this Work Room only, with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
+
 ---
 
 ## 6. Deciding what the agent may do
