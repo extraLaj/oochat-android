@@ -97,6 +97,39 @@ class SessionSyncRepositoryImplTest {
     }
 
     @Test
+    fun `memory off marker persists without losing a cursor and clears after commit`() = runTest {
+        repository.reconcile("0xidentity", "agent-1", snapshot(cursor = "saved-cursor"))
+
+        repository.markMemoryDisabled("0xidentity", "agent-1")
+
+        assertTrue(repository.isMemoryDisabledSinceSync("0xidentity", "agent-1"))
+        assertEquals("saved-cursor", repository.cursorFor("0xidentity", "agent-1"))
+
+        repository.advanceCursor("0xidentity", "agent-1", "advanced-cursor")
+
+        assertEquals("advanced-cursor", repository.cursorFor("0xidentity", "agent-1"))
+        assertTrue(!repository.isMemoryDisabledSinceSync("0xidentity", "agent-1"))
+    }
+
+    @Test
+    fun `memory off marker on a fresh install has no cursor and is cleared by full reconcile`() = runTest {
+        repository.markMemoryDisabled("0xidentity", "agent-1")
+
+        assertNull(repository.cursorFor("0xidentity", "agent-1"))
+        assertTrue(repository.isMemoryDisabledSinceSync("0xidentity", "agent-1"))
+
+        repository.reconcile(
+            "0xidentity",
+            "agent-1",
+            snapshot(sessions = listOf(summary("from-another-device")), isFull = true)
+        )
+
+        assertEquals("cursor-1", repository.cursorFor("0xidentity", "agent-1"))
+        assertTrue(!repository.isMemoryDisabledSinceSync("0xidentity", "agent-1"))
+        assertEquals("from-another-device", database.sessionDao().getSessionById("from-another-device")?.id)
+    }
+
+    @Test
     fun `completed sync becomes visible through the Recent Chat session flow`() = runTest {
         val snapshot = snapshot(
             sessions = listOf(summary("remote-visible", title = "From another device")),

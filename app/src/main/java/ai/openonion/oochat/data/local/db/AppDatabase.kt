@@ -37,7 +37,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SessionSyncStateEntity::class,
         SessionSyncDeletionEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -325,6 +325,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Persists the Memory-off sync marker across process restarts. */
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE session_sync_states " +
+                        "ADD COLUMN memory_disabled_since_sync INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         /**
          * The migration chain, shared with the migration tests so it
          * can never be written, tested, and then left out of the
@@ -334,7 +344,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
             MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-            MIGRATION_16_17
+            MIGRATION_16_17, MIGRATION_17_18
         )
 
         @Volatile

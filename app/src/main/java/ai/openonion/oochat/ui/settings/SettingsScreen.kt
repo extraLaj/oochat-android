@@ -325,7 +325,7 @@ fun SettingsScreen(
             SettingsSection("Personalization") {
                 SwitchRow(
                     label = "Memory",
-                    subtitle = "Remembers context across chats",
+                    subtitle = "When off, each chat you open starts a new session on the agent",
                     checked = memoryEnabled,
                     onChange = { viewModel.setMemoryEnabled(it) }
                 )

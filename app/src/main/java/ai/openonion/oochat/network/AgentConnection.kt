@@ -109,6 +109,7 @@ class AgentConnection(
     @Volatile private var keys: KeyManager.AddressData? = null
     @Volatile private var _currentSession: SessionState? = null
     val currentSession: SessionState? get() = _currentSession
+    @Volatile private var currentConversationId: String? = null
     private data class ReplayCursor(val sessionId: String, val msgId: String)
     @Volatile private var replayCursor: ReplayCursor? = null
 
@@ -361,8 +362,9 @@ class AgentConnection(
     // ConnectionRepositoryImpl.startCollectingEvents's onSubscription gate.
     val events: SharedFlow<ConnectionEvent> = _events.asSharedFlow()
 
-    fun setSession(session: SessionState?) {
+    fun setSession(session: SessionState?, conversationId: String? = null) {
         _currentSession = session
+        currentConversationId = conversationId
         rememberSession(session?.sessionId)
     }
 
@@ -379,8 +381,9 @@ class AgentConnection(
      * ws_router/connect.py). With no socket yet this only stages the session
      * for the next CONNECT.
      */
-    fun switchSession(session: SessionState?) {
+    fun switchSession(session: SessionState?, conversationId: String? = null) {
         _currentSession = session
+        currentConversationId = conversationId
         rememberSession(session?.sessionId)
         // A different session gets its own shot at stale-session recovery.
         staleSessionRecoveryAttempted = false
@@ -874,7 +877,13 @@ class AgentConnection(
             // MIGRATION_8_9) carries files through the same way images_json
             // already does, so nothing is dropped on this path.
             FileLogger.w(LogTags.AGENT_CONN, "Connection not ready, queuing message${if (!files.isNullOrEmpty()) " (${files.size} file(s))" else ""}")
-            pendingMessageSink.enqueue(agentAddress, _currentSession?.sessionId, prompt, images, files)
+            pendingMessageSink.enqueue(
+                agentAddress,
+                pendingMessageRouteId(),
+                prompt,
+                images,
+                files
+            )
             return
         }
 
@@ -884,9 +893,22 @@ class AgentConnection(
         // CONNECTED like any other queued one.
         if (!sendMessageInternal(prompt, agentAddress, images, files)) {
             FileLogger.w(LogTags.AGENT_CONN, "Socket refused the write, queuing instead")
-            pendingMessageSink.enqueue(agentAddress, _currentSession?.sessionId, prompt, images, files)
+            pendingMessageSink.enqueue(
+                agentAddress,
+                pendingMessageRouteId(),
+                prompt,
+                images,
+                files
+            )
         }
     }
+
+    /**
+     * Conversation identity survives a Memory-off reconnect; the Host session
+     * id does not. Prefer it whenever the connection is serving a known local
+     * conversation so queued rows can be flushed by a fresh Host session.
+     */
+    private fun pendingMessageRouteId(): String? = currentConversationId ?: _currentSession?.sessionId
 
     /** @return false when the socket refused the write, so the caller can queue it. */
     private fun sendMessageInternal(prompt: String, agentAddress: String, images: List<String>? = null, files: List<FileAttachment>? = null): Boolean {
@@ -932,7 +954,11 @@ class AgentConnection(
         // attachment is base64, so the whole outbox used to be decoded at once
         // and then re-encoded per send.
         var flushed = 0
-        pendingMessageSink.drain(agentAddress, _currentSession?.sessionId) { pending ->
+        pendingMessageSink.drain(
+            agentAddress,
+            _currentSession?.sessionId,
+            currentConversationId
+        ) { pending ->
             flushed++
             sendMessageInternal(pending.prompt, agentAddress, pending.images, pending.files)
         }

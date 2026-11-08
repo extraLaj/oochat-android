@@ -8,19 +8,29 @@ import ai.openonion.oochat.network.SessionSyncSnapshot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SyncRecentChatsUseCaseTest {
     private class FakeRepository : SessionSyncRepository {
         var cursor: String? = "cursor-1"
+        var memoryDisabledSinceSync = false
         val activatedIdentities = mutableListOf<String>()
         val reconciled = mutableListOf<Triple<String, String, SessionSyncSnapshot>>()
+        val advanced = mutableListOf<Triple<String, String, String>>()
 
         override suspend fun activateIdentity(identityAddress: String) {
             activatedIdentities += identityAddress
         }
 
         override suspend fun cursorFor(identityAddress: String, agentId: String): String? = cursor
+
+        override suspend fun markMemoryDisabled(identityAddress: String, agentId: String) {
+            memoryDisabledSinceSync = true
+        }
+
+        override suspend fun isMemoryDisabledSinceSync(identityAddress: String, agentId: String): Boolean =
+            memoryDisabledSinceSync
 
         override suspend fun reconcile(
             identityAddress: String,
@@ -29,6 +39,13 @@ class SyncRecentChatsUseCaseTest {
         ) {
             reconciled += Triple(identityAddress, agentId, snapshot)
             cursor = snapshot.cursor
+            memoryDisabledSinceSync = false
+        }
+
+        override suspend fun advanceCursor(identityAddress: String, agentId: String, cursor: String) {
+            advanced += Triple(identityAddress, agentId, cursor)
+            this.cursor = cursor
+            memoryDisabledSinceSync = false
         }
     }
 
@@ -87,6 +104,93 @@ class SyncRecentChatsUseCaseTest {
         useCase.activateIdentity()
 
         assertEquals(listOf("0xidentity"), repository.activatedIdentities)
+    }
+
+    @Test
+    fun `memory disabled skips host sync without changing recent chats`() = runTest {
+        val repository = FakeRepository()
+        var fetches = 0
+        val useCase = useCase(repository, syncEnabled = { false }) { _, _, _, _ ->
+            fetches++
+            SessionSyncFetchResult.Complete(snapshot)
+        }
+
+        val result = useCase.sync("agent-1", "0xagent", null, null)
+
+        assertSame(RecentChatsSyncResult.MemoryDisabled, result)
+        assertEquals(listOf("0xidentity"), repository.activatedIdentities)
+        assertEquals(0, fetches)
+        assertEquals(emptyList<Any>(), repository.reconciled)
+        assertEquals("cursor-1", repository.cursor)
+    }
+
+    @Test
+    fun `first sync after memory is reenabled advances past sessions created while it was off`() = runTest {
+        val repository = FakeRepository()
+        var memoryEnabled = false
+        val cursors = mutableListOf<String?>()
+        val useCase = useCase(repository, syncEnabled = { memoryEnabled }) { _, _, _, cursor ->
+            cursors += cursor
+            SessionSyncFetchResult.Complete(snapshot)
+        }
+
+        assertSame(RecentChatsSyncResult.MemoryDisabled, useCase.sync("agent-1", "0xagent", null, null))
+
+        memoryEnabled = true
+        assertSame(RecentChatsSyncResult.Synced, useCase.sync("agent-1", "0xagent", null, null))
+
+        assertEquals(listOf("cursor-1"), cursors)
+        assertEquals(listOf(Triple("0xidentity", "agent-1", "cursor-2")), repository.advanced)
+        assertTrue(repository.reconciled.isEmpty())
+
+        // The next incremental sync is normal again; only the first batch was
+        // treated as the Memory-off backlog.
+        useCase.sync("agent-1", "0xagent", null, null)
+        assertEquals(1, repository.reconciled.size)
+    }
+
+    @Test
+    fun `memory off marker survives a new use case instance`() = runTest {
+        val repository = FakeRepository()
+        var memoryEnabled = false
+        val fetch: suspend (String, String?, String?, String?) -> SessionSyncFetchResult =
+            { _, _, _, _ -> SessionSyncFetchResult.Complete(snapshot) }
+
+        assertSame(
+            RecentChatsSyncResult.MemoryDisabled,
+            useCase(repository, syncEnabled = { memoryEnabled }, fetch = fetch)
+                .sync("agent-1", "0xagent", null, null)
+        )
+
+        memoryEnabled = true
+        assertSame(
+            RecentChatsSyncResult.Synced,
+            useCase(repository, syncEnabled = { memoryEnabled }, fetch = fetch)
+                .sync("agent-1", "0xagent", null, null)
+        )
+
+        assertEquals(1, repository.advanced.size)
+        assertTrue(repository.reconciled.isEmpty())
+    }
+
+    @Test
+    fun `fresh install reconciles the first full snapshot after memory was off`() = runTest {
+        val repository = FakeRepository().also { it.cursor = null }
+        var memoryEnabled = false
+        val fullSnapshot = snapshot.copy(isFullSnapshot = true)
+        val cursors = mutableListOf<String?>()
+        val useCase = useCase(repository, syncEnabled = { memoryEnabled }) { _, _, _, cursor ->
+            cursors += cursor
+            SessionSyncFetchResult.Complete(fullSnapshot)
+        }
+
+        assertSame(RecentChatsSyncResult.MemoryDisabled, useCase.sync("agent-1", "0xagent", null, null))
+        memoryEnabled = true
+        assertSame(RecentChatsSyncResult.Synced, useCase.sync("agent-1", "0xagent", null, null))
+
+        assertEquals(listOf(null), cursors)
+        assertEquals(listOf(fullSnapshot), repository.reconciled.map { it.third })
+        assertTrue(repository.advanced.isEmpty())
     }
 
     @Test
@@ -158,10 +262,12 @@ class SyncRecentChatsUseCaseTest {
 
     private fun useCase(
         repository: FakeRepository,
+        syncEnabled: suspend () -> Boolean = { true },
         fetch: suspend (String, String?, String?, String?) -> SessionSyncFetchResult
     ) = SyncRecentChatsUseCase(
         repository = repository,
         identityAddress = { "0xidentity" },
+        syncEnabled = syncEnabled,
         fetch = fetch
     )
 }

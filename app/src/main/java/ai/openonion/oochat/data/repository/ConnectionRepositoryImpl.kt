@@ -568,32 +568,31 @@ class ConnectionRepositoryImpl(
         // The plan is the left conversation's. The one coming in is its stored
         // plan: an idle session's CONNECTED carries no snapshot of its own.
         showStoredPlan(session)
-        connection?.switchSession(session)
+        connection?.switchSession(session, conversationId)
     }
 
-    /**
-     * The wire session for [conversationId]: its stored one, or a bare
-     * session under the conversation's own id when nothing is stored yet.
-     *
-     * The conversation id IS the session id — the server allocates under the
-     * id it is given (websocket-protocol.md's state table, "Provided / not
-     * found / allocate new session (same id)"). So a conversation's session
-     * is recoverable from its id alone, and the store only adds the
-     * transcript and turn count on top.
-     */
     /** The plan [session] was saved with, or none — see SessionStateEntity.planJson. */
     private fun showStoredPlan(session: SessionState?) {
         _plan.value = ProtocolParser.decodePlan(session?.plan).orEmpty()
     }
 
+    /**
+     * The wire session for [conversationId]. A configured store owns the
+     * connect policy and may deliberately return null to ask the Host for a
+     * fresh session. Without a store, retain the conversation-id fallback.
+     */
     private suspend fun sessionFor(conversationId: String?): SessionState? {
         if (conversationId == null) return null
-        val stored = conversationId.let { sessionStore?.getSession(it) }
+        val session = if (sessionStore != null) {
+            sessionStore.sessionForConnect(conversationId)
+        } else {
+            SessionState(sessionId = conversationId)
+        }
         FileLogger.i(
             LogTags.CONN_REPO,
-            "Conversation $conversationId: sid=$conversationId (${if (stored != null) "stored" else "fresh"})"
+            "Conversation $conversationId: sid=${session?.sessionId ?: "<new>"}"
         )
-        return stored ?: SessionState(sessionId = conversationId)
+        return session
     }
 
     override suspend fun connect(
@@ -683,7 +682,7 @@ class ConnectionRepositoryImpl(
                     val newConnection = agentConnectionFactory(
                         keyManager ?: error("keyManager is required to connect"),
                         effectiveRelayUrl
-                    ).also { it.setSession(restoredSession) }
+                    ).also { it.setSession(restoredSession, conversationId) }
                     connection = newConnection
 
                     // Subscribe first, and wait until the subscription is
@@ -716,7 +715,9 @@ class ConnectionRepositoryImpl(
                 // disconnect (the first-connect timeout included). The bubble
                 // already says "Waiting to send", so queue it for this
                 // conversation's next CONNECTED rather than drop it
-                // (W16AAPPLE-102). The conversation id is the session id.
+                // (W16AAPPLE-102). The conversation id is the local routing
+                // fallback; the flush also accepts it alongside a fresh Host
+                // session id when Memory is off.
                 FileLogger.w(LogTags.CONN_REPO, "No connection, queuing message")
                 pendingMessageSink.enqueue(agentAddress, currentConversationId, content, images, wireFiles)
             }
