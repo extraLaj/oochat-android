@@ -267,11 +267,9 @@ class SessionSyncClient(
     }
 
     private fun webSocketUrl(directUrl: String?, relayUrl: String): String {
-        if (directUrl != null) {
-            val baseUrl = directUrl.replace(Regex("^https?://"), "")
-            val protocol = if (directUrl.startsWith("https")) "wss" else "ws"
-            return "$protocol://$baseUrl/ws"
-        }
+        // The same socket the chat dials, so a wss:// or trailing-slash server
+        // URL indexes Recent Chats too (W16AAPPLE-54, W16AAPPLE-55).
+        if (directUrl != null) return AgentConnection.directSocketUrl(directUrl)
         val relay = when {
             relayUrl.startsWith("https://") -> "wss://${relayUrl.removePrefix("https://")}"
             relayUrl.startsWith("http://") -> "ws://${relayUrl.removePrefix("http://")}"
