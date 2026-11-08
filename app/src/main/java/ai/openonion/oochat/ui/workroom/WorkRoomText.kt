@@ -1,19 +1,24 @@
 package ai.openonion.oochat.ui.workroom
 
+import ai.openonion.oochat.domain.model.ApprovalBoundary
+import ai.openonion.oochat.domain.model.ApprovalDecision
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.WorkRoomApproval
 
 /** What the Work Room says about a Claude Code or Codex run (W16AAPPLE-33), in one place for the card and the screen. */
 internal object WorkRoomText {
 
     /** The Host's display name, or a readable one for the providers it ships. */
     fun providerName(run: ChatItem.ProviderInvocation): String =
-        run.providerDisplayName?.takeIf { it.isNotBlank() } ?: when (run.provider) {
-            "codex" -> "Codex"
-            "claude_code" -> "Claude Code"
-            "" -> "Coding agent"
-            else -> run.provider
-        }
+        run.providerDisplayName?.takeIf { it.isNotBlank() } ?: providerName(run.provider)
+
+    fun providerName(provider: String): String = when (provider) {
+        "codex" -> "Codex"
+        "claude_code" -> "Claude Code"
+        "" -> "Coding agent"
+        else -> provider
+    }
 
     fun status(status: ProviderInvocationStatus): String = when (status) {
         ProviderInvocationStatus.RUNNING -> "Working"
@@ -82,5 +87,23 @@ internal object WorkRoomText {
         "provider_start_failed" -> "The coding agent could not start with your message. Try sending it again."
         "invalid_request" -> "The agent could not read that message."
         else -> "The agent did not take your message."
+    }
+
+    fun approvalTitle(approval: WorkRoomApproval): String =
+        approval.presentation?.action ?: "${providerName(approval.provider)} asks for approval"
+
+    /** Null when allowing is offered. */
+    fun approvalDenyOnly(approval: WorkRoomApproval): String? = when {
+        approval.canAllowOnce || approval.canAllowSession -> null
+        approval.presentation?.boundary == ApprovalBoundary.ELEVATED ->
+            "This reaches outside this Work Room, so it can only be denied from here."
+        else -> "Where this reaches could not be checked, so it can only be denied from here."
+    }
+
+    fun approvalOutcome(decision: ApprovalDecision): String = when {
+        decision.refused -> "Not applied: the run was no longer waiting for this answer."
+        decision.approved && decision.scope == "session" -> "Allowed for this session"
+        decision.approved -> "Allowed once"
+        else -> "Denied"
     }
 }

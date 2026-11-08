@@ -1,14 +1,17 @@
 package ai.openonion.oochat.data.local.mapper
 
+import ai.openonion.oochat.domain.model.ApprovalBoundary
 import ai.openonion.oochat.domain.model.ApprovalDecision
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.domain.model.WorkRoomApproval
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -139,6 +142,51 @@ class TranscriptItemCodecTest {
             requestId = "req-2"
         )
         assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room approval keeps its run and the Host's copy through a reload`() {
+        val item = ChatItem.ApprovalNeeded(
+            id = "a3",
+            tool = "codex",
+            arguments = mapOf("action" to "Run the requested tests"),
+            decision = ApprovalDecision(approved = true, scope = "once", mode = null),
+            requestId = "req-3",
+            workRoom = WorkRoomApproval(
+                provider = "codex",
+                invocationId = "codex:call-1",
+                parentToolCallId = "call-1",
+                activityId = "act-2",
+                presentation = ProviderApprovalPresentation(
+                    action = "Run the requested tests",
+                    scope = "This Work Room only",
+                    reason = "Codex requested approval to continue",
+                    boundary = ApprovalBoundary.WORKROOM,
+                    allowOnce = true,
+                    allowSession = false,
+                    files = listOf("LoginTest.kt")
+                )
+            )
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room approval with no Host copy reloads with none`() {
+        val item = ChatItem.ApprovalNeeded(
+            id = "a4",
+            tool = "claude_code",
+            arguments = emptyMap(),
+            decision = ApprovalDecision(approved = false, scope = "once", mode = "reject_soft"),
+            workRoom = WorkRoomApproval("claude_code", "claude_code:call-1", "call-1")
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `an approval row from before Work Rooms decodes with no Work Room`() {
+        val raw = """{"kind":"approval","id":"a2","tool":"bash","arguments":{},"approved":true,"scope":"once"}"""
+        assertNull((TranscriptItemCodec.decode(raw) as ChatItem.ApprovalNeeded).workRoom)
     }
 
     @Test

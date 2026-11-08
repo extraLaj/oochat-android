@@ -3,6 +3,8 @@ package ai.openonion.oochat.ui.chat.components
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ThinkingStatus
+import ai.openonion.oochat.ui.workroom.WORK_ROOM_DENY_MODE
+import ai.openonion.oochat.ui.workroom.WorkRoomApprovalCard
 import androidx.compose.runtime.Composable
 
 @Composable
@@ -49,7 +51,16 @@ internal fun ChatItemBubble(
         // Folded into its run's card by the reducer; never in the list itself.
         is ChatItem.ProviderActivityUpdate -> Unit
         is ChatItem.AskUser -> AskUserCard(item, onRespond)
-        is ChatItem.ApprovalNeeded -> ApprovalCard(item, onApprove)
+        is ChatItem.ApprovalNeeded -> {
+            val workRoom = item.workRoom
+            if (workRoom != null) {
+                WorkRoomApprovalCard(item, workRoom) { approved, scope ->
+                    onApprove(approved, scope, if (approved) null else WORK_ROOM_DENY_MODE, null)
+                }
+            } else {
+                ApprovalCard(item, onApprove)
+            }
+        }
         // Deliberately one call site for both variants. Compose gives each
         // branch its own identity, so two calls would rebuild the card — and
         // drop the keyboard — every time the gate swapped between them.

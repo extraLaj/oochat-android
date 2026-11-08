@@ -220,6 +220,17 @@ can send it again. Each room keeps its own draft, even if you go back to the
 chat. Codex takes a message while it works, and a finished run of either can
 be resumed with one. Claude Code takes a message only once its run has ended.
 
+When the coding agent needs your permission, for example to change files or
+run tests, the run says it is waiting for your decision and a request appears
+at the top of its room (and in the chat). It says what the agent wants to do,
+why, and which files. Tap **Allow once**, or **Deny**. Some requests also offer
+**Allow for this session**. A request that would reach outside this Work Room,
+or whose reach the Host could not check, shows only **Deny**: the Host would
+refuse it even if you allowed it. A request still waiting when the connection
+drops is still there when it comes back.
+
+<img src="screenshots/work-room-approval-room.png" alt="A Claude Code Work Room waiting for a decision: a request to make workspace file changes to hello.txt, scoped to this Work Room only, with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
+
 ---
 
 ## 6. Deciding what the agent may do
