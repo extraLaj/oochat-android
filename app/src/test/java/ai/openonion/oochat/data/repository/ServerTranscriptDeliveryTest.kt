@@ -40,7 +40,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
  * That a replayed transcript actually reaches [ConnectionRepository.observeEvents]
@@ -153,9 +152,11 @@ class ServerTranscriptDeliveryTest {
                 repository.observeEvents().collect {
                     if (it is ChatEvent.ServerTranscriptReceived) {
                         received.update { seen -> seen + it }
-                        // Blocks the thread, not just this coroutine. Bounded so
-                        // a failed test cannot leave it stuck.
-                        if (received.value.size == 1) gate.await(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        // Blocks the thread, not just this coroutine. Not on a
+                        // timer: one that ran out on a slow runner would free it
+                        // early, and the test would pass without the fix.
+                        // tearDown frees it if a test fails first.
+                        if (received.value.size == 1) gate.await()
                     }
                 }
             }
@@ -288,10 +289,13 @@ class ServerTranscriptDeliveryTest {
 
     @Test
     fun `a collector that ran late is not handed a conversation it has since left`() = runBlocking {
-        // B's transcript lands and B is left again, all while the collector
-        // cannot run. A buffer that outlives the switch (a SharedFlow whose
-        // replay cache is reset still delivers what a slow subscriber has not
-        // yet taken) would hand it B's text while the screen is on A.
+        // A guard, not a reproduction: this passes with or without the
+        // W16AAPPLE-104 fix. It fails if the transcript is ever moved to a
+        // buffer that outlives the switch, such as the SharedFlow the ticket
+        // suggested, whose reset replay cache still delivers what a slow
+        // subscriber has not yet taken. B's transcript lands and B is left
+        // again, all while the collector cannot run; that would hand it B's
+        // text while the screen is on A.
         val subscriber = connectToAAndHoldASubscriber()
 
         repository.switchConversation(convB)
@@ -314,6 +318,28 @@ class ServerTranscriptDeliveryTest {
         )
     }
 
+    @Test
+    fun `releasing a transcript already merged keeps a newer one`() = runBlocking {
+        // The chat screen releases A's transcript once it has merged it, which
+        // is database work. If B's arrives meanwhile and the collector has not
+        // read it yet, that release must not take B's with it.
+        val subscriber = connectToAAndHoldASubscriber()
+        val merged = subscriber.received.value.single()
+
+        repository.switchConversation(convB)
+        awaitSockets(2)
+        send(connectedWith(convB, B_REPLY))
+        awaitTranscript("B's transcript to reach the free subscriber", B_REPLY)
+        repository.releaseServerTranscript(merged)
+
+        subscriber.release()
+
+        awaitUntil("B's transcript to reach the subscriber that ran late", subscriber.received) { list ->
+            list.any { r -> r.entries.any { it.content == B_REPLY } }
+        }
+        assertEquals(A_REPLY, merged.entries.single().content)
+    }
+
     /** The sticky transcript a subscriber joining right now would be handed, or null. */
     private suspend fun replayedToANewSubscriber(): ChatEvent.ServerTranscriptReceived? =
         withTimeoutOrNull(REPLAY_BUDGET_MS) {
@@ -332,9 +358,10 @@ class ServerTranscriptDeliveryTest {
         // Positive control, and what makes the budget below meaningful: the
         // replay is a StateFlow value, so it reaches a joining subscriber
         // immediately rather than eventually.
-        assertEquals(A_REPLY, replayedToANewSubscriber()?.entries?.single()?.content)
+        val merged = replayedToANewSubscriber()
+        assertEquals(A_REPLY, merged?.entries?.single()?.content)
 
-        repository.releaseServerTranscript()
+        repository.releaseServerTranscript(merged!!)
 
         assertNull(
             "the transcript was replayed after being reconciled, so the connection is " +
@@ -352,11 +379,13 @@ class ServerTranscriptDeliveryTest {
         const val REPLAY_BUDGET_MS = 2_000L
 
         /**
-         * Deadlock guard for [awaitUntil], not an expected delivery time:
-         * delivery normally takes milliseconds. It was raised to 30 s for the
-         * reconnect test above, but that test was losing the delivery outright
-         * (W16AAPPLE-104), which no timeout could help.
+         * Deadlock guard for [awaitUntil], not an expected delivery time. CI's
+         * shared two-core runner can leave real Dispatchers.IO work waiting
+         * behind the rest of the suite even though delivery normally takes
+         * milliseconds. Only a failing test waits this long, so a generous
+         * value costs nothing. (The reconnect test's old timeouts there were a
+         * lost delivery, W16AAPPLE-104, not a slow one.)
          */
-        const val AWAIT_TIMEOUT_MS = 10_000L
+        const val AWAIT_TIMEOUT_MS = 30_000L
     }
 }

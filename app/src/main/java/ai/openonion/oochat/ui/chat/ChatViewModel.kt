@@ -1067,9 +1067,10 @@ open class ChatViewModel @JvmOverloads constructor(
                             // replayed to whoever subscribes, so a ViewModel
                             // joining a live connection can receive it before
                             // it has resolved which conversation it is on —
-                            // and a StateFlow will not emit the same value
-                            // twice, so a merge that no-ops here is the last
-                            // chance this replay ever gets.
+                            // and the connection hands each CONNECTED's
+                            // transcript over once, so a merge that no-ops
+                            // here is the last chance this replay gets until
+                            // the next CONNECTED.
                             pendingServerTranscript = event
                         } else {
                             applyServerTranscript(event)
@@ -1523,7 +1524,7 @@ open class ChatViewModel @JvmOverloads constructor(
         // Reconciled: whatever was missing is now in Room, so the connection
         // no longer has to keep a whole conversation's worth of replayed text
         // alive for a subscriber that has now arrived.
-        connectUseCase.releaseServerTranscript()
+        connectUseCase.releaseServerTranscript(event)
     }
 
     /**

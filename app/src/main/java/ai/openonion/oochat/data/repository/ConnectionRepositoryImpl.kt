@@ -235,6 +235,9 @@ class ConnectionRepositoryImpl(
      * conversation's transcript replayed after switching away and back is an
      * equal value. Unwrapped, that second replay was lost whenever the
      * collector did not run while the value was null in between (W16AAPPLE-104).
+     * So each CONNECTED of the same conversation is now merged again, where an
+     * equal one used to be skipped: harmless, as merging entries already in
+     * Room adds nothing, but it costs one database read per reconnect.
      */
     private class TranscriptDelivery(val event: ChatEvent.ServerTranscriptReceived)
 
@@ -490,13 +493,16 @@ class ConnectionRepositoryImpl(
     override fun observeEvents(): Flow<ChatEvent> =
         merge(_chatEvents.asSharedFlow(), _serverTranscript.filterNotNull().map { it.event })
 
-    override fun releaseServerTranscript() {
+    override fun releaseServerTranscript(merged: ChatEvent.ServerTranscriptReceived) {
         // The whole transcript, held only so a subscriber that joined after
         // CONNECTED can still reconcile. Once one has, the entries are in Room
         // and nothing else will ever ask for them — keeping the copy alive for
         // the connection's life was pure retention. A ViewModel recreated later
         // reads the merged rows back from Room, not from here.
-        _serverTranscript.value = null
+        // Only the one that was merged: by identity, as the subscriber was
+        // handed this very object. A transcript set while it was being merged
+        // has not been read yet, and clearing it would lose it (W16AAPPLE-104).
+        _serverTranscript.update { held -> if (held?.event === merged) null else held }
     }
 
     override fun releaseSessionStatus() {

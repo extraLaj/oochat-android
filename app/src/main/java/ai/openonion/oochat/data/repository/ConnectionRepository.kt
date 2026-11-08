@@ -126,10 +126,13 @@ interface ConnectionRepository {
 
     /**
      * Drop the replayed transcript this connection is holding for late
-     * subscribers, once one has reconciled it. Default no-op so a fake that
-     * never replays one does not have to say so.
+     * subscribers, once one has reconciled it: [merged], the one it
+     * reconciled, and only while that is still the one held. A newer CONNECTED
+     * may have replaced it while it was being merged, and that one is still
+     * owed (W16AAPPLE-104). Default no-op so a fake that never replays one
+     * does not have to say so.
      */
-    fun releaseServerTranscript() {}
+    fun releaseServerTranscript(merged: ChatEvent.ServerTranscriptReceived) {}
 
     /**
      * Forget what the Host said about the session just joined

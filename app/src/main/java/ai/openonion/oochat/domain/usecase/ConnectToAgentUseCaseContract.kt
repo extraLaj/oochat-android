@@ -99,7 +99,7 @@ interface ConnectToAgentUseCaseContract {
      * [ai.openonion.oochat.data.repository.ConnectionRepository.releaseServerTranscript].
      * Default no-op so a fake with no connection behind it needs no override.
      */
-    fun releaseServerTranscript() {}
+    fun releaseServerTranscript(merged: ChatEvent.ServerTranscriptReceived) {}
 
     /**
      * Tell the connection a screen has acted on the Host's answer to the last CONNECT and it can
