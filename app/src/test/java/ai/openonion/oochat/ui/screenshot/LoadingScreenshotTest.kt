@@ -34,7 +34,7 @@ class LoadingScreenshotTest {
 
     private fun capture(name: String, palette: Palette, uiState: LoadingUiState) =
         composeRule.captureThemed(name, palette) {
-            LoadingContent(uiState = uiState, onCancel = {}, onContinueToOnboarding = {})
+            LoadingContent(uiState = uiState, onCancel = {})
         }
 
     private val connecting = LoadingUiState(
