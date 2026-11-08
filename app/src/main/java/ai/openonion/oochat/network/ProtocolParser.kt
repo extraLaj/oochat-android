@@ -428,7 +428,14 @@ object ProtocolParser {
                             ?.keepUsable("batch_remaining") { it.tool.isNotBlank() }
                             ?.map {
                                 ai.openonion.oochat.domain.model.BatchToolPreview(it.tool, it.arguments)
-                            }
+                            },
+                        workRoom = ProviderApprovals.fromWire(
+                            provider = event.provider,
+                            invocationId = event.invocationId,
+                            parentToolCallId = event.parentToolCallId,
+                            activityId = event.activityId,
+                            presentation = event.providerApproval
+                        )
                     )
                 ),
                 setWaiting = true

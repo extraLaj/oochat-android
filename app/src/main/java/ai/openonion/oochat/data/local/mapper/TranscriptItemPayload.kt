@@ -1,5 +1,6 @@
 package ai.openonion.oochat.data.local.mapper
 
+import ai.openonion.oochat.domain.model.ApprovalBoundary
 import ai.openonion.oochat.domain.model.ApprovalDecision
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
@@ -7,10 +8,12 @@ import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
+import ai.openonion.oochat.domain.model.WorkRoomApproval
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -141,8 +144,24 @@ sealed class TranscriptItemPayload {
         val feedback: String? = null,
         val refused: Boolean = false,
         /** Kept so a STALE_ANSWER arriving after a reload still finds its card. */
-        val requestId: String? = null
+        val requestId: String? = null,
+        val workRoom: WorkRoomApprovalPayload? = null
     ) : TranscriptItemPayload()
+
+    @Serializable
+    data class WorkRoomApprovalPayload(
+        val provider: String,
+        val invocationId: String,
+        val parentToolCallId: String,
+        val activityId: String? = null,
+        val action: String? = null,
+        val scope: String? = null,
+        val reason: String? = null,
+        val boundary: String? = null,
+        val allowOnce: Boolean = false,
+        val allowSession: Boolean = false,
+        val files: List<String> = emptyList()
+    )
 
     @Serializable
     @SerialName("files_received")
@@ -331,7 +350,8 @@ object TranscriptItemCodec {
                 mode = d.mode,
                 feedback = d.feedback,
                 refused = d.refused,
-                requestId = item.requestId
+                requestId = item.requestId,
+                workRoom = item.workRoom?.toPayload()
             )
         }
         is ChatItem.FilesReceivedItem -> TranscriptItemPayload.FilesReceived(
@@ -462,7 +482,8 @@ object TranscriptItemCodec {
             arguments = payload.arguments,
             description = payload.description,
             decision = ApprovalDecision(payload.approved, payload.scope, payload.mode, payload.feedback, payload.refused),
-            requestId = payload.requestId
+            requestId = payload.requestId,
+            workRoom = payload.workRoom?.toDomain()
         )
         is TranscriptItemPayload.FilesReceived -> ChatItem.FilesReceivedItem(
             id = payload.id,
@@ -513,4 +534,36 @@ object TranscriptItemCodec {
 
     private inline fun <reified E : Enum<E>> enumOrDefault(name: String, fallback: E): E =
         runCatching { enumValueOf<E>(name) }.getOrDefault(fallback)
+}
+
+private fun WorkRoomApproval.toPayload() = TranscriptItemPayload.WorkRoomApprovalPayload(
+    provider = provider,
+    invocationId = invocationId,
+    parentToolCallId = parentToolCallId,
+    activityId = activityId,
+    action = presentation?.action,
+    scope = presentation?.scope,
+    reason = presentation?.reason,
+    boundary = presentation?.boundary?.name?.lowercase(),
+    allowOnce = presentation?.allowOnce ?: false,
+    allowSession = presentation?.allowSession ?: false,
+    files = presentation?.files.orEmpty()
+)
+
+private fun TranscriptItemPayload.WorkRoomApprovalPayload.toDomain(): WorkRoomApproval {
+    val boundary = ApprovalBoundary.entries.firstOrNull { it.name.lowercase() == this.boundary }
+    val presentation = if (action != null && scope != null && reason != null && boundary != null) {
+        ProviderApprovalPresentation(
+            action = action,
+            scope = scope,
+            reason = reason,
+            boundary = boundary,
+            allowOnce = allowOnce,
+            allowSession = allowSession,
+            files = files
+        )
+    } else {
+        null
+    }
+    return WorkRoomApproval(provider, invocationId, parentToolCallId, activityId, presentation)
 }

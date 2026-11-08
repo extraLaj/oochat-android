@@ -75,7 +75,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `SESSION_SYNC_RESULT` index response | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt); pages are combined and revision-aware changes plus the final cursor are committed to Room together |
 | `user_input` | Partial by design | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt); ignored because the local user message is authoritative |
 | `ask_user` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
-| `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
+| `approval_needed` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`ProtocolParserWorkRoomApprovalTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomApprovalTest.kt), [`WorkRoomApprovalReconnectTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/WorkRoomApprovalReconnectTest.kt); from inside a Work Room too (W16AAPPLE-36) |
 | `ONBOARD_REQUIRED` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ONBOARD_SUCCESS` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `intent` | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt) |
@@ -671,7 +671,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `session_sync` | `session.messages` | Replays non-empty assistant messages from the server snapshot. |
 | `user_input` | — | Ignored because the local `ChatItem.User` is already the source of truth. |
 | `ask_user` | `id`, `text`, `options`, `multi_select` | Creates an answer card and enters a waiting state. |
-| `approval_needed` | `id`, `tool`, `arguments`, `description`, `batch_remaining` | Creates an approval card and enters a waiting state. `batch_remaining` previews the next queued tool calls in the current approval batch. |
+| `approval_needed` | `id`, `tool`, `arguments`, `description`, `batch_remaining`, and from a Work Room `provider`, `invocationId`, `parentToolCallId`, `activityId`, `providerApproval` | Creates an approval card and enters a waiting state. `batch_remaining` previews the next queued tool calls in the current approval batch. A frame naming a Claude Code or Codex run is that run's request; see [Approvals in a Work Room](#approvals-in-a-work-room). |
 | `ONBOARD_REQUIRED` | `id`, `methods`, `payment_amount`, `payment_address` | Creates an onboarding card and enters a waiting state. |
 | `ONBOARD_SUCCESS` | `id`, `level`, `message` | Creates a success card. The client does not send CONNECT again: the Host completes the CONNECT it held back and sends CONNECTED itself, and a second CONNECT is refused with "already authenticated: open a new connection" (W16AAPPLE-83). The connection waits up to `CONNECTED_TIMEOUT_MS` for that CONNECTED, on the first socket too (see [When a reconnect fails](#when-a-reconnect-fails)). |
 | `intent` | `id`, `status`, `ack`, `is_build` | Updates a `ChatItem.IntentItem`. Status is `UNDERSTOOD` only when `status` is exactly `"understood"`, otherwise `ANALYZING`. |
@@ -1463,9 +1463,31 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Provider messages and artifacts, approvals, Stop and permission profiles in the
-room are W16AAPPLE-34, -36, -37 and -43, and the local and remote handover
-states are W16AAPPLE-40.
+Its approvals are below. Provider messages and artifacts, Stop and permission
+profiles in the room are W16AAPPLE-34, -37 and -43, and the local and remote
+handover states are W16AAPPLE-40.
+
+### Approvals in a Work Room
+
+An `approval_needed` that also carries `provider`, `invocationId` and
+`parentToolCallId` is a Claude Code or Codex request from inside that run
+(connectonion `network/io/base.py` `request_approval`). `ProviderApprovals`
+reads its `providerApproval` as `@connectonion/react` does and fails closed:
+any unexpected field drops the copy, and then only **Deny** is offered. Allow
+is offered only for `scopeClassification: "workroom"`.
+
+`WorkRoomApprovalCard` shows it in the run's Work Room and in the chat. The
+answer is `APPROVAL_RESPONSE` with `request_id`:
+
+| Button | `approved` | `scope` | `mode` |
+| --- | --- | --- | --- |
+| Allow once | `true` | `once` | |
+| Allow for this session (only when `allowSession`) | `true` | `session` | |
+| Deny | `false` | `once` | `reject_soft` |
+
+The Host reads any `scope` other than `once`/`session` as a denial. A replayed
+frame folds into the card already shown, so an open request survives a
+reconnect and an answered one is not asked again.
 
 ### Messages typed into a Work Room
 

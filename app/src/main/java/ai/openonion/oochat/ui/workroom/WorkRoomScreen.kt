@@ -73,16 +73,23 @@ fun WorkRoomScreenWrapper(
         onNavigateBack = onNavigateBack,
         draft = drafts[invocationId] ?: WorkRoomDraft(),
         onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
-        onSend = { viewModel.sendWorkRoomInput(invocationId) }
+        onSend = { viewModel.sendWorkRoomInput(invocationId) },
+        approvals = state.chatItems.workRoomApprovals(invocationId),
+        onApprovalDecision = { itemId, approved, scope ->
+            viewModel.markGateResolved(itemId)
+            viewModel.respondToApproval(itemId, approved, scope, if (approved) null else WORK_ROOM_DENY_MODE)
+        }
     )
 }
+
+internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatItem.ApprovalNeeded> =
+    filterIsInstance<ChatItem.ApprovalNeeded>().filter { it.workRoom?.invocationId == invocationId }
 
 /**
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
  * a phone: the task and where it stands, then each step the provider took, as
- * the Host describes it, and a field to steer it (W16AAPPLE-35). Approving and
- * Stop come with W16AAPPLE-36 and -37. [run] is null once the chat no longer
- * holds it.
+ * the Host describes it, and a field to steer it (W16AAPPLE-35). Stop comes
+ * with W16AAPPLE-37. [run] is null once the chat no longer holds it.
  */
 @Composable
 fun WorkRoomScreen(
@@ -90,7 +97,9 @@ fun WorkRoomScreen(
     onNavigateBack: () -> Unit,
     draft: WorkRoomDraft = WorkRoomDraft(),
     onDraftChange: (String) -> Unit = {},
-    onSend: () -> Unit = {}
+    onSend: () -> Unit = {},
+    approvals: List<ChatItem.ApprovalNeeded> = emptyList(),
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> }
 ) {
     Scaffold(
         topBar = {
@@ -120,6 +129,11 @@ fun WorkRoomScreen(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
             ) {
                 item(key = "header") { RunHeader(run) }
+                items(approvals.filter { it.decision == null }, key = { "approval:${it.id}" }) { approval ->
+                    WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { approved, scope ->
+                        onApprovalDecision(approval.id, approved, scope)
+                    }
+                }
                 item(key = "steps-heading") {
                     Text(
                         text = if (run.activities.isEmpty()) "No steps yet" else "Steps",
@@ -128,6 +142,9 @@ fun WorkRoomScreen(
                     )
                 }
                 items(run.activities, key = { "step:${it.id}" }) { step -> Step(step) }
+                items(approvals.filter { it.decision != null }, key = { "approval:${it.id}" }) { approval ->
+                    WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { _, _ -> }
+                }
                 run.outcome()?.let { outcome ->
                     item(key = "outcome") {
                         HorizontalDivider()

@@ -144,7 +144,8 @@ sealed class ChatItem {
         /** Null while the gate is still open. Set once, by respondToApproval. */
         val decision: ApprovalDecision? = null,
         /** The Host's id for this request, sent back as `request_id`. Null when the event had none. */
-        val requestId: String? = null
+        val requestId: String? = null,
+        val workRoom: WorkRoomApproval? = null
     ) : ChatItem()
 
     data class OnboardRequired(

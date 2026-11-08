@@ -29,6 +29,10 @@ data class ServerEvent(
     // the run it belongs to (W16AAPPLE-33); see ProviderFrames.legacyStep.
     val invocationId: String? = null,
     val parentToolCallId: String? = null,
+    // Work Room approval fields. JsonElements: a bad value must not drop the frame, or the agent waits forever.
+    val provider: JsonElement? = null,
+    val activityId: JsonElement? = null,
+    val providerApproval: JsonElement? = null,
     val name: String? = null,
     // JsonElement, not String: the server sends tool args with their native
     // JSON types (int/bool/etc — e.g. bash's `timeout: int`), and this Json
