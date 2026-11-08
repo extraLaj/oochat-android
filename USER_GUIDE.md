@@ -68,6 +68,22 @@ so expect one more line after you press it.
 A message typed mid-answer waits for the current turn and goes out when it
 ends, so nothing is lost and nothing interrupts.
 
+**Safe to show.** Passwords, keys and tokens in anything the agent sends (its
+replies, the commands and files it asks to use, their output, its Todo List and
+its Home page) show as
+`[redacted]`, and the owner's home folder shows as `~`, so a screenshot of the
+chat is safe to share. Your own messages are shown the same way: a key you
+pasted reads `[redacted]` in your bubble, but the agent got it as you typed it,
+and Retry sends it again as typed. Code that only reads a secret, such as
+`token = await getToken()`, is left as written. Other locations on the agent's computer stay visible in
+the chat, because when the agent asks to change `/var/www/site` you need to see
+that before you approve it. Notifications, error messages, conversation titles
+and the Logs screen show no locations at all: they read `[path removed]`. The
+agent still gets exactly what it sent: approving a plan or tapping an answer
+sends the original. An error the agent could only describe as raw technical
+output reads *The agent reported an error*; the details are in its logs on its
+computer.
+
 ---
 
 ## 3. Slash commands

@@ -193,4 +193,24 @@ class DashboardDocumentTest {
         val nonces = (1..100).map { DashboardDocument.generateNonce() }.toSet()
         assertEquals(100, nonces.size)
     }
+
+    // ── what the Home page may show (W16AAPPLE-50) ──────────────────────
+
+    @Test
+    fun `the page is shown with its secrets and home folder redacted`() {
+        val html = "<p>Key: OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuv</p><p>Notes in /Users/priya/notes</p>"
+        assertEquals(
+            "<p>Key: OPENAI_API_KEY=[redacted]</p><p>Notes in ~/notes</p>",
+            DashboardDocument.redactForDisplay(html)
+        )
+    }
+
+    @Test
+    fun `a skill button still sends what the agent wrote, while its label is redacted`() {
+        val html = """<button data-ochat-skill="deploy" data-ochat-args="--dir /Users/priya/site">Deploy /Users/priya/site</button>"""
+        assertEquals(
+            """<button data-ochat-skill="deploy" data-ochat-args="--dir /Users/priya/site">Deploy ~/site</button>""",
+            DashboardDocument.redactForDisplay(html)
+        )
+    }
 }

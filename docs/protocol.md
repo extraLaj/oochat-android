@@ -564,11 +564,45 @@ pages are written from the owner's mail, chats and files:
   shapes (Anthropic/OpenAI `sk-…`, GitHub `ghp_…`/`github_pat_…`, Slack `xox…`,
   AWS `AKIA…`, Google `AIza…`, JWTs, `Bearer …`) become `[redacted]`.
 - So does the value of a named secret written with `:` or `=` (`password: …`,
-  `api key = …`, `invite code: …`, `OPENAI_API_KEY=…`). Prose such as "the token
-  expired" is left alone.
+  `api key = …`, `invite code: …`, `OPENAI_API_KEY=…`, `DB_PASS=…`). Prose such
+  as "the token expired" is left alone, and so is code that reads a secret
+  rather than holding one: a call or an index (`await getToken()`,
+  `request.form["password"]`), a variable (`$TOKEN`), a dotted name
+  (`process.env.TOKEN`) or a keyword (`None`, `string`). An env name counts
+  only when it is a secret word or ends in `_` and one, so `BYPASS=1` and
+  `SORT_KEY=name` are kept.
 - Home folders (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`) are shown as
-  `~`. Any other absolute path becomes `[path removed]`. Web addresses and the
+  `~`, except inside a web address or a relative path
+  (`docs.example.com/home/…`, `src/home/…`). Any other absolute path becomes `[path removed]`. Web addresses and the
   relative links between pages are kept.
+
+These are the app's own rules (`SensitiveText`, W16AAPPLE-50), which every
+other screen applies to what the agent sends. Neither OIP 0.1 nor 0.2 says
+what a client may display, so where paths go is this app's choice, by surface:
+
+| Surface | Credentials | Home folder | Other absolute paths |
+|---|---|---|---|
+| Transcript, tool and approval cards, diff previews, Work Room steps and files, EXEC output, the Control Center feed (`SensitiveText.redact`) | `[redacted]` | `~` | Kept: they are what the user is deciding on (W16AAPPLE-36), as O Chat shows them |
+| Error text, the reply notification, the Logs and Recovery screens, conversation titles, Rem (`SensitiveText.redactWithoutPaths`) | `[redacted]` | `~` | `[path removed]`: nothing is decided from them, and they are seen on the lock screen or pasted elsewhere |
+
+`ChatItemPrivacy` applies this to each chat item on its way to
+`ChatViewModel.uiState` (which the Work Room screen reads too) and the Control
+Center. The live Todo List (`ChatViewModel.plan`) and the agent's Home page
+(`ChatViewModel.dashboardHtml`, through `DashboardDocument.redactForDisplay`)
+are redacted the same way, except for a skill button's `data-ochat-skill` and
+`data-ochat-args`, which are sent back when tapped and so keep what the agent
+wrote. A Work Room run's progress and result summaries go through
+`SensitiveText.summaryText`, which replaces a raw payload as an error would, but
+without calling it one. Error text (a failed turn or Work Room run, compaction, blocked tool or
+invite, an EXEC error, the snackbar) goes through
+`SensitiveText.errorText`: a raw payload, meaning an object (JSON, a Python
+dict, bare keys), an array, an object's repr, a Python, JVM or JavaScript stack
+trace, or an HTML error page, is replaced whole by a fixed sentence, and anything else loses its
+paths as above. The items the ViewModel keeps, persists and answers from are
+never redacted, so a plan approval or a tapped `ask_user` option goes back as
+the agent wrote it (the option by its position, since two can redact alike),
+and Retry resends the user's message by its id, as they typed it. The user's
+own messages are redacted on screen like anything else.
 
 A link to another page (`[Harbour](../orgs/harbour.md)`, resolved from the page
 it is on by `RemNotebook.pageLinkedFrom`) opens that page. Any other link stays

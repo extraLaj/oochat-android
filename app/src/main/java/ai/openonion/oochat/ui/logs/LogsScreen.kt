@@ -5,6 +5,7 @@ import ai.openonion.oochat.ui.theme.LogColors
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.ui.theme.statusColors
 import ai.openonion.oochat.util.FileLogger
+import ai.openonion.oochat.util.SensitiveText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -88,7 +89,7 @@ fun LogsScreen(
             // readLogs reads the whole file (capped at 5MB) before keeping the
             // last 500 lines, so this has to leave the main thread — a
             // LaunchedEffect body runs on the composition's dispatcher.
-            logs = withContext(Dispatchers.IO) { FileLogger.readLogs(500) }
+            logs = readShownLogs()
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -121,7 +122,7 @@ fun LogsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { scope.launch { logs = FileLogger.readLogs(500) } }) {
+                    IconButton(onClick = { scope.launch { logs = readShownLogs() } }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                     IconButton(onClick = {
@@ -221,6 +222,18 @@ fun LogsScreen(
             onDismiss = { showClearSheet = false }
         )
     }
+}
+
+/**
+ * The log as this screen shows and copies it. The log is meant to hold no
+ * content (see LogSanitizer), but an exception's message can still name a
+ * file on the owner's computer or echo a key, and these lines get pasted into
+ * bug reports, so no path is kept (W16AAPPLE-50). Redacted off the main
+ * thread: it is 500 lines.
+ */
+private suspend fun readShownLogs(): String {
+    val logs = FileLogger.readLogs(500)
+    return withContext(Dispatchers.Default) { SensitiveText.redactWithoutPaths(logs) }
 }
 
 /**

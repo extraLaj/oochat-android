@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.chat.components
 
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import androidx.compose.runtime.Composable
 
@@ -8,10 +9,10 @@ import androidx.compose.runtime.Composable
 internal fun ChatItemBubble(
     item: ChatItem,
     timestamp: String?,
-    onRespond: (String) -> Unit,
+    onRespond: (optionIndex: Int) -> Unit,
     onApprove: (approved: Boolean, scope: String, mode: String?, feedback: String?) -> Unit,
     onOnboard: (method: String, inviteCode: String?, payment: Double?) -> Unit,
-    onPlanReviewResponse: (String) -> Unit,
+    onPlanReviewResponse: (PlanReviewReply) -> Unit,
     onUlwResponse: (action: String, turns: Int?, mode: String?) -> Unit,
     renderMarkdown: Boolean = true,
     showSender: Boolean = true,

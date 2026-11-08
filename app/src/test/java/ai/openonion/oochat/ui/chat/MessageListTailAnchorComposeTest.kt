@@ -78,7 +78,7 @@ class MessageListTailAnchorComposeTest {
                     onRespond = { _, _ -> },
                     onApprove = { _, _, _, _, _ -> },
                     onOnboard = { _, _, _ -> },
-                    onPlanReviewResponse = {},
+                    onPlanReviewResponse = { _, _ -> },
                     onUlwResponse = { _, _, _ -> },
                     renderMarkdown = false,
                     modifier = Modifier.requiredHeight(height)

@@ -59,7 +59,8 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 internal fun AskUserCard(
     item: ChatItem.AskUser,
-    onRespond: (String) -> Unit
+    // By position: the options are drawn redacted, and two can redact alike.
+    onRespond: (optionIndex: Int) -> Unit
 ) {
     // Local as well as on the item: the tap disables at once, before the
     // ViewModel's copy of the card comes back with its answer.
@@ -78,7 +79,7 @@ internal fun AskUserCard(
         item.options.forEachIndexed { index, option ->
             val onClick = {
                 tapped = true
-                onRespond(option)
+                onRespond(index)
             }
             // One filled button, not N. No "recommended" flag exists on the
             // wire, so first-listed leads and the rest are peers of it.

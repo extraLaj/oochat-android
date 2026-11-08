@@ -354,7 +354,7 @@ fun ChatScreen(
                 items = uiState.chatItems,
                 timestamps = itemTimestamps,
                 wasCleared = wasCleared,
-                onRespond = viewModel::respond,
+                onRespond = viewModel::respondWithOption,
                 onApprove = viewModel::respondToApproval,
                 onOnboard = viewModel::respondToOnboard,
                 onPlanReviewResponse = viewModel::respondToPlanReview,

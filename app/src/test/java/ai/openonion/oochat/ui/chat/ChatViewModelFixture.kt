@@ -8,6 +8,7 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSyncResult
 import ai.openonion.oochat.network.AgentDiscoveryService
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.Dispatchers
 
 /**
  * A real [ChatViewModel] over in-memory fakes, with one agent saved. Under Robolectric the view
@@ -45,5 +46,8 @@ internal fun chatViewModelOver(connectUseCase: RecompFakeConnectUseCase): ChatVi
         networkMonitor = RecompFakeNetworkMonitor(),
         // Session Sync has its own tests, and the real one loads identity crypto, which a JVM cannot.
         recentChatsSync = RecentChatsSync { _, _, _, _ -> RecentChatsSyncResult.Unsupported },
+        // The Home page redacted on the thread that set it, so a test that sets the page
+        // and then looks for it does not race a background thread.
+        displayDispatcher = Dispatchers.Unconfined,
     )
 }

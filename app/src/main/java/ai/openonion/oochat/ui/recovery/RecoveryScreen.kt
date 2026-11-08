@@ -2,6 +2,7 @@ package ai.openonion.oochat.ui.recovery
 
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.spacing
+import ai.openonion.oochat.util.SensitiveText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
@@ -120,7 +121,9 @@ fun RecoveryScreen(
             // Inline, not a card. This screen had six stacked blocks at roughly
             // equal weight; a card here would tie the error to the Retry button.
             Text(
-                text = errorMessage ?: DEFAULT_ERROR_MESSAGE,
+                // The connection's own failure text, which can be the Host's
+                // raw error (W16AAPPLE-50).
+                text = errorMessage?.let(SensitiveText::errorText) ?: DEFAULT_ERROR_MESSAGE,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
