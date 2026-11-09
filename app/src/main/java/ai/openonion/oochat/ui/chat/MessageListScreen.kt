@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material3.Icon
@@ -34,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.LocalDate
@@ -88,6 +89,8 @@ fun MessageList(
      * page-in as a whole new conversation and yanked the reader to the bottom.
      */
     conversationKey: String? = null,
+    scrollPosition: MessageListScrollPosition = MessageListScrollPosition(),
+    onScrollPositionChanged: (MessageListScrollPosition) -> Unit = {},
     hasOlderMessages: Boolean = false,
     onLoadOlderMessages: () -> Unit = {},
     // Opens a Claude Code or Codex run's Work Room, by its invocation id (W16AAPPLE-33).
@@ -100,11 +103,35 @@ fun MessageList(
     val reasoning = remember(items) { items.groupReasoningByTurn() }
     @Suppress("NAME_SHADOWING")
     val items = reasoning.visible
+    val restoredPosition = scrollPosition.normalised()
+    val keyIndex = restoredPosition.firstVisibleItemKey?.let { key ->
+        when (key) {
+            BEGINNING_ITEM_KEY -> 0
+            else -> items.indexOfFirst { it.id == key }
+                .takeIf { it >= 0 }
+                ?.plus(HEADER_ITEM_COUNT)
+        }
+    }
+    val itemCount = items.size + HEADER_ITEM_COUNT
+    val restoredIndex = (keyIndex ?: restoredPosition.firstVisibleItemIndex)
+        .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+    val restoredOffset = if (keyIndex != null || restoredIndex == restoredPosition.firstVisibleItemIndex) {
+        restoredPosition.firstVisibleItemScrollOffset
+    } else {
+        0
+    }
+    val hasSavedPosition = restoredPosition.firstVisibleItemKey != null ||
+        restoredPosition.firstVisibleItemIndex != 0 ||
+        restoredPosition.firstVisibleItemScrollOffset != 0
     // Turns whose earlier thoughts the reader opened, by ThoughtGroup.key —
     // held here, not in the bubble, because the bubble is replaced by a new
     // one each time the agent has another thought.
     var openThoughtGroups by remember(conversationKey) { mutableStateOf(emptySet<String>()) }
-    val listState = rememberLazyListState()
+    val listState = remember(conversationKey) {
+        LazyListState(restoredIndex, restoredOffset)
+    }
+    val latestOnScrollPositionChanged by rememberUpdatedState(onScrollPositionChanged)
+    var restoringSavedPosition by remember(conversationKey) { mutableStateOf(hasSavedPosition) }
     val focusManager = LocalFocusManager.current
     // A tap the transcript's own children did not take is a tap on its
     // background, and that puts the composer's keyboard away. Hung on
@@ -131,6 +158,20 @@ fun MessageList(
     // whole page lands well outside it — the reader would silently end up a
     // page further back in the conversation.
     var prependAnchor by remember(conversationKey) { mutableStateOf<PrependAnchor?>(null) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val firstVisible = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == listState.firstVisibleItemIndex }
+            MessageListScrollPosition(
+                firstVisibleItemKey = firstVisible?.key as? String,
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+            )
+        }
+            .distinctUntilChanged()
+            .collect(latestOnScrollPositionChanged)
+    }
     // One label per item, non-null only where the day changes — computed here
     // so the divider can be emitted inside the same lazy item as its message.
     //
@@ -181,6 +222,12 @@ fun MessageList(
             }
         }
         if (items.isEmpty()) return@LaunchedEffect
+        if (restoringSavedPosition) {
+            listState.scrollToItem(restoredIndex, restoredOffset)
+            restoringSavedPosition = false
+            landedOnNewest = true
+            return@LaunchedEffect
+        }
         // A new User row at the tail is a send from this composer:
         // ChatViewModel.sendMessage appends it optimistically, and nothing else
         // in the reducer leaves a user message last. Sending is an explicit act,

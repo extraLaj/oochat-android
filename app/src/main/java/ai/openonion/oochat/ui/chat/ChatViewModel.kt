@@ -288,6 +288,25 @@ open class ChatViewModel @JvmOverloads constructor(
     // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
 
+    // Keep chat viewports by conversation.
+    private val messageListScrollPositions = mutableMapOf<String, MessageListScrollPosition>()
+
+    /** Return the saved chat viewport. */
+    fun messageListScrollPosition(sessionId: String?): MessageListScrollPosition = synchronized(messageListScrollPositions) {
+        sessionId?.let(messageListScrollPositions::get) ?: MessageListScrollPosition()
+    }
+
+    /** Save the chat viewport. */
+    fun updateMessageListScrollPosition(sessionId: String?, position: MessageListScrollPosition) {
+        if (sessionId.isNullOrBlank()) return
+        val normalised = position.normalised()
+        synchronized(messageListScrollPositions) {
+            if (messageListScrollPositions[sessionId] != normalised) {
+                messageListScrollPositions[sessionId] = normalised
+            }
+        }
+    }
+
     /** Return the saved viewport for a run. */
     fun workRoomScrollPosition(invocationId: String): WorkRoomScrollPosition = synchronized(workRoomScrollPositions) {
         workRoomScrollPositions[workRoomScrollKey(invocationId)] ?: WorkRoomScrollPosition()
@@ -1999,6 +2018,9 @@ open class ChatViewModel @JvmOverloads constructor(
     fun deleteSession(sessionId: String) {
         launchScoped {
             if (conversationHistory.deleteSession(sessionId)) {
+                synchronized(messageListScrollPositions) {
+                    messageListScrollPositions.remove(sessionId)
+                }
                 _uiState.update { it.copy(chatItems = emptyList()) }
                 // Deleting the open conversation starts a fresh one in its
                 // place; the connection follows it onto that one's session.
@@ -3273,7 +3295,8 @@ open class ChatViewModel @JvmOverloads constructor(
     fun clearChat() {
         launchScoped {
             connectUseCase.reset()
-            val scrollKeyPrefix = "${activeSessionId.value.orEmpty()}\u0000"
+            val clearedSessionId = activeSessionId.value
+            val scrollKeyPrefix = "${clearedSessionId.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the
             // UI. Awaiting (rather than fire-and-forget) means a
@@ -3291,6 +3314,11 @@ open class ChatViewModel @JvmOverloads constructor(
                 workRoomScrollPositions.keys
                     .filter { it.startsWith(scrollKeyPrefix) }
                     .forEach(workRoomScrollPositions::remove)
+            }
+            if (clearedSessionId != null) {
+                synchronized(messageListScrollPositions) {
+                    messageListScrollPositions.remove(clearedSessionId)
+                }
             }
             _uiState.update { it.copy(chatItems = emptyList()) }
         }

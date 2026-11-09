@@ -365,6 +365,10 @@ fun ChatScreen(
                 renderMarkdown = renderMarkdown,
                 hasLiveConnection = hasLiveConnection,
                 conversationKey = activeSessionId,
+                scrollPosition = viewModel.messageListScrollPosition(activeSessionId),
+                onScrollPositionChanged = { position ->
+                    viewModel.updateMessageListScrollPosition(activeSessionId, position)
+                },
                 hasOlderMessages = hasOlderMessages,
                 onLoadOlderMessages = viewModel::loadOlderMessages,
                 onOpenWorkRoom = onNavigateToWorkRoom,
