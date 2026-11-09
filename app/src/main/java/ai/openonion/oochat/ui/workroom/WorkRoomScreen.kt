@@ -127,12 +127,7 @@ fun WorkRoomScreen(
     }
 }
 
-/**
- * The room transcript owns the Compose scroll object only for the lifetime of
- * this destination. Its coordinates are reported upward so a later route
- * instance can start at the same place, even after the run gained or lost
- * activities while the user was in chat.
- */
+/** Displays the room transcript and reports its scroll position. */
 @Composable
 private fun WorkRoomTranscript(
     run: ChatItem.ProviderInvocation,

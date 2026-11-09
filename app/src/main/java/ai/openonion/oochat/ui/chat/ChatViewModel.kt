@@ -285,19 +285,15 @@ open class ChatViewModel @JvmOverloads constructor(
     /** Each Work Room's draft and send state, by invocation id. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
 
-    // A Work Room is a separate navigation destination, so its LazyColumn is
-    // destroyed when the user returns to chat. Keep the viewport here, next to
-    // the room's live run and draft, rather than allowing a second visit to
-    // jump back to the header. The conversation id is part of the key because
-    // invocation ids are only meaningful inside a conversation.
+    // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
 
-    /** The last viewport recorded for this run in the currently active conversation. */
+    /** Return the saved viewport for a run. */
     fun workRoomScrollPosition(invocationId: String): WorkRoomScrollPosition = synchronized(workRoomScrollPositions) {
         workRoomScrollPositions[workRoomScrollKey(invocationId)] ?: WorkRoomScrollPosition()
     }
 
-    /** Record a room viewport without retaining a Compose [LazyListState]. */
+    /** Save the viewport for a run. */
     fun updateWorkRoomScrollPosition(invocationId: String, position: WorkRoomScrollPosition) {
         if (invocationId.isBlank()) return
         val key = workRoomScrollKey(invocationId)
