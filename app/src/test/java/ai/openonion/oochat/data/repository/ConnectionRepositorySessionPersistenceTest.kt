@@ -12,11 +12,13 @@ import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.QueuedMessage
 import ai.openonion.oochat.network.WebSocketFactory
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Request
@@ -71,6 +73,7 @@ class ConnectionRepositorySessionPersistenceTest {
         val createCount = MutableStateFlow(0)
         @Volatile var lastListener: WebSocketListener? = null
         @Volatile var lastWebSocket: FakeWebSocket? = null
+        @Volatile var frameOnNextCreate: String? = null
         override fun create(request: Request, listener: WebSocketListener): WebSocket {
             val socket = FakeWebSocket()
             lastWebSocket = socket
@@ -78,6 +81,13 @@ class ConnectionRepositorySessionPersistenceTest {
             // Published last, so a waiter that sees the new count is also
             // guaranteed to see the listener that belongs to it.
             createCount.update { it + 1 }
+            frameOnNextCreate?.let { frame ->
+                frameOnNextCreate = null
+                // Deliberately before create() returns: a real WebSocket
+                // normally calls back later, but this closes the exact
+                // ordering window a slow CI runner can expose.
+                listener.onMessage(socket, frame)
+            }
             return socket
         }
     }
@@ -93,6 +103,16 @@ class ConnectionRepositorySessionPersistenceTest {
         /** Writes attempted, not distinct values stored — see the debounce test. */
         val writeCount = java.util.concurrent.atomic.AtomicInteger(0)
 
+        @Volatile var pauseNextGet = false
+        lateinit var getEntered: CompletableDeferred<Unit>
+        lateinit var releaseGet: CompletableDeferred<Unit>
+
+        fun pauseNextSessionLookup() {
+            getEntered = CompletableDeferred()
+            releaseGet = CompletableDeferred()
+            pauseNextGet = true
+        }
+
         /** Seed a session as if a previous run had stored it. */
         fun preload(conversationId: String, session: SessionState) {
             _saved.update { it + (conversationId to session) }
@@ -102,7 +122,14 @@ class ConnectionRepositorySessionPersistenceTest {
             writeCount.incrementAndGet()
             _saved.update { it + (conversationId to session) }
         }
-        override suspend fun getSession(conversationId: String): SessionState? = _saved.value[conversationId]
+        override suspend fun getSession(conversationId: String): SessionState? {
+            if (pauseNextGet) {
+                pauseNextGet = false
+                getEntered.complete(Unit)
+                releaseGet.await()
+            }
+            return _saved.value[conversationId]
+        }
         override suspend fun deleteSessionByConversation(conversationId: String) {
             _saved.update { it - conversationId }
         }
@@ -267,15 +294,48 @@ class ConnectionRepositorySessionPersistenceTest {
         send(connectedWithBody("server-allocated", turn = 1))
         awaitConnected()
 
+        factory.frameOnNextCreate = connectedWithBody("server-allocated", turn = 9)
         repository.switchConversation(convB)
         awaitSockets(2)
-
-        // The host answers the switch with the session it allocated earlier.
-        send(connectedWithBody("server-allocated", turn = 9))
         awaitFramesDrained()
 
         assertFalse(
             "conversation B was filed under a session the server never gave it",
+            store.saved.containsKey(convB)
+        )
+    }
+
+    @Test
+    fun `a reconnect is held off while the target session is loading`() = runBlocking {
+        // A reconnect rung can already be scheduled when the user switches
+        // conversations. The Room lookup for B is suspendable, so make the
+        // ordering explicit: the rung must not open a socket until
+        // switchSession(B) has registered the target.
+        repository.connect(agentA, conversationId = null)
+        send(connectedWithBody("server-allocated", turn = 1))
+        awaitConnected()
+
+        store.pauseNextSessionLookup()
+        val oldListener = factory.lastListener!!
+        val oldSocket = factory.lastWebSocket!!
+        oldListener.onClosed(oldSocket, 1006, "network drop")
+
+        val switchJob = launch { repository.switchConversation(convB) }
+        store.getEntered.await()
+
+        // The switch barrier disarms the pending rung, so a foreground retry
+        // cannot create a replacement while B's session is still loading.
+        repository.retryNow()
+        assertEquals("no replacement socket may open during the lookup", 1, factory.createCount.value)
+
+        factory.frameOnNextCreate = connectedWithBody("server-allocated", turn = 9)
+        store.releaseGet.complete(Unit)
+        switchJob.join()
+        awaitSockets(2)
+        awaitFramesDrained()
+
+        assertFalse(
+            "conversation B was filed under the session from the old socket",
             store.saved.containsKey(convB)
         )
     }

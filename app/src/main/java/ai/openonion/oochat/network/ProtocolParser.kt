@@ -1044,6 +1044,8 @@ sealed class ConnectionEvent {
         val address: String,
         val sessionId: String? = null,
         val session: ai.openonion.oochat.data.protocol.SessionState? = null,
+        /** Conversation selected when the CONNECTED frame was handled. */
+        val conversationId: String? = null,
         /** What the Host says about the session just joined. */
         val status: ServerSessionStatus = ServerSessionStatus.UNKNOWN,
         /** The Host's copy of the session was newer than the one sent; [session] is the Host's. */
@@ -1075,7 +1077,12 @@ sealed class ConnectionEvent {
      * [PlanEntry].
      */
     data class PlanUpdated(val entries: List<PlanEntry>) : ConnectionEvent()
-    data class OutputReceived(val result: String, val session: ai.openonion.oochat.data.protocol.SessionState?) : ConnectionEvent()
+    data class OutputReceived(
+        val result: String,
+        val session: ai.openonion.oochat.data.protocol.SessionState?,
+        /** Conversation selected when the OUTPUT frame was handled. */
+        val conversationId: String? = null
+    ) : ConnectionEvent()
 
     /**
      * A direct tool invocation's response.
@@ -1109,7 +1116,11 @@ sealed class ConnectionEvent {
      * CONNECTED, OUTPUT or session_sync. Emitted so persistence has one thing
      * to listen to instead of guessing which frame types carry a session.
      */
-    data class SessionUpdated(val session: ai.openonion.oochat.data.protocol.SessionState) : ConnectionEvent()
+    data class SessionUpdated(
+        val session: ai.openonion.oochat.data.protocol.SessionState,
+        /** Conversation selected when the frame carrying this session was handled. */
+        val conversationId: String? = null
+    ) : ConnectionEvent()
 
     /** The agent's own name card — see [AgentLiveProfile]'s doc for why this is connection state, not a chat item. */
     data class AgentProfileReceived(val profile: AgentLiveProfile) : ConnectionEvent()

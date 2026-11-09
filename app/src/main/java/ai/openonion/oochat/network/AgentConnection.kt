@@ -169,6 +169,12 @@ class AgentConnection(
     @Volatile private var reconnectScope = CoroutineScope(SupervisorJob() + reconnectDispatcher)
     @Volatile private var isReconnecting = false
 
+    // A conversation switch may need to suspend while its stored session is
+    // loaded. Prevent a reconnect rung from opening the old session during
+    // that gap; the switch resumes the socket once the target is registered.
+    @Volatile private var sessionSwitchInProgress = false
+    private var reopenAfterSessionSwitch = false
+
     // Whether this connect() cycle has ever reached the agent (CONNECTED
     // landed), and if it never has, the server's own account of why. The relay
     // endpoint is shared, so a socket opens against an offline agent exactly as
@@ -362,10 +368,35 @@ class AgentConnection(
     // ConnectionRepositoryImpl.startCollectingEvents's onSubscription gate.
     val events: SharedFlow<ConnectionEvent> = _events.asSharedFlow()
 
+    @Synchronized
     fun setSession(session: SessionState?, conversationId: String? = null) {
         _currentSession = session
         currentConversationId = conversationId
         rememberSession(session?.sessionId)
+    }
+
+    /** Stop socket/reconnect activity while the repository loads a target session. */
+    @Synchronized
+    fun beginSessionSwitch() {
+        if (sessionSwitchInProgress) return
+        sessionSwitchInProgress = true
+        reopenAfterSessionSwitch = webSocket != null || isReconnecting || reconnectJob != null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        isReconnecting = false
+        // Retire even when the socket is already null: this cancels a pending
+        // CONNECT wait and bumps the generation before the Room lookup begins.
+        retireSocket("Switching conversation")
+    }
+
+    /** Restore the old socket if loading the target session failed. */
+    @Synchronized
+    fun abortSessionSwitch() {
+        if (!sessionSwitchInProgress) return
+        val shouldReopen = reopenAfterSessionSwitch
+        sessionSwitchInProgress = false
+        reopenAfterSessionSwitch = false
+        if (shouldReopen) reopenSocket("Conversation switch aborted")
     }
 
     /**
@@ -379,15 +410,25 @@ class AgentConnection(
      * the Host refuses a second CONNECT on an authenticated socket that names
      * another session ("already authenticated: open a new connection",
      * ws_router/connect.py). With no socket yet this only stages the session
-     * for the next CONNECT.
+     * for the next CONNECT, except when [beginSessionSwitch] is holding a
+     * reconnect open until this target has been registered.
      */
+    @Synchronized
     fun switchSession(session: SessionState?, conversationId: String? = null) {
+        // Register the target before retiring/opening anything. WebSocket
+        // implementations (and our tests) are allowed to deliver CONNECTED
+        // from create()/onOpen synchronously, so a replacement socket must
+        // never be able to observe the session we are switching away from.
         _currentSession = session
         currentConversationId = conversationId
         rememberSession(session?.sessionId)
         // A different session gets its own shot at stale-session recovery.
         staleSessionRecoveryAttempted = false
-        if (webSocket == null) return
+        val wasSwitchHeld = sessionSwitchInProgress
+        val shouldReopen = if (wasSwitchHeld) reopenAfterSessionSwitch else webSocket != null
+        sessionSwitchInProgress = false
+        reopenAfterSessionSwitch = false
+        if (!shouldReopen) return
         FileLogger.i(LogTags.AGENT_CONN, "Switching session → sid=${session?.sessionId ?: "<new>"}")
         reopenSocket("Switching conversation")
     }
@@ -413,7 +454,7 @@ class AgentConnection(
         // again, and Reconnecting would replace the error the user is reading.
         // @Synchronized: the same lock as stopAfterProtocolRejection, so the
         // two cannot interleave.
-        if (protocolRejected) return
+        if (protocolRejected || sessionSwitchInProgress) return
         isConnectionReady = false
         val addr = agentAddress
         val direct = directUrl
@@ -1524,7 +1565,9 @@ class AgentConnection(
         reopenSocket("Stale session, reconnecting")
     }
 
+    @Synchronized
     private fun openWebSocket(agentAddress: String, directUrl: String?) {
+        if (sessionSwitchInProgress) return
         val wsUrl = if (directUrl != null) {
             isDirect = true
             directSocketUrl(directUrl)
@@ -1708,9 +1751,15 @@ class AgentConnection(
     }
 
     /** Handle incoming WebSocket message using ProtocolParser. */
+    @Synchronized
     private fun handleMessage(text: String) {
         try {
             FileLogger.d(LogTags.AGENT_CONN, "RX ← ${LogSanitizer.jsonTypeSummary(text)}")
+            // Capture this while holding the same monitor as switchSession.
+            // Parsing and event delivery must not straddle a conversation
+            // change, or a frame from the old socket can be attributed to the
+            // new conversation.
+            val conversationIdForFrame = currentConversationId
             // Copied under the lock: Collections.synchronizedSet does not guard
             // iteration, and toSet() iterates.
             val outstanding = synchronized(outstandingInputIds) { outstandingInputIds.toSet() }
@@ -1779,7 +1828,7 @@ class AgentConnection(
                 _currentSession = _currentSession?.copy(plan = ProtocolParser.encodePlan(update.entries))
             }
             _currentSession?.takeIf { it != sessionBefore }?.let {
-                _events.tryEmit(ConnectionEvent.SessionUpdated(it))
+                _events.tryEmit(ConnectionEvent.SessionUpdated(it, conversationIdForFrame))
             }
             result.msgId?.let { id ->
                 _currentSession?.sessionId?.let { sid -> replayCursor = ReplayCursor(sid, id) }
@@ -1847,6 +1896,7 @@ class AgentConnection(
                             address = keys?.address ?: "unknown",
                             sessionId = result.updateSessionId,
                             session = result.updateSession,
+                            conversationId = conversationIdForFrame,
                             status = event.status,
                             serverNewer = event.serverNewer,
                             modes = event.modes
@@ -1855,7 +1905,7 @@ class AgentConnection(
                 }
                 is ConnectionEvent.OutputReceived -> {
                     FileLogger.i(LogTags.AGENT_CONN, "OUTPUT ✓ ${LogSanitizer.contentSummary(event.result)}")
-                    _events.tryEmit(event)
+                    _events.tryEmit(event.copy(conversationId = conversationIdForFrame))
                 }
                 is ConnectionEvent.ExecResultReceived -> {
                     completeExecResult(event)
