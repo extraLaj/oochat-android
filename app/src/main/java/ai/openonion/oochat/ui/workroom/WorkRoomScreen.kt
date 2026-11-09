@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
@@ -32,11 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -46,6 +50,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Binds [WorkRoomScreen] to the chat it belongs to. [chatViewModelStoreOwner]
@@ -73,7 +78,9 @@ fun WorkRoomScreenWrapper(
         onNavigateBack = onNavigateBack,
         draft = drafts[invocationId] ?: WorkRoomDraft(),
         onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
-        onSend = { viewModel.sendWorkRoomInput(invocationId) }
+        onSend = { viewModel.sendWorkRoomInput(invocationId) },
+        scrollPosition = viewModel.workRoomScrollPosition(invocationId),
+        onScrollPositionChanged = { viewModel.updateWorkRoomScrollPosition(invocationId, it) }
     )
 }
 
@@ -90,7 +97,9 @@ fun WorkRoomScreen(
     onNavigateBack: () -> Unit,
     draft: WorkRoomDraft = WorkRoomDraft(),
     onDraftChange: (String) -> Unit = {},
-    onSend: () -> Unit = {}
+    onSend: () -> Unit = {},
+    scrollPosition: WorkRoomScrollPosition = WorkRoomScrollPosition(),
+    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -113,40 +122,94 @@ fun WorkRoomScreen(
                 )
                 return@Box
             }
-            LazyColumn(
-                // Capped for reading on a tablet, as Rem's pages are.
-                modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
-                contentPadding = PaddingValues(MaterialTheme.spacing.lg),
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
-            ) {
-                item(key = "header") { RunHeader(run) }
-                item(key = "steps-heading") {
-                    Text(
-                        text = if (run.activities.isEmpty()) "No steps yet" else "Steps",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.semantics { heading() }
-                    )
-                }
-                items(run.activities, key = { "step:${it.id}" }) { step -> Step(step) }
-                run.outcome()?.let { outcome ->
-                    item(key = "outcome") {
-                        HorizontalDivider()
-                        Text(
-                            text = outcome,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (run.status == ProviderInvocationStatus.FAILED) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier.padding(top = MaterialTheme.spacing.sm)
-                        )
-                    }
-                }
+            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged)
+        }
+    }
+}
+
+/**
+ * The room transcript owns the Compose scroll object only for the lifetime of
+ * this destination. Its coordinates are reported upward so a later route
+ * instance can start at the same place, even after the run gained or lost
+ * activities while the user was in chat.
+ */
+@Composable
+private fun WorkRoomTranscript(
+    run: ChatItem.ProviderInvocation,
+    scrollPosition: WorkRoomScrollPosition,
+    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit
+) {
+    val itemKeys = buildList {
+        add("header")
+        add("steps-heading")
+        run.activities.forEach { add("step:${it.id}") }
+        if (run.status.isTerminal) add("outcome")
+    }
+    val itemCount = itemKeys.size
+    val keyIndex = scrollPosition.firstVisibleItemKey?.let(itemKeys::indexOf)?.takeIf { it >= 0 }
+    val restoredIndex = (keyIndex ?: scrollPosition.firstVisibleItemIndex)
+        .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+    val restoredOffset = if (keyIndex != null || restoredIndex == scrollPosition.firstVisibleItemIndex) {
+        scrollPosition.firstVisibleItemScrollOffset
+    } else {
+        0
+    }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = restoredIndex,
+        initialFirstVisibleItemScrollOffset = restoredOffset
+    )
+
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            WorkRoomScrollPosition(
+                firstVisibleItemKey = firstVisible?.key as? String,
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+            )
+        }
+            .distinctUntilChanged()
+            .collect(onScrollPositionChanged)
+    }
+
+    LazyColumn(
+        state = listState,
+        // Capped for reading on a tablet, as Rem's pages are.
+        modifier = Modifier
+            .widthIn(max = 720.dp)
+            .fillMaxWidth()
+            .testTag(WORK_ROOM_TRANSCRIPT_TAG),
+        contentPadding = PaddingValues(MaterialTheme.spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
+    ) {
+        item(key = "header") { RunHeader(run) }
+        item(key = "steps-heading") {
+            Text(
+                text = if (run.activities.isEmpty()) "No steps yet" else "Steps",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.semantics { heading() }
+            )
+        }
+        items(run.activities, key = { "step:${it.id}" }) { step -> Step(step) }
+        run.outcome()?.let { outcome ->
+            item(key = "outcome") {
+                HorizontalDivider()
+                Text(
+                    text = outcome,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (run.status == ProviderInvocationStatus.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.padding(top = MaterialTheme.spacing.sm)
+                )
             }
         }
     }
 }
+
+internal const val WORK_ROOM_TRANSCRIPT_TAG = "work-room-transcript"
 
 @Composable
 private fun RunHeader(run: ChatItem.ProviderInvocation) {

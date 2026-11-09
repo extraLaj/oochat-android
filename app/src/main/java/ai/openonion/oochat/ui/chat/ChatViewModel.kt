@@ -69,6 +69,7 @@ import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
+import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
 import ai.openonion.oochat.util.LogTags
@@ -283,6 +284,33 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /** Each Work Room's draft and send state, by invocation id. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
+
+    // A Work Room is a separate navigation destination, so its LazyColumn is
+    // destroyed when the user returns to chat. Keep the viewport here, next to
+    // the room's live run and draft, rather than allowing a second visit to
+    // jump back to the header. The conversation id is part of the key because
+    // invocation ids are only meaningful inside a conversation.
+    private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
+
+    /** The last viewport recorded for this run in the currently active conversation. */
+    fun workRoomScrollPosition(invocationId: String): WorkRoomScrollPosition = synchronized(workRoomScrollPositions) {
+        workRoomScrollPositions[workRoomScrollKey(invocationId)] ?: WorkRoomScrollPosition()
+    }
+
+    /** Record a room viewport without retaining a Compose [LazyListState]. */
+    fun updateWorkRoomScrollPosition(invocationId: String, position: WorkRoomScrollPosition) {
+        if (invocationId.isBlank()) return
+        val key = workRoomScrollKey(invocationId)
+        val normalised = position.normalised()
+        synchronized(workRoomScrollPositions) {
+            if (workRoomScrollPositions[key] != normalised) {
+                workRoomScrollPositions[key] = normalised
+            }
+        }
+    }
+
+    private fun workRoomScrollKey(invocationId: String): String =
+        "${activeSessionId.value.orEmpty()}\u0000$invocationId"
 
     // The streaming toggle only filters in-progress items from what's
     // exposed; the wire protocol has no token-level streaming to actually
@@ -3249,6 +3277,7 @@ open class ChatViewModel @JvmOverloads constructor(
     fun clearChat() {
         launchScoped {
             connectUseCase.reset()
+            val scrollKeyPrefix = "${activeSessionId.value.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the
             // UI. Awaiting (rather than fire-and-forget) means a
@@ -3262,6 +3291,11 @@ open class ChatViewModel @JvmOverloads constructor(
             // preview/count for this conversation reflects the clear.
             conversationHistory.clearActiveSession()
             clearExecItems()
+            synchronized(workRoomScrollPositions) {
+                workRoomScrollPositions.keys
+                    .filter { it.startsWith(scrollKeyPrefix) }
+                    .forEach(workRoomScrollPositions::remove)
+            }
             _uiState.update { it.copy(chatItems = emptyList()) }
         }
     }
