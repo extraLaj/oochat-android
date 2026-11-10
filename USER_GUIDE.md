@@ -306,15 +306,32 @@ rather than saved.
 
 ---
 
-## 9. Being told about a reply while you are elsewhere
+## 9. Being told about a reply or an approval while you are elsewhere
 
 **Settings → Notifications**, off by default. With it on, a reply that arrives
 while you are in another app posts a notification; tapping it brings you back.
 
-There is a real limit worth knowing. The app can only notice a reply while it
-still holds its connection, and Android suspends that connection for apps in the
-background — on some phones within seconds. So this covers stepping away
-mid-answer, not closing the app and coming back an hour later. The sound is
+An approval the agent is waiting on posts one too, so the agent is not left
+stopped while you are away. It says which agent and what it wants to do, and
+tapping it opens that conversation, or the Work Room when a Claude Code or
+Codex run is the one asking. On a locked phone it only says that an approval is
+waiting. Each approval has its own notification, and it goes away once you
+answer it, the turn ends (another device may have answered), or you open that
+chat. Approvals have their own channel, **Approval requests**, which interrupts
+where a reply only waits in the shade; Android's settings for the app can
+silence either one alone.
+
+The first time an approval is on screen while notifications are off, the chat
+offers to turn them on, and asks for Android's permission only then. It offers
+once: **Not now**, or refusing Android's dialog, leaves Settings as the way to
+turn them on later.
+
+There is a real limit worth knowing, for replies and approvals alike. The app
+can only notice either while it still holds its connection, and it has no
+background service to keep that connection: once you swipe it away, or Android
+closes it to save battery (on some phones within seconds of leaving it), no
+notification comes until you open it again. So this covers stepping away mid-answer, not
+closing the app and coming back an hour later. The sound is
 Android's own, on the app's notification channel, which the same Settings row
 opens.
 

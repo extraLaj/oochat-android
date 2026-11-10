@@ -343,7 +343,7 @@ fun SettingsScreen(
                     subtitle = if (notificationPermissionBlocked) {
                         "Permission denied — tap to open system settings"
                     } else {
-                        "Background task completions"
+                        "Replies and approval requests while you are away"
                     },
                     subtitleColor = if (notificationPermissionBlocked) MaterialTheme.colorScheme.error else null,
                     checked = pushNotificationsEffective,
