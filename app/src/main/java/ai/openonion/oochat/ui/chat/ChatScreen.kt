@@ -4,6 +4,7 @@ import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
+import ai.openonion.oochat.ui.chat.components.ApprovalNotificationOffer
 import ai.openonion.oochat.ui.chat.components.ChatTopBar
 import ai.openonion.oochat.ui.chat.components.FailedMessagesBar
 import ai.openonion.oochat.ui.chat.components.InputBar
@@ -22,6 +23,9 @@ import ai.openonion.oochat.ui.navigation.NavDrawer
 import ai.openonion.oochat.ui.navigation.NavDrawerWidth
 import ai.openonion.oochat.ui.theme.LocalThemeController
 import ai.openonion.oochat.util.SoundEffectPlayer
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -135,6 +139,15 @@ fun ChatScreen(
     val hasOlderMessages by viewModel.hasOlderMessages.collectAsState()
     val targetAgentAddress by viewModel.targetAgentAddress.collectAsState()
     val drawerAgents by viewModel.drawerAgents.collectAsState()
+    // W16AAPPLE-44: the offer to notify about approvals, and the OS dialog it
+    // goes through where Android requires one. A refusal ends the offer too:
+    // asking again would only reach a dialog Android has stopped showing.
+    val approvalNotificationOffer by viewModel.approvalNotificationOffer.collectAsState()
+    val notificationPermissionRequest = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.acceptApprovalNotificationOffer() else viewModel.dismissApprovalNotificationOffer()
+    }
     // Title, cleared-state, usage totals and the snackbar's error are derived
     // in ChatViewModel, not here: computing any of them in this body reads
     // uiState at function scope, which is what made a single tool_call frame
@@ -401,6 +414,20 @@ fun ChatScreen(
                 balanceUsd = agentProfile?.balanceUsd,
                 agentAddress = targetAgentAddress
             )
+
+            if (approvalNotificationOffer) {
+                ApprovalNotificationOffer(
+                    agentName = agentProfile?.name,
+                    onTurnOn = {
+                        if (viewModel.needsNotificationPermission) {
+                            notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.acceptApprovalNotificationOffer()
+                        }
+                    },
+                    onNotNow = viewModel::dismissApprovalNotificationOffer
+                )
+            }
 
             ChatInput(
                 awaitingOnboardCode = awaitingOnboardCode,
