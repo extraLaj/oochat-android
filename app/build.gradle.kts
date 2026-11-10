@@ -406,6 +406,7 @@ val regressionSuite = mapOf(
         "network.AgentConnectionRobolectricTest",
         "network.AgentConnectionTest",
         "network.DirectSocketUrlTest",
+        "data.repository.AdoptResolvedAddressTest",
         "network.ProtocolParserTest",
         "data.local.ConnectionConfigTest",
         "ConstantsTest",

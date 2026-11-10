@@ -26,7 +26,8 @@ data class ResolvedAgent(
  *
  * Supports three input types:
  * 1. Full hex address (0x + 64 hex chars) - returned as-is (relay mode)
- * 2. URL (https://...) - fetches /info endpoint to extract address (direct mode)
+ * 2. URL (https://, http://, wss:// or ws://) - fetches the server's /info to
+ *    extract the address (direct mode)
  * 3. Other input - returned as-is (fallback)
  */
 class AgentDiscoveryService {
@@ -73,14 +74,13 @@ class AgentDiscoveryService {
         return ADDRESS_REGEX.matches(input)
     }
 
-    private fun isUrl(input: String): Boolean {
-        return input.startsWith("http://") || input.startsWith("https://")
-    }
+    // Every scheme Setup and the Add Agent form accept for a server URL.
+    private fun isUrl(input: String): Boolean = SCHEME.containsMatchIn(input)
 
     private suspend fun fetchAddressFromInfo(serverUrl: String): String? {
         return withContext(Dispatchers.IO) {
             runCatchingCancellable {
-                val infoUrl = "${serverUrl.trimEnd('/')}/info"
+                val infoUrl = infoUrl(serverUrl)
                 FileLogger.d(LogTags.AGENT_DISCOVERY, "GET $infoUrl")
 
                 val request = Request.Builder()
@@ -96,7 +96,9 @@ class AgentDiscoveryService {
 
                     val body = response.body?.string() ?: return@withContext null
                     val info = json.decodeFromString<AgentInfo>(body)
-                    info.address
+                    // Only an address the Host would answer to: anything else
+                    // would be signed into CONNECT and refused (W16AAPPLE-98).
+                    info.address?.trim()?.takeIf { ADDRESS_REGEX.matches(it) }
                 }
             }.onFailure { e ->
                 FileLogger.e(LogTags.AGENT_DISCOVERY, "Failed to fetch /info: ${e.message}")
@@ -119,5 +121,27 @@ class AgentDiscoveryService {
          */
         internal val ADDRESS_REGEX = Regex("^0x[0-9a-fA-F]{64}$")
         private const val DISCOVERY_TIMEOUT_SECONDS = 10L
+
+        private val SCHEME = Regex("^(https?|wss?)://", RegexOption.IGNORE_CASE)
+
+        /**
+         * The Host's `/info` for a direct server URL saved in any of the forms
+         * the app dials (see [AgentConnection.directSocketUrl]): served over
+         * HTTP on the same host and port, so `wss://` is read as `https://` and
+         * `ws://` as `http://`, and a trailing `/ws` (the socket the Host
+         * announces) or `/` is dropped first (W16AAPPLE-98).
+         */
+        internal fun infoUrl(serverUrl: String): String {
+            val trimmed = serverUrl.trim()
+            val scheme = Regex("^([A-Za-z]+)://").find(trimmed)?.groupValues?.get(1)?.lowercase()
+            val http = when (scheme) {
+                "wss" -> "https"
+                "ws" -> "http"
+                null -> null
+                else -> scheme
+            }
+            val rest = trimmed.substringAfter("://", trimmed).trimEnd('/').removeSuffix("/ws").trimEnd('/')
+            return if (http == null) "$rest/info" else "$http://$rest/info"
+        }
     }
 }

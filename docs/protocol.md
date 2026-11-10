@@ -144,6 +144,12 @@ https://oo.openonion.ai
   already ends in `/ws`, as the Host announces its socket, is dialled as is,
   as the ConnectOnion client does; the Host accepts only the exact path `/ws`
   (W16AAPPLE-118).
+- A direct agent is always named by its address in CONNECT, never by its
+  server URL, which the Host refuses ("wrong recipient"). A config saved by an
+  older version with a server and no address gets the address from the
+  server's `GET /info` (`AgentDiscoveryService.infoUrl`: `https://` for an
+  `https://` or `wss://` server, `http://` for `http://` or `ws://`, without a
+  trailing `/ws`), and it is saved to the config (W16AAPPLE-98).
 
 Which one an agent gets is `resolveServerRoute` in `ConnectionConfig.kt`
 (W16AAPPLE-56), from the agent's saved server URL and `connectionMode`:

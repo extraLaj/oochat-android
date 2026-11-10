@@ -56,6 +56,11 @@ class ConnectToAgentUseCase(
     private val pendingMessageSink: PendingMessageSink = InMemoryPendingMessageSink(),
     // Whether the app is on screen; see AgentConnection's isAppVisible.
     private val isAppVisible: () -> Boolean = { true },
+    // Told when a server URL was given in place of an agent address and the
+    // server's /info named the agent, so the caller can save the address
+    // (W16AAPPLE-98). Called before connecting, so it is saved by the time
+    // anything that reads the config next runs.
+    private val onAddressResolved: suspend (serverUrl: String, address: String) -> Unit = { _, _ -> },
     // Factory (not a shared instance) so getOrCreateRepository() below still
     // creates at most one repository per use-case instance. Defaults to the
     // real ConnectionRepositoryImpl; tests substitute a fake ConnectionRepository
@@ -126,6 +131,9 @@ class ConnectToAgentUseCase(
         val resolved = agentDiscovery.resolveAgentAddress(agentAddress)
         val effectiveAddress = resolved.address
         val effectiveDirectUrl = resolved.directUrl ?: directUrl
+        if (resolved.directUrl != null && AgentDiscoveryService.ADDRESS_REGEX.matches(effectiveAddress)) {
+            onAddressResolved(resolved.directUrl, effectiveAddress)
+        }
 
         // First attempt — uses the conversation's persisted sessionId if any.
         // The server may reject this if the session was already attached to
