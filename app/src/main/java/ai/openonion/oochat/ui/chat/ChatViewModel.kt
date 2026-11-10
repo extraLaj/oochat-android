@@ -56,6 +56,7 @@ import ai.openonion.oochat.network.SpeechRecognitionEvent
 import ai.openonion.oochat.network.offlineSustainedFor
 import ai.openonion.oochat.ui.chat.components.VoiceInputPhase
 import ai.openonion.oochat.ui.chat.components.VoiceInputState
+import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActionRejected
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActions
@@ -287,6 +288,23 @@ open class ChatViewModel @JvmOverloads constructor(
 
     // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
+
+    private val _chatComposerDrafts = MutableStateFlow<Map<String, ChatComposerDraft>>(emptyMap())
+
+    /** Each conversation's unsent chat composer state. */
+    val chatComposerDrafts: StateFlow<Map<String, ChatComposerDraft>> = _chatComposerDrafts.asStateFlow()
+
+    /** Return the saved chat draft. */
+    fun chatComposerDraft(sessionId: String?): ChatComposerDraft =
+        sessionId?.let { _chatComposerDrafts.value[it] } ?: ChatComposerDraft()
+
+    /** Save the chat draft for a conversation. */
+    fun updateChatComposerDraft(sessionId: String?, draft: ChatComposerDraft) {
+        if (sessionId.isNullOrBlank()) return
+        _chatComposerDrafts.update { all ->
+            if (draft == ChatComposerDraft()) all - sessionId else all + (sessionId to draft)
+        }
+    }
 
     // Keep chat viewports by conversation.
     private val messageListScrollPositions = mutableMapOf<String, MessageListScrollPosition>()
@@ -2018,6 +2036,7 @@ open class ChatViewModel @JvmOverloads constructor(
     fun deleteSession(sessionId: String) {
         launchScoped {
             if (conversationHistory.deleteSession(sessionId)) {
+                _chatComposerDrafts.update { it - sessionId }
                 synchronized(messageListScrollPositions) {
                     messageListScrollPositions.remove(sessionId)
                 }
@@ -3316,6 +3335,7 @@ open class ChatViewModel @JvmOverloads constructor(
                     .forEach(workRoomScrollPositions::remove)
             }
             if (clearedSessionId != null) {
+                _chatComposerDrafts.update { it - clearedSessionId }
                 synchronized(messageListScrollPositions) {
                     messageListScrollPositions.remove(clearedSessionId)
                 }
