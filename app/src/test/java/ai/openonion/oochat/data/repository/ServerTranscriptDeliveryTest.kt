@@ -83,7 +83,7 @@ class ServerTranscriptDeliveryTest {
 
     private class NoopSink : PendingMessageSink {
         override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?) = Unit
-        override fun drain(agentAddress: String, sessionId: String?, send: (QueuedMessage) -> Unit) = Unit
+        override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Unit) = Unit
         override fun clear(agentAddress: String) = Unit
     }
 

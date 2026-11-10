@@ -214,8 +214,9 @@ open class LoadingViewModel @JvmOverloads constructor(
                     return@launch
                 }
 
-                if (onboardWon) {
-                    connectDeferred.cancel()
+                // Straight on to the invite-code card (W16AAPPLE-111).
+                // Reported, so a late Cancel cannot also navigate.
+                fun goToInviteCode() {
                     _uiState.update {
                         it.copy(
                             statusMessage = "Onboarding required",
@@ -223,14 +224,21 @@ open class LoadingViewModel @JvmOverloads constructor(
                             outcome = LoadingOutcome.ONBOARD_REQUIRED
                         )
                     }
-                    // Straight on to the invite-code card (W16AAPPLE-111).
-                    // Reported, so a late Cancel cannot also navigate.
                     hasReportedOutcome = true
                     _events.tryEmit(LoadingEvent.OnboardRequired)
+                }
+
+                if (onboardWon) {
+                    connectDeferred.cancel()
+                    goToInviteCode()
                 } else {
                     onboardDeferred.cancel()
                     val connected = connectDeferred.await()
-                    if (connected) {
+                    if (connected && connectUseCase.lastConnectNeedsOnboarding) {
+                        // connect() treats ONBOARD_REQUIRED as success too, and
+                        // can return before the listener above has run.
+                        goToInviteCode()
+                    } else if (connected) {
                         _uiState.update {
                             it.copy(statusMessage = "Connected!", progress = 1.0f, outcome = LoadingOutcome.CONNECTED)
                         }

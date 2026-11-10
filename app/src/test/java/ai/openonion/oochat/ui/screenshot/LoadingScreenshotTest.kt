@@ -57,6 +57,20 @@ class LoadingScreenshotTest {
             LoadingUiState(statusMessage = "Connected!", progress = 1f, outcome = LoadingOutcome.CONNECTED)
         )
 
+    /** The invite-code beat (W16AAPPLE-111): says why, then moves on by itself, with no button. */
+    private fun captureOnboardRequired(palette: Palette) =
+        capture(
+            "loading_onboard_required",
+            palette,
+            LoadingUiState(statusMessage = "Onboarding required", progress = 1f, outcome = LoadingOutcome.ONBOARD_REQUIRED)
+        )
+
+    @Test
+    fun `loading onboard required - light`() = captureOnboardRequired(Palette.Light)
+
+    @Test
+    fun `loading onboard required - dark`() = captureOnboardRequired(Palette.Dark)
+
     @Test
     fun `loading connecting - light`() = captureConnecting(Palette.Light)
 

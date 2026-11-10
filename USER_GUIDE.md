@@ -39,6 +39,8 @@ yourself, and it asks for that agent's own URL instead of the relay's.
 
 ### If the agent asks for an invite code
 
+<img src="screenshots/invite-code-gate.png" alt="The connecting screen headed Onboarding required, saying this agent needs an invite code or payment before you can chat and that it is taking you there now" width="300">
+
 Some agents are not open to everyone. The connecting screen says so for a
 moment, then takes you to the chat, where a card asks for the code you were
 given. Enter it and tap **Redeem code**. Nothing is charged without asking you
@@ -220,6 +222,17 @@ can send it again. Each room keeps its own draft, even if you go back to the
 chat. Codex takes a message while it works, and a finished run of either can
 be resumed with one. Claude Code takes a message only once its run has ended.
 
+When the coding agent needs your permission, for example to change files or
+run tests, the run says it is waiting for your decision and a request appears
+at the top of its room (and in the chat). It says what the agent wants to do,
+why, and which files. Tap **Allow once**, or **Deny**. Some requests also offer
+**Allow for this session**. A request that would reach outside this Work Room,
+or whose reach the Host could not check, shows only **Deny**: the Host would
+refuse it even if you allowed it. A request still waiting when the connection
+drops is still there when it comes back.
+
+<img src="screenshots/work-room-approval-room.png" alt="A Claude Code Work Room waiting for a decision: a request to make workspace file changes to hello.txt, scoped to this Work Room only, with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
+
 ---
 
 ## 6. Deciding what the agent may do
@@ -295,15 +308,32 @@ rather than saved.
 
 ---
 
-## 9. Being told about a reply while you are elsewhere
+## 9. Being told about a reply or an approval while you are elsewhere
 
 **Settings → Notifications**, off by default. With it on, a reply that arrives
 while you are in another app posts a notification; tapping it brings you back.
 
-There is a real limit worth knowing. The app can only notice a reply while it
-still holds its connection, and Android suspends that connection for apps in the
-background — on some phones within seconds. So this covers stepping away
-mid-answer, not closing the app and coming back an hour later. The sound is
+An approval the agent is waiting on posts one too, so the agent is not left
+stopped while you are away. It says which agent and what it wants to do, and
+tapping it opens that conversation, or the Work Room when a Claude Code or
+Codex run is the one asking. On a locked phone it only says that an approval is
+waiting. Each approval has its own notification, and it goes away once you
+answer it, the turn ends (another device may have answered), or you open that
+chat. Approvals have their own channel, **Approval requests**, which interrupts
+where a reply only waits in the shade; Android's settings for the app can
+silence either one alone.
+
+The first time an approval is on screen while notifications are off, the chat
+offers to turn them on, and asks for Android's permission only then. It offers
+once: **Not now**, or refusing Android's dialog, leaves Settings as the way to
+turn them on later.
+
+There is a real limit worth knowing, for replies and approvals alike. The app
+can only notice either while it still holds its connection, and it has no
+background service to keep that connection: once you swipe it away, or Android
+closes it to save battery (on some phones within seconds of leaving it), no
+notification comes until you open it again. So this covers stepping away mid-answer, not
+closing the app and coming back an hour later. The sound is
 Android's own, on the app's notification channel, which the same Settings row
 opens.
 
@@ -319,7 +349,7 @@ opens.
 | **Font size** | Four steps — Small, Medium, Large, Extra Large — previewed live. Combines with the system font size rather than overriding it. |
 | **Haptic feedback** | The small vibration when a message is sent. |
 | **Sound effects** | The in-app tones for sending and receiving. Separate from notifications. |
-| **Memory** | Whether an agent sees context carried over from your other chats with it. Off means each chat starts clean. |
+| **Memory** | Whether an agent sees context carried over from your other chats with it. When off, each chat you open starts a new session on the agent. |
 | **Custom instructions** | Text quietly prepended to everything you send — a standing "answer briefly", say. |
 | **Push notifications** | Section 9. |
 | **Notification sound** | Opens Android's own settings for this app's notification channel, where the full system sound list lives. |

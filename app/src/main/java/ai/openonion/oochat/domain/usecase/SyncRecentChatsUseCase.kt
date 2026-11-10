@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 /** The result of refreshing one agent's retained conversation index. */
 sealed interface RecentChatsSyncResult {
     data object Synced : RecentChatsSyncResult
+    data object MemoryDisabled : RecentChatsSyncResult
     data object Unsupported : RecentChatsSyncResult
     data class Failed(val message: String, val retryable: Boolean = false) : RecentChatsSyncResult
 }
@@ -26,6 +27,7 @@ fun interface RecentChatsSync {
 class SyncRecentChatsUseCase(
     private val repository: SessionSyncRepository,
     private val identityAddress: suspend () -> String,
+    private val syncEnabled: suspend () -> Boolean = { true },
     private val fetch: suspend (agentAddress: String, directUrl: String?, relayUrl: String?, cursor: String?) -> SessionSyncFetchResult
 ) : RecentChatsSync {
     // A reconnect and the screen joining that same connection can arrive
@@ -53,7 +55,18 @@ class SyncRecentChatsUseCase(
             val identity = identityAddress()
             require(identity.isNotBlank()) { "identityAddress must not be blank" }
             activateIdentity(identity)
+            // A Memory-off CONNECT deliberately creates a fresh Host session.
+            // Importing that session would expose an unusable duplicate chat.
+            if (!syncEnabled()) {
+                repository.markMemoryDisabled(identity, agentId)
+                return@withLock RecentChatsSyncResult.MemoryDisabled
+            }
             val cursor = repository.cursorFor(identity, agentId)
+            // Only an incremental batch can consist solely of the fresh
+            // Memory-off sessions. A fresh install has no cursor, so its first
+            // full snapshot must be reconciled to import chats from elsewhere.
+            val skipMemoryOffBatch = cursor != null &&
+                repository.isMemoryDisabledSinceSync(identity, agentId)
 
             var first = fetch(agentAddress, directUrl, relayUrl, cursor)
             // Retry one transient failure immediately. The mutex and single
@@ -63,13 +76,21 @@ class SyncRecentChatsUseCase(
             }
 
             when (first) {
-                is SessionSyncFetchResult.Complete -> commit(identity, agentId, first)
+                is SessionSyncFetchResult.Complete -> commit(
+                    identity,
+                    agentId,
+                    first,
+                    skipMemoryOffBatch && !first.snapshot.isFullSnapshot
+                )
                 is SessionSyncFetchResult.CursorExpired -> {
                     // A cursor only points into the Host's retained change
                     // history. If it has aged out, one full snapshot is the
                     // safe recovery; never loop if the Host rejects that too.
                     when (val retry = fetch(agentAddress, directUrl, relayUrl, null)) {
-                        is SessionSyncFetchResult.Complete -> commit(identity, agentId, retry)
+                        // Cursor recovery is a full snapshot. Reconcile it so
+                        // older chats and remote deletions are restored even
+                        // after a Memory-off period.
+                        is SessionSyncFetchResult.Complete -> commit(identity, agentId, retry, false)
                         is SessionSyncFetchResult.Unsupported -> RecentChatsSyncResult.Unsupported
                         is SessionSyncFetchResult.Failed -> retry.toSyncResult()
                         is SessionSyncFetchResult.CursorExpired -> RecentChatsSyncResult.Failed(
@@ -97,9 +118,19 @@ class SyncRecentChatsUseCase(
     private suspend fun commit(
         identityAddress: String,
         agentId: String,
-        complete: SessionSyncFetchResult.Complete
+        complete: SessionSyncFetchResult.Complete,
+        skipMemoryOffBatch: Boolean
     ): RecentChatsSyncResult {
-        repository.reconcile(identityAddress, agentId, complete.snapshot)
+        if (skipMemoryOffBatch) {
+            // The first fetch after re-enabling Memory contains every Host
+            // session made since the old cursor, including fresh Memory-off
+            // sessions. Move past that batch without exposing any of it in
+            // the drawer. Keep the marker until the cursor write succeeds so
+            // a failed write cannot make the next retry import the batch.
+            repository.advanceCursor(identityAddress, agentId, complete.snapshot.cursor)
+        } else {
+            repository.reconcile(identityAddress, agentId, complete.snapshot)
+        }
         return RecentChatsSyncResult.Synced
     }
 

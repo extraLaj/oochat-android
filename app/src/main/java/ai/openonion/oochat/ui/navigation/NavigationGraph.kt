@@ -505,7 +505,7 @@ fun NavigationGraph(
  * The two destinations that host a [ai.openonion.oochat.ui.chat.ChatViewModel].
  * Only one is ever on the stack at a time — each chat hop pops the other.
  */
-private val CHAT_ROUTES = listOf(
+internal val CHAT_ROUTES = listOf(
     "${Routes.CHAT}?onboardPending={onboardPending}",
     "${Routes.CHAT_WITH_AGENT}?sessionId={sessionId}&startNew={startNew}"
 )

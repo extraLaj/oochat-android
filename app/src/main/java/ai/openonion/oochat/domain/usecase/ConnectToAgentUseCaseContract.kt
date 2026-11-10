@@ -110,6 +110,16 @@ interface ConnectToAgentUseCaseContract {
     fun releaseSessionStatus() {}
 
     /**
+     * Whether the last [connect] that returned true did so because the agent
+     * asked for an invite code or payment (ONBOARD_REQUIRED) rather than
+     * reaching CONNECTED. [connect] treats both as success, and a caller that
+     * also listens for ONBOARD_REQUIRED can see connect() return first, so this
+     * is what tells them apart (W16AAPPLE-111). Default false so a fake with
+     * no onboarding need not say so.
+     */
+    val lastConnectNeedsOnboarding: Boolean get() = false
+
+    /**
      * Connect to an agent by address (relay mode) or URL (direct mode).
      *
      * Implementations should perform address discovery if needed and

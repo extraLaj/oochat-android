@@ -33,5 +33,11 @@ data class SessionSyncStateEntity(
     /** The Host value to send with the next sync request. */
     val cursor: String,
     /** When this cursor was saved, in Unix milliseconds. */
-    @ColumnInfo(name = "updated_at") val updatedAt: Long
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    /**
+     * Memory was disabled after the last successful sync. This marker is
+     * persisted so a process restart cannot cause the next incremental batch
+     * to import the fresh Memory-off sessions.
+     */
+    @ColumnInfo(name = "memory_disabled_since_sync") val memoryDisabledSinceSync: Boolean = false
 )

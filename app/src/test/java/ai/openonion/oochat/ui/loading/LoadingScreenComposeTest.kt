@@ -67,6 +67,24 @@ class LoadingScreenComposeTest {
     }
 
     @Test
+    fun `an invite code is still pending when connect itself returns on the agent's request for one`() {
+        // ConnectToAgentUseCase races the same ONBOARD_REQUIRED and returns
+        // true when it wins, so connect() can finish before this screen's own
+        // listener has run. The chat must still be told a code is pending.
+        connectUseCase.connectResult = true
+        connectUseCase.onConnect = {
+            yield()
+            connectUseCase.emitOnboardRequired()
+            connectUseCase.lastConnectNeedsOnboarding = true
+        }
+
+        val navigated = show()
+        composeRule.waitUntil(timeoutMillis = 5_000) { navigated.isNotEmpty() }
+
+        assertEquals(listOf(true), navigated)
+    }
+
+    @Test
     fun `a plain connect still goes on to the chat with nothing pending`() {
         val navigated = show()
         composeRule.waitUntil(timeoutMillis = 5_000) { navigated.isNotEmpty() }

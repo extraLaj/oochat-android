@@ -325,7 +325,7 @@ fun SettingsScreen(
             SettingsSection("Personalization") {
                 SwitchRow(
                     label = "Memory",
-                    subtitle = "Remembers context across chats",
+                    subtitle = "When off, each chat you open starts a new session on the agent",
                     checked = memoryEnabled,
                     onChange = { viewModel.setMemoryEnabled(it) }
                 )
@@ -343,7 +343,7 @@ fun SettingsScreen(
                     subtitle = if (notificationPermissionBlocked) {
                         "Permission denied — tap to open system settings"
                     } else {
-                        "Background task completions"
+                        "Replies and approval requests while you are away"
                     },
                     subtitleColor = if (notificationPermissionBlocked) MaterialTheme.colorScheme.error else null,
                     checked = pushNotificationsEffective,

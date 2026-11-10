@@ -82,9 +82,8 @@ private const val ONBOARD_HOLD_MS = 900L
  * and reacts to [LoadingEvent]s for navigation.
  *
  * Displays app branding and connection progress: a determinate ring +
- * 5-dot step indicator while connecting, and a checkmark success state
- * with an explicit "Open Chat" confirmation (rather than auto-navigating)
- * once connected — matching the Figma design's completed-state beat.
+ * 5-dot step indicator while connecting, then a checkmark success state,
+ * held for [SUCCESS_HOLD_MS] before it moves on to the chat by itself.
  *
  * The ONBOARD_REQUIRED outcome gets a gentler treatment: the VpnKey
  * icon springs in with a soft halo that breathes, and the explanation

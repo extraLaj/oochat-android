@@ -1,6 +1,7 @@
 package ai.openonion.oochat.data.local
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Persistence boundary for the previously-mock Settings screen toggles
@@ -51,6 +52,18 @@ interface AppSettings {
      */
     val pushNotificationsEnabled: Flow<Boolean>
     suspend fun setPushNotificationsEnabled(value: Boolean)
+
+    /**
+     * Whether the chat has already offered to turn notifications on for
+     * approvals (W16AAPPLE-44), whatever the answer. It offers once: asking
+     * again each time would nag, and Android stops showing its own permission
+     * dialog after a second refusal anyway. Settings stays the way back.
+     *
+     * Defaults to true (already offered) so a fake that does not care about
+     * the offer never shows it.
+     */
+    val approvalNotificationOfferShown: Flow<Boolean> get() = flowOf(true)
+    suspend fun setApprovalNotificationOfferShown(value: Boolean) {}
 
     /**
      * Unused — sound is a per-channel OS property from API 26 onward, and

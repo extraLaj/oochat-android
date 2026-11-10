@@ -47,6 +47,7 @@ class LoadingViewModelTest {
         override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
 
         var connectResult: Boolean = true
+        override var lastConnectNeedsOnboarding: Boolean = false
         var connectInvocations = 0
         var lastAddress: String? = null
         var lastDirectUrl: String? = null
@@ -261,6 +262,41 @@ class LoadingViewModelTest {
         assertEquals(1.0f, viewModel.uiState.value.progress)
         // Straight on to the invite-code card, with no "Continue" tap to wait
         // for (W16AAPPLE-111), and no Failed/Cancelled alongside it.
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `connect() returning because of an invite-code request still goes on with it pending`() = runTest(testDispatcher) {
+        // ConnectToAgentUseCase treats ONBOARD_REQUIRED as success too. Here
+        // its connect() returns before this screen's own listener saw the
+        // event (W16AAPPLE-111): the chat must still be told a code is pending.
+        connectUseCase.connectResult = true
+        connectUseCase.onConnect = { connectUseCase.lastConnectNeedsOnboarding = true }
+        val events = mutableListOf<LoadingEvent>()
+        val collectJob = launch { viewModel.events.toList(events) }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(LoadingOutcome.ONBOARD_REQUIRED, viewModel.uiState.value.outcome)
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `connect() that emits the invite-code request and then returns still goes on with it pending`() = runTest(testDispatcher) {
+        connectUseCase.connectResult = true
+        connectUseCase.onConnect = {
+            connectUseCase.emitOnboardRequired()
+            connectUseCase.lastConnectNeedsOnboarding = true
+        }
+        val events = mutableListOf<LoadingEvent>()
+        val collectJob = launch { viewModel.events.toList(events) }
+
+        viewModel.start()
+        advanceUntilIdle()
+
         assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
         collectJob.cancel()
     }

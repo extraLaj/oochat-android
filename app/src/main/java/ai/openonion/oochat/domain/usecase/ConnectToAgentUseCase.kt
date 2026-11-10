@@ -70,6 +70,12 @@ class ConnectToAgentUseCase(
         )
     }
 ) : ConnectToAgentUseCaseContract {
+
+    /** Set when [connect] returns true because ONBOARD_REQUIRED came first; see the contract. */
+    @Volatile
+    override var lastConnectNeedsOnboarding: Boolean = false
+        private set
+
     // @Volatile + @Synchronized on the creator below: this instance is now
     // app-scoped and reached from several ViewModels, so "at most one
     // repository" can't rely on every caller happening to be on the main thread.
@@ -123,6 +129,7 @@ class ConnectToAgentUseCase(
         directUrl: String?,
         relayUrl: String?
     ): Boolean {
+        lastConnectNeedsOnboarding = false
         val resolved = agentDiscovery.resolveAgentAddress(agentAddress)
         val effectiveAddress = resolved.address
         val effectiveDirectUrl = resolved.directUrl ?: directUrl
@@ -241,6 +248,7 @@ class ConnectToAgentUseCase(
 
             if (onboardWon) {
                 stateDeferred.cancel()
+                lastConnectNeedsOnboarding = true
                 true
             } else {
                 onboardDeferred.cancel()
