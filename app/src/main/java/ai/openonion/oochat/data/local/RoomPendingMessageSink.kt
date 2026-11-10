@@ -47,6 +47,7 @@ class RoomPendingMessageSink(
     private val json = Json { ignoreUnknownKeys = true }
 
     private val lock = Any()
+    private val clearGenerations = mutableMapOf<String, Long>()
 
     override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?) {
         val payload = if (images.isNullOrEmpty() && files.isNullOrEmpty()) {
@@ -87,32 +88,43 @@ class RoomPendingMessageSink(
         agentAddress: String,
         sessionId: String?,
         conversationId: String?,
-        send: (QueuedMessage) -> Unit
+        send: (QueuedMessage) -> Boolean
     ) {
         // Snapshot the watermark first: a send racing this flush (an INPUT
         // written while CONNECTED is being processed) enqueues behind it and
         // is left for the next pass rather than being reordered into this one.
         val maxId = synchronized(lock) { dao.newestIdForAgent(agentAddress) } ?: return
         while (true) {
-            val row = synchronized(lock) {
+            val claimed = synchronized(lock) {
                 dao.claimNextForAgent(agentAddress, sessionId, conversationId, maxId)
+                    ?.let { it to (clearGenerations[agentAddress] ?: 0L) }
             } ?: break
+            val row = claimed.first
+            val drainGeneration = claimed.second
             val spilled = readSpill(row.id)
-            send(
-                QueuedMessage(
-                    prompt = row.prompt,
-                    // Columns are the fallback, not the source: rows written
-                    // by a build before the spill still carry theirs inline.
-                    images = spilled?.images ?: row.imagesJson?.let { json.decodeFromString<List<String>>(it) },
-                    files = spilled?.files ?: row.filesJson?.let { json.decodeFromString<List<FileAttachment>>(it) }
-                )
+            val message = QueuedMessage(
+                prompt = row.prompt,
+                // Columns are the fallback, not the source: rows written
+                // by a build before the spill still carry theirs inline.
+                images = spilled?.images ?: row.imagesJson?.let { json.decodeFromString<List<String>>(it) },
+                files = spilled?.files ?: row.filesJson?.let { json.decodeFromString<List<FileAttachment>>(it) }
             )
+            val accepted = runCatching { send(message) }.getOrDefault(false)
+            if (!accepted) {
+                synchronized(lock) {
+                    if ((clearGenerations[agentAddress] ?: 0L) == drainGeneration) {
+                        enqueue(agentAddress, row.sessionId, message.prompt, message.images, message.files)
+                    }
+                }
+                break
+            }
         }
         sweepOrphanedSpills()
     }
 
     override fun clear(agentAddress: String) {
         synchronized(lock) {
+            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
             dao.idsForAgent(agentAddress).forEach { spillFile(it).delete() }
             dao.deleteAllForAgent(agentAddress)
         }

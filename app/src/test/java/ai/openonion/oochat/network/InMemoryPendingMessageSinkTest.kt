@@ -60,6 +60,15 @@ class InMemoryPendingMessageSinkTest {
     }
 
     @Test
+    fun `a rejected send stays queued`() {
+        sink.enqueue("0xagent", SESSION, "retry me", null)
+
+        sink.drain("0xagent", SESSION, null) { false }
+
+        assertEquals(listOf("retry me"), sink.drainAll("0xagent", SESSION).map { it.prompt })
+    }
+
+    @Test
     fun `clear discards queued messages for one address without touching others`() {
         sink.enqueue("0xagentA", "for A")
         sink.enqueue("0xagentB", "for B")
