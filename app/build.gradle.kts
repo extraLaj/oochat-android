@@ -442,6 +442,9 @@ val regressionSuite = mapOf(
         "ui.rem.RemScreenComposeTest",
         "ui.rem.RemViewModelTest",
     ),
+    "approval notifications" to listOf(
+        "notification.ApprovalNotificationTest",
+    ),
     "sensitive data on screen" to listOf(
         "util.SensitiveTextTest",
         "domain.model.ChatItemPrivacyTest",
