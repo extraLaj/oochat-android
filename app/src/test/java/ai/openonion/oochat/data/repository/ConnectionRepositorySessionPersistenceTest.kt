@@ -173,6 +173,7 @@ class ConnectionRepositorySessionPersistenceTest {
         ) = Unit
         override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Boolean) = Unit
         override fun clear(agentAddress: String) = Unit
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) = Unit
     }
 
     private class BlockingDrainSink : PendingMessageSink {
@@ -205,6 +206,10 @@ class ConnectionRepositorySessionPersistenceTest {
         }
 
         override fun clear(agentAddress: String) {
+            queued = false
+        }
+
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
             queued = false
         }
     }

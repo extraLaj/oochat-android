@@ -236,6 +236,24 @@ class RoomPendingMessageSinkTest {
     }
 
     @Test
+    fun `clearing a conversation discards only its rows and their spills`() {
+        // Clear chat in one conversation must not drop what another
+        // conversation with the same agent queued offline (W16AAPPLE-106).
+        sink.enqueue(agent, session, "for this session", null, listOf(file("a.pdf", 1024)))
+        sink.enqueue(agent, "conversation-A", "for this conversation", null, null)
+        sink.enqueue(agent, null, "queued before any session existed", null, null)
+        sink.enqueue(agent, "conversation-B", "for another conversation", null, listOf(file("b.pdf", 1024)))
+
+        sink.clearConversation(agent, session, "conversation-A")
+
+        assertEquals(1, db.pendingMessageDao().countForAgent(agent))
+        assertEquals(1, spillDir.listFiles().orEmpty().size)
+        val left = sink.drainAll(sessionId = "conversation-B").single()
+        assertEquals("for another conversation", left.prompt)
+        assertEquals("b.pdf", left.files?.single()?.name)
+    }
+
+    @Test
     fun `a spill whose row is gone is swept rather than left on disk forever`() {
         // Process death between claiming a row and reading its file would
         // otherwise strand the bytes, still counting against the byte bound.

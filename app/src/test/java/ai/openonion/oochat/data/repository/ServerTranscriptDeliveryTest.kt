@@ -85,6 +85,7 @@ class ServerTranscriptDeliveryTest {
         override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?) = Unit
         override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Boolean) = Unit
         override fun clear(agentAddress: String) = Unit
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) = Unit
     }
 
     private class MemoryStore : SessionStore {

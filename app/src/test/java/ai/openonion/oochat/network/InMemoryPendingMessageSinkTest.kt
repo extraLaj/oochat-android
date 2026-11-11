@@ -80,6 +80,32 @@ class InMemoryPendingMessageSinkTest {
     }
 
     @Test
+    fun `clearing a conversation discards only what would go out in it`() {
+        // Clear chat in one conversation must not drop what another
+        // conversation with the same agent queued offline (W16AAPPLE-106).
+        sink.enqueue("0xagent", "for this session", sessionId = SESSION)
+        sink.enqueue("0xagent", "for this conversation", sessionId = "conversation-A")
+        sink.enqueue("0xagent", "for another conversation", sessionId = "conversation-B")
+        sink.enqueue("0xagentB", "for another agent", sessionId = SESSION)
+
+        sink.clearConversation("0xagent", SESSION, "conversation-A")
+
+        assertEquals(listOf("for another conversation"), sink.drainAll("0xagent", "conversation-B").map { it.prompt })
+        assertEquals(listOf("for another agent"), sink.drainAll("0xagentB", SESSION).map { it.prompt })
+    }
+
+    @Test
+    fun `clearing a conversation also discards what was queued before any session existed`() {
+        // Those drain into whichever conversation connects next, so they go
+        // with the conversation being cleared rather than out into it later.
+        sink.enqueue("0xagent", "queued offline", sessionId = null)
+
+        sink.clearConversation("0xagent", null, "conversation-A")
+
+        assertTrue(sink.drainAll("0xagent", "conversation-A").isEmpty())
+    }
+
+    @Test
     fun `enqueue beyond MAX_PENDING_MESSAGES evicts the oldest entry for that address`() {
         // A stuck reconnect loop combined with repeated sends must not grow
         // this queue unboundedly — see AgentConnection.MAX_PENDING_MESSAGES.

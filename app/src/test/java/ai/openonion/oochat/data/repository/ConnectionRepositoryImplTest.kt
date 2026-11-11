@@ -179,6 +179,7 @@ class ConnectionRepositoryImplTest {
         ) { enqueued += Triple(agentAddress, sessionId, prompt) }
         override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Boolean) = Unit
         override fun clear(agentAddress: String) { clearCount++ }
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) { clearCount++ }
     }
 
     private fun simulateConnected(sessionId: String = "sess-1") {
@@ -1782,5 +1783,54 @@ class ConnectionRepositoryImplTest {
         repository.connect("0xAGENT", "conv-1")
         repository.disconnect()
         assertEquals("the user stopping drops it, as before", 1, sink.clearCount)
+    }
+
+    // -- W16AAPPLE-106: Clear chat drops only its own conversation's outbox --
+
+    private fun repositoryWithOutbox(outbox: InMemoryPendingMessageSink) = ConnectionRepositoryImpl(
+        keyManager = keyManager,
+        relayUrl = "ws://test.invalid",
+        pendingMessageSink = outbox,
+        agentConnectionFactory = { km, url ->
+            AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = outbox)
+        }
+    )
+
+    private fun InMemoryPendingMessageSink.prompts(conversationId: String): List<String> = buildList {
+        drain("0xAGENT", null, conversationId) { add(it.prompt); true }
+    }
+
+    @Test
+    fun `clearing a conversation keeps what another conversation queued`() = runTest(testDispatcher) {
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.connect("0xAGENT", "conv-1")
+        outbox.enqueue("0xAGENT", "conv-2", "queued in conv-2", null)
+        repo.sendMessage("queued in conv-1", "0xAGENT", null, null)
+
+        repo.reset()
+
+        assertEquals("the cleared conversation's message goes", emptyList<String>(), outbox.prompts("conv-1"))
+        assertEquals("the other conversation's stays", listOf("queued in conv-2"), outbox.prompts("conv-2"))
+        repo.disconnect()
+    }
+
+    @Test
+    fun `clearing a conversation after Stop drops its queued messages, and only those`() = runTest(testDispatcher) {
+        // After Stop there is no connection, so the repository queues for the
+        // conversation itself, and has to clear for it too.
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.connect("0xAGENT", "conv-1")
+        repo.disconnect(keepOutbox = true)
+        repo.switchConversation("conv-2")
+        repo.sendMessage("queued in conv-2", "0xAGENT", null, null)
+        repo.switchConversation("conv-1")
+        repo.sendMessage("queued in conv-1", "0xAGENT", null, null)
+
+        repo.reset()
+
+        assertEquals("the cleared conversation's message goes", emptyList<String>(), outbox.prompts("conv-1"))
+        assertEquals("the other conversation's stays", listOf("queued in conv-2"), outbox.prompts("conv-2"))
     }
 }

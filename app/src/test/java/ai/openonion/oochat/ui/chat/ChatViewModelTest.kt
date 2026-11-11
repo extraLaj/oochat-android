@@ -661,8 +661,8 @@ class ChatViewModelTest {
         override suspend fun updateTimestamp(id: String, timestamp: Long) {
             all.value = all.value.map { if (it.id == id) it.copy(timestamp = timestamp) else it }
         }
-        override suspend fun updateFailedToSend(id: String, failedToSend: Boolean) {
-            all.value = all.value.map { if (it.id == id) it.copy(failedToSend = failedToSend) else it }
+        override suspend fun updateFailedToSend(id: String, failedToSend: Boolean, inOutbox: Boolean) {
+            all.value = all.value.map { if (it.id == id) it.copy(failedToSend = failedToSend, inOutbox = inOutbox) else it }
         }
         override suspend fun getOwningSessionId(id: String) =
             all.value.firstOrNull { it.id == id }?.sessionId
@@ -2463,6 +2463,12 @@ class ChatViewModelTest {
     private fun kotlinx.coroutines.test.TestScope.savedAsFailed(text: String): Boolean {
         testScheduler.runCurrent()
         return messageRepo.snapshot().single { it.role == Role.USER && it.content == text }.failedToSend
+    }
+
+    /** Whether [text]'s saved row says it is still in the outbox, to come back "Waiting to send..." after a restart. */
+    private fun kotlinx.coroutines.test.TestScope.savedInOutbox(text: String): Boolean {
+        testScheduler.runCurrent()
+        return messageRepo.snapshot().single { it.role == Role.USER && it.content == text }.inOutbox
     }
 
     @Test
@@ -6169,10 +6175,11 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `stopping the connection fails the messages it was holding instead of leaving them waiting`() =
+    fun `stopping the connection keeps the messages it was holding waiting to send`() =
         runTest(testDispatcher) {
-            // W16AAPPLE-102: a user disconnect drops the outbox, so "Waiting to
-            // send" would be a promise nothing keeps. Failed offers Retry.
+            // W16AAPPLE-106: Stop keeps the outbox, as Reconnect and the
+            // connect timeout do, so "Waiting to send" stays true: the message
+            // goes out on the next connect.
             val address = validHexAddress()
             vm.connectToAgent(address)
             testScheduler.runCurrent()
@@ -6184,8 +6191,42 @@ class ChatViewModelTest {
             testScheduler.runCurrent()
 
             assertEquals(1, connectUseCase.disconnectCount)
-            assertEquals(UserMessageState.FAILED, userMessage("typed offline").state)
-            assertTrue("and saved as failed, so a restart agrees", savedAsFailed("typed offline"))
+            assertEquals("Stop must keep the outbox", listOf(true), connectUseCase.disconnectKeptOutbox)
+            assertEquals(UserMessageState.QUEUED, userMessage("typed offline").state)
+            assertFalse("not failed, so no Retry for a message that will still go", savedAsFailed("typed offline"))
+            assertTrue("saved as waiting, so a restart agrees", savedInOutbox("typed offline"))
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            assertEquals("the next connect flushes it", UserMessageState.SENT, userMessage("typed offline").state)
+            assertFalse("and it is saved as gone", savedInOutbox("typed offline"))
+        }
+
+    @Test
+    fun `a message saved as waiting comes back waiting, and stops once the connection is back`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-106: still in the outbox after a restart, so not sent yet.
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(
+                    id = "m3", sessionId = session.id, role = Role.USER, content = "typed before the restart",
+                    timestamp = 300L, inOutbox = true
+                )
+            )
+
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.QUEUED, userMessage("typed before the restart").state)
+            assertFalse("not failed: the outbox will still send it", savedAsFailed("typed before the restart"))
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("typed before the restart").state)
+            assertFalse("and saved as gone", savedInOutbox("typed before the restart"))
         }
 
     @Test
