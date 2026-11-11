@@ -32,12 +32,24 @@ private const val BACKGROUND_WORK_NOTIFICATION_ID = 2004
 internal const val BACKGROUND_WORK_MAX_MS = 60 * 60 * 1000L
 
 /**
+ * How long work must stay ended before the service stops. A run reads as idle
+ * for a moment between its steps, and a service stopped then cannot be started
+ * again from the background.
+ */
+internal const val BACKGROUND_WORK_STOP_GRACE_MS = 10_000L
+
+/**
  * Runs [BackgroundWorkService] while work is in progress and the app is off
  * screen. Main thread only. Started as the app leaves, not when work begins,
  * so nothing extra shows while the user is in the app; Android 12+ allows the
  * start only while the app is still visible, which onPause still is.
  */
 class BackgroundWorkKeeper(private val context: Context) : BackgroundWork {
+    private val handler = Handler(Looper.getMainLooper())
+    private val stopAfterGrace = Runnable {
+        work = null
+        stop("work ended")
+    }
     private var work: ActiveWork? = null
     private var hidden = false
     internal var service: BackgroundWorkService? = null
@@ -46,13 +58,20 @@ class BackgroundWorkKeeper(private val context: Context) : BackgroundWork {
     internal val wanted: ActiveWork? get() = work?.takeIf { hidden }
 
     override fun update(work: ActiveWork?) {
+        handler.removeCallbacks(stopAfterGrace)
+        if (work == null) {
+            // The last work is kept until the grace ends, so a service starting meanwhile still shows it.
+            if (this.work != null) handler.postDelayed(stopAfterGrace, BACKGROUND_WORK_STOP_GRACE_MS)
+            return
+        }
         this.work = work
-        if (work == null) service?.stopSelf() else service?.show(work)
+        service?.show(work)
     }
 
     override fun onAppHidden() {
         hidden = true
         if (work == null) return
+        FileLogger.i(LogTags.NOTIFICATIONS, "Keeping the connection while the app is in the background")
         try {
             ContextCompat.startForegroundService(context, Intent(context, BackgroundWorkService::class.java))
         } catch (e: IllegalStateException) {
@@ -63,7 +82,15 @@ class BackgroundWorkKeeper(private val context: Context) : BackgroundWork {
 
     override fun onAppShown() {
         hidden = false
-        service?.stopSelf()
+        stop("app back on screen")
+    }
+
+    private fun stop(reason: String) {
+        // Cleared before it is destroyed, so a late show() cannot repost its notification.
+        val running = service ?: return
+        service = null
+        FileLogger.i(LogTags.NOTIFICATIONS, "Background connection released: $reason")
+        running.stopSelf()
     }
 }
 

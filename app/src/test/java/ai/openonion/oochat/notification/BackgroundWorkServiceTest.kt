@@ -56,14 +56,31 @@ class BackgroundWorkServiceTest {
     }
 
     @Test
-    fun `the service stops when the work ends`() {
+    fun `the service stops once the work has stayed ended for the grace period`() {
         keeper.update(work)
         keeper.onAppHidden()
         val service = runService()
 
         keeper.update(null)
+        ShadowLooper.idleMainLooper(BACKGROUND_WORK_STOP_GRACE_MS - 1, TimeUnit.MILLISECONDS)
+        assertFalse(shadowOf(service).isStoppedBySelf)
+        ShadowLooper.idleMainLooper(1, TimeUnit.MILLISECONDS)
 
         assertTrue(shadowOf(service).isStoppedBySelf)
+    }
+
+    @Test
+    fun `a moment of no work between steps does not stop the service`() {
+        keeper.update(work)
+        keeper.onAppHidden()
+        val service = runService()
+
+        keeper.update(null)
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS)
+        keeper.update(work)
+        ShadowLooper.idleMainLooper(BACKGROUND_WORK_STOP_GRACE_MS, TimeUnit.MILLISECONDS)
+
+        assertFalse(shadowOf(service).isStoppedBySelf)
     }
 
     @Test
@@ -82,6 +99,7 @@ class BackgroundWorkServiceTest {
         keeper.update(work)
         keeper.onAppHidden()
         keeper.update(null)
+        ShadowLooper.idleMainLooper(BACKGROUND_WORK_STOP_GRACE_MS, TimeUnit.MILLISECONDS)
 
         assertTrue(shadowOf(runService()).isStoppedBySelf)
     }
