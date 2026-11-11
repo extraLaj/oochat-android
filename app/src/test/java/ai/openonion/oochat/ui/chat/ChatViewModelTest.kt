@@ -18,6 +18,7 @@ import ai.openonion.oochat.data.repository.MessageRepository
 import ai.openonion.oochat.data.repository.SessionRepository
 import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.domain.model.AgentStatus
+import ai.openonion.oochat.domain.model.ApprovalBoundary
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ChatEvent
 import ai.openonion.oochat.domain.model.ChatItem
@@ -26,10 +27,12 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanPriority
 import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.PlanStatus
+import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.Role
@@ -40,6 +43,7 @@ import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.model.UserMessageState
+import ai.openonion.oochat.domain.model.WorkRoomApproval
 import ai.openonion.oochat.domain.model.isInProgress
 import ai.openonion.oochat.domain.model.stableAssistantId
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
@@ -64,6 +68,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConnection
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.SensitiveText
 import ai.openonion.oochat.util.stringField
@@ -76,6 +81,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -416,6 +422,10 @@ class ChatViewModelTest {
         override suspend fun setCustomInstructions(value: String) { customInstructionsFlow.value = value }
         override val pushNotificationsEnabled: Flow<Boolean> = pushNotificationsEnabledFlow
         override suspend fun setPushNotificationsEnabled(value: Boolean) { pushNotificationsEnabledFlow.value = value }
+        // True (already offered) unless a test of the offer says otherwise, as the interface's default.
+        val approvalOfferShownFlow = MutableStateFlow(true)
+        override val approvalNotificationOfferShown: Flow<Boolean> = approvalOfferShownFlow
+        override suspend fun setApprovalNotificationOfferShown(value: Boolean) { approvalOfferShownFlow.value = value }
         override val notificationSound: Flow<String> = notificationSoundFlow
         override suspend fun setNotificationSound(value: String) { notificationSoundFlow.value = value }
         override val analyticsEnabled: Flow<Boolean> = analyticsEnabledFlow
@@ -434,6 +444,11 @@ class ChatViewModelTest {
         var clearCalls = 0
         override fun notifyAgentReply(agentName: String?, preview: String) { posted += agentName to preview }
         override fun clearReplyNotifications() { clearCalls++ }
+
+        val approvals = mutableListOf<PendingApproval>()
+        val clearedApprovals = mutableListOf<String>()
+        override fun notifyApprovalNeeded(approval: PendingApproval) { approvals += approval }
+        override fun clearApprovalNotification(approvalId: String) { clearedApprovals += approvalId }
     }
 
     private class FakeImageAttachmentStore : ImageAttachmentStore {
@@ -2839,12 +2854,12 @@ class ChatViewModelTest {
         assertEquals("codex:call-1", sent.invocationId)
         assertEquals("the newest revision the screen holds", 4L, sent.stateRevision)
         assertEquals("Use the existing auth helper", sent.text)
-        assertEquals(true, vm.workRoomDrafts.value["codex:call-1"]?.sending)
+        assertEquals(true, vm.workRoomDraft("codex:call-1").sending)
 
         connectUseCase.emit(ChatEvent.ProviderInputAcked(ProviderInputAck(sent.requestId, "codex:call-1", accepted = true, stateRevision = 4)))
         testScheduler.runCurrent()
 
-        assertNull(vm.workRoomDrafts.value["codex:call-1"])
+        assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
     }
 
     @Test
@@ -2867,11 +2882,38 @@ class ChatViewModelTest {
         )
         testScheduler.runCurrent()
 
-        val draft = vm.workRoomDrafts.value.getValue("codex:call-1")
+        val draft = vm.workRoomDraft("codex:call-1")
         assertEquals("Use the existing auth helper", draft.text)
         assertEquals(false, draft.sending)
         assertEquals(WorkRoomText.inputRefused("not_active"), draft.error)
         assertEquals("the chat is not touched", listOf("codex:call-1"), vm.uiState.value.chatItems.map { it.id })
+    }
+
+    @Test
+    fun `Work Room drafts with the same invocation id stay with their conversation`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        vm.sendMessage("conversation A")
+        testScheduler.runCurrent()
+        val sessionA = vm.activeSessionId.value!!
+        vm.editWorkRoomDraft("codex:call-1", "draft for A")
+
+        vm.startNewSession()
+        testScheduler.runCurrent()
+        vm.sendMessage("conversation B")
+        testScheduler.runCurrent()
+        assertNotEquals(sessionA, vm.activeSessionId.value)
+        assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
+
+        vm.editWorkRoomDraft("codex:call-1", "draft for B")
+        vm.switchToSession(sessionA)
+        testScheduler.runCurrent()
+
+        assertEquals("draft for A", vm.workRoomDraft("codex:call-1").text)
     }
 
     @Test
@@ -3080,6 +3122,196 @@ class ChatViewModelTest {
     fun `onReturnedToForeground clears any posted reply notification`() = runTest(testDispatcher) {
         vm.onReturnedToForeground()
         assertEquals(1, agentReplyNotifier.clearCalls)
+    }
+
+    // ── Approval notifications (W16AAPPLE-44) ───────────────────────────
+
+    private fun approval(id: String = "ap-1") = ChatItem.ApprovalNeeded(
+        id = id,
+        tool = "bash",
+        arguments = mapOf("command" to "rm -rf build"),
+        requestId = "req-$id"
+    )
+
+    private fun TestScope.connectedInBackground(): String {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        appInForeground = false
+        notificationPermissionGranted = true
+        return address
+    }
+
+    @Test
+    fun `an approval that arrives in the background posts a notification that opens its conversation`() =
+        runTest(testDispatcher) {
+            val address = connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+            testScheduler.runCurrent()
+
+            val posted = agentReplyNotifier.approvals.single()
+            assertEquals("ap-1", posted.approvalId)
+            assertEquals("bash: rm -rf build", posted.summary)
+            assertEquals(address, posted.target.agentAddress)
+            assertEquals(vm.activeSessionId.value, posted.target.sessionId)
+            assertNull("not a Work Room approval", posted.target.invocationId)
+        }
+
+    @Test
+    fun `a Work Room approval opens the Work Room and says what the run wants`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        val workRoom = WorkRoomApproval(
+            provider = "codex",
+            invocationId = "inv:1",
+            parentToolCallId = "call-1",
+            presentation = ProviderApprovalPresentation(
+                action = "Edit app/main.kt",
+                scope = "workroom",
+                reason = "",
+                boundary = ApprovalBoundary.WORKROOM,
+                allowOnce = true,
+                allowSession = false
+            )
+        )
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval().copy(workRoom = workRoom)))
+        testScheduler.runCurrent()
+
+        val posted = agentReplyNotifier.approvals.single()
+        assertEquals("inv:1", posted.target.invocationId)
+        assertEquals("Codex wants to: Edit app/main.kt", posted.summary)
+    }
+
+    @Test
+    fun `an approval posts nothing in the foreground, with the setting off, or without the permission`() =
+        runTest(testDispatcher) {
+            connectedInBackground()
+
+            appInForeground = true
+            appSettings.setPushNotificationsEnabled(true)
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval("ap-fg")))
+            testScheduler.runCurrent()
+
+            appInForeground = false
+            appSettings.setPushNotificationsEnabled(false)
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval("ap-off")))
+            testScheduler.runCurrent()
+
+            appSettings.setPushNotificationsEnabled(true)
+            notificationPermissionGranted = false
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval("ap-denied")))
+            testScheduler.runCurrent()
+
+            assertEquals(emptyList<PendingApproval>(), agentReplyNotifier.approvals)
+        }
+
+    @Test
+    fun `an approval replayed after a reconnect, or rebuilt from a snapshot, posts no second notification`() =
+        runTest(testDispatcher) {
+            connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+            testScheduler.runCurrent()
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+            testScheduler.runCurrent()
+            // A snapshot carries no decision: it could be one answered long ago.
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval("ap-old"), fromSessionSnapshot = true))
+            testScheduler.runCurrent()
+
+            assertEquals(listOf("ap-1"), agentReplyNotifier.approvals.map { it.approvalId })
+        }
+
+    @Test
+    fun `answering an approval clears its notification`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+
+        vm.respondToApproval("ap-1", approved = true)
+        testScheduler.runCurrent()
+
+        assertEquals(listOf("ap-1"), agentReplyNotifier.clearedApprovals)
+    }
+
+    @Test
+    fun `the turn ending clears its approval notifications, as another device may have answered`() =
+        runTest(testDispatcher) {
+            connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+            testScheduler.runCurrent()
+
+            connectUseCase.emit(ChatEvent.OutputReceived(result = "done", session = null))
+            testScheduler.runCurrent()
+
+            assertEquals(listOf("ap-1"), agentReplyNotifier.clearedApprovals)
+        }
+
+    @Test
+    fun `coming back to the chat clears the notifications for the approvals it shows`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+
+        vm.onReturnedToForeground()
+
+        assertEquals(listOf("ap-1"), agentReplyNotifier.clearedApprovals)
+    }
+
+    @Test
+    fun `the chat offers approval notifications once, while an approval waits and they are off`() =
+        runTest(testDispatcher) {
+            connectedInBackground()
+            appSettings.approvalOfferShownFlow.value = false
+            appSettings.setPushNotificationsEnabled(false)
+            testScheduler.runCurrent()
+            assertFalse("nothing to approve yet", vm.approvalNotificationOffer.value)
+
+            connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+            testScheduler.runCurrent()
+            assertTrue(vm.approvalNotificationOffer.value)
+
+            vm.acceptApprovalNotificationOffer()
+            testScheduler.runCurrent()
+
+            assertTrue(appSettings.pushNotificationsEnabled.first())
+            assertTrue(appSettings.approvalNotificationOfferShown.first())
+            assertFalse(vm.approvalNotificationOffer.value)
+        }
+
+    @Test
+    fun `not now ends the offer without turning notifications on`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.approvalOfferShownFlow.value = false
+        appSettings.setPushNotificationsEnabled(false)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+        assertTrue(vm.approvalNotificationOffer.value)
+
+        vm.dismissApprovalNotificationOffer()
+        testScheduler.runCurrent()
+
+        assertFalse(vm.approvalNotificationOffer.value)
+        assertFalse(appSettings.pushNotificationsEnabled.first())
+    }
+
+    @Test
+    fun `nothing is offered when notifications are already on and allowed`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.approvalOfferShownFlow.value = false
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+
+        assertFalse(vm.approvalNotificationOffer.value)
     }
 
     @Test

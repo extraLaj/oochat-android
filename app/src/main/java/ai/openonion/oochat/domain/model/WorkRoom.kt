@@ -220,3 +220,35 @@ object WorkRooms {
         activities = activities
     )
 }
+
+/** The Host's `scopeClassification`. Only [WORKROOM] may be allowed: the Host declines anything else regardless. */
+enum class ApprovalBoundary {
+    WORKROOM,
+    ELEVATED,
+    UNKNOWN
+}
+
+data class ProviderApprovalPresentation(
+    val action: String,
+    val scope: String,
+    val reason: String,
+    val boundary: ApprovalBoundary,
+    val allowOnce: Boolean,
+    val allowSession: Boolean,
+    val files: List<String> = emptyList()
+)
+
+/** A Claude Code or Codex approval from inside a run (W16AAPPLE-36). */
+data class WorkRoomApproval(
+    val provider: String,
+    val invocationId: String,
+    val parentToolCallId: String,
+    val activityId: String? = null,
+    val presentation: ProviderApprovalPresentation? = null
+) {
+    val canAllowOnce: Boolean
+        get() = presentation?.boundary == ApprovalBoundary.WORKROOM && presentation.allowOnce
+
+    val canAllowSession: Boolean
+        get() = presentation?.boundary == ApprovalBoundary.WORKROOM && presentation.allowSession
+}

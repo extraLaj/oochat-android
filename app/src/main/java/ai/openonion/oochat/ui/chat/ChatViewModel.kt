@@ -28,6 +28,8 @@ import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.NotificationTarget
+import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ServerSessionStatus
@@ -54,9 +56,9 @@ import ai.openonion.oochat.network.OFFLINE_GRACE_MS
 import ai.openonion.oochat.network.RecognizerReadiness
 import ai.openonion.oochat.network.SpeechRecognitionEvent
 import ai.openonion.oochat.network.offlineSustainedFor
+import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.chat.components.VoiceInputPhase
 import ai.openonion.oochat.ui.chat.components.VoiceInputState
-import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActionRejected
 import ai.openonion.oochat.ui.controlcenter.ControlCenterActions
@@ -71,11 +73,13 @@ import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
 import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
+import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
 import ai.openonion.oochat.util.LogTags
 import ai.openonion.oochat.util.SensitiveText
 import ai.openonion.oochat.util.runCatchingCancellable
+import ai.openonion.oochat.util.summarizeToolCall
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
@@ -283,7 +287,7 @@ open class ChatViewModel @JvmOverloads constructor(
     // the room's own screen, so a draft outlives leaving the room.
     private val workRoomInputs = WorkRoomInputs(viewModelScope, send = { connectUseCase.sendProviderInput(it) })
 
-    /** Each Work Room's draft and send state, by invocation id. */
+    /** Each Work Room's draft and send state, by conversation-and-invocation key. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
 
     // Keep Work Room viewports by conversation and run.
@@ -327,13 +331,13 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /** Return the saved viewport for a run. */
     fun workRoomScrollPosition(invocationId: String): WorkRoomScrollPosition = synchronized(workRoomScrollPositions) {
-        workRoomScrollPositions[workRoomScrollKey(invocationId)] ?: WorkRoomScrollPosition()
+        workRoomScrollPositions[workRoomKey(invocationId)] ?: WorkRoomScrollPosition()
     }
 
     /** Save the viewport for a run. */
     fun updateWorkRoomScrollPosition(invocationId: String, position: WorkRoomScrollPosition) {
         if (invocationId.isBlank()) return
-        val key = workRoomScrollKey(invocationId)
+        val key = workRoomKey(invocationId)
         val normalised = position.normalised()
         synchronized(workRoomScrollPositions) {
             if (workRoomScrollPositions[key] != normalised) {
@@ -342,7 +346,13 @@ open class ChatViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun workRoomScrollKey(invocationId: String): String =
+    /** Return the draft belonging to the active conversation's Work Room. */
+    fun workRoomDraft(
+        invocationId: String,
+        drafts: Map<String, WorkRoomDraft> = workRoomDrafts.value
+    ): WorkRoomDraft = drafts[workRoomKey(invocationId)] ?: WorkRoomDraft()
+
+    private fun workRoomKey(invocationId: String): String =
         "${activeSessionId.value.orEmpty()}\u0000$invocationId"
 
     // The streaming toggle only filters in-progress items from what's
@@ -676,6 +686,39 @@ open class ChatViewModel @JvmOverloads constructor(
         .map { it.listFlags.hasPendingGate }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /**
+     * Whether the chat offers to turn on notifications for approvals
+     * (W16AAPPLE-44). Asked in context rather than at launch, as Android asks
+     * apps to: the first time an approval is on screen, when it is plain why a
+     * notification would help, and only while notifications are not already
+     * on and allowed. Once answered, either way, it is not offered again (see
+     * [AppSettings.approvalNotificationOfferShown]); Settings stays the way back.
+     */
+    val approvalNotificationOffer: StateFlow<Boolean> = combine(
+        uiState.map { state -> state.chatItems.any { it is ChatItem.ApprovalNeeded && it.decision == null } },
+        appSettings.pushNotificationsEnabled,
+        appSettings.approvalNotificationOfferShown
+    ) { approvalOpen, enabled, offered ->
+        approvalOpen && !offered && !(enabled && hasNotificationPermission())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Whether turning notifications on needs the OS's POST_NOTIFICATIONS dialog first (API 33+, not yet granted). */
+    val needsNotificationPermission: Boolean
+        get() = requiresNotificationPermission && !hasNotificationPermission()
+
+    /** The user took the offer, and the OS allows notifications (asked first where it has to be). */
+    fun acceptApprovalNotificationOffer() {
+        launchScoped {
+            appSettings.setPushNotificationsEnabled(true)
+            appSettings.setApprovalNotificationOfferShown(true)
+        }
+    }
+
+    /** "Not now", or the OS permission was refused: not offered again. */
+    fun dismissApprovalNotificationOffer() {
+        launchScoped { appSettings.setApprovalNotificationOfferShown(true) }
+    }
+
     /** Call once from ChatScreen when navigated here with onboarding already known to be required. */
     fun markOnboardPending() {
         _awaitingOnboardCode.value = true
@@ -744,6 +787,15 @@ open class ChatViewModel @JvmOverloads constructor(
      * entry can never match a different card.
      */
     private val resolvedGateIds = mutableSetOf<String>()
+
+    /**
+     * Approvals a notification is up for (W16AAPPLE-44), by item id, with the
+     * conversation each is in, so a conversation's can be cleared together. In
+     * memory only: a notification left from a process that died is cleared by
+     * the system when the user taps it, and answering it goes through the chat.
+     * Declared here, before [init], for the reason [disconnectFailedIds] gives.
+     */
+    private val notifiedApprovals = mutableMapOf<String, String?>()
 
     /**
      * Called when the user taps any button on a blocking card, so the gate
@@ -1131,6 +1183,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         offscreen.itemToPersist?.let { item ->
                             conversationHistory.persistMessage(item, owner)
                         }
+                        // The chat the user left is still the one waiting.
+                        maybeNotifyApproval(event, offscreen.chatItems, owner)
+                        if (event is ChatEvent.OutputReceived || event is ChatEvent.ConnectionErrorOccurred) {
+                            clearApprovalNotifications(owner, onScreen = false)
+                        }
                         if (event is ChatEvent.OutputReceived) turnEnded(TurnEnd.OUTPUT)
                         if (event is ChatEvent.ConnectionErrorOccurred) turnEnded(TurnEnd.ERROR)
                         return@collect
@@ -1158,6 +1215,10 @@ open class ChatViewModel @JvmOverloads constructor(
                             maybeNotifyAgentReply(item)
                         }
                     }
+                    // After persisting: a conversation is only created once
+                    // something is saved to it, and the notification has to
+                    // name the conversation it opens.
+                    maybeNotifyApproval(event, result.chatItems, conversationHistory.activeSessionId.value)
 
                     // Released here, not where inFlightTurnOwner is cleared
                     // above: a message waiting on this turn wakes the moment
@@ -1169,6 +1230,9 @@ open class ChatViewModel @JvmOverloads constructor(
                         event is ChatEvent.ConnectionErrorOccurred
                     ) {
                         serverTurnActive.value = false
+                        // An approval cannot still be waiting once its turn is over:
+                        // answered on another device, or the run gave up on it.
+                        clearApprovalNotifications(conversationHistory.activeSessionId.value)
                         turnEnded(if (event is ChatEvent.OutputReceived) TurnEnd.OUTPUT else TurnEnd.ERROR)
                     }
                     when (event) {
@@ -1253,14 +1317,77 @@ open class ChatViewModel @JvmOverloads constructor(
      * of the event handling above.
      */
     private suspend fun maybeNotifyAgentReply(item: ChatItem) {
-        if (isAppInForeground() || !hasNotificationPermission()) return
-        if (!appSettings.pushNotificationsEnabled.first()) return
+        if (!mayPostNotification()) return
         val preview = when (item) {
             is ChatItem.Agent -> item.content
             is ChatItem.Turn -> item.agent?.content.orEmpty()
             else -> return
         }
         agentReplyNotifier.notifyAgentReply(agentProfile.value?.name, preview)
+    }
+
+    /** Backgrounded, opted in, and allowed by the OS: see [maybeNotifyAgentReply]. */
+    private suspend fun mayPostNotification(): Boolean =
+        !isAppInForeground() && hasNotificationPermission() && appSettings.pushNotificationsEnabled.first()
+
+    /**
+     * Posts the background notification for an approval [event] just put on
+     * screen in [items], the chat of conversation [sessionId]: the agent is
+     * stopped until the user answers, so this is the notification that matters
+     * most. Gated as [maybeNotifyAgentReply] is.
+     *
+     * Only for a gate still open in [items], so a card the reducer dropped, an
+     * ignored one, or one already answered here never posts; never twice for
+     * the same approval, so a replay after a reconnect stays quiet; and never
+     * for one rebuilt from a session snapshot, which carries no decision and
+     * could be one answered long ago.
+     */
+    private suspend fun maybeNotifyApproval(event: ChatEvent, items: List<ChatItem>, sessionId: String?) {
+        if (event !is ChatEvent.ChatItemReceived || event.fromSessionSnapshot) return
+        val gate = items.firstOrNull { it.id == event.item.id } as? ChatItem.ApprovalNeeded ?: return
+        if (gate.decision != null || gate.id in resolvedGateIds || gate.id in notifiedApprovals) return
+        val agentAddress = _targetAgentAddress.takeIf { it.isNotBlank() } ?: return
+        if (!mayPostNotification()) return
+        notifiedApprovals[gate.id] = sessionId
+        agentReplyNotifier.notifyApprovalNeeded(
+            PendingApproval(
+                approvalId = gate.id,
+                agentName = agentProfile.value?.name,
+                summary = approvalSummary(gate),
+                target = NotificationTarget(agentAddress, sessionId, gate.workRoom?.invocationId)
+            )
+        )
+    }
+
+    /** What an approval asks for, in one line: the Work Room's own wording, else the tool and what it would do. */
+    private fun approvalSummary(gate: ChatItem.ApprovalNeeded): String {
+        gate.workRoom?.let { room ->
+            val provider = WorkRoomText.providerName(room.provider)
+            val action = room.presentation?.action?.takeIf { it.isNotBlank() }
+            return if (action != null) "$provider wants to: $action" else "$provider is waiting for your approval"
+        }
+        gate.description?.takeIf { it.isNotBlank() }?.let { return it }
+        val what = summarizeToolCall(gate.tool, gate.arguments)
+        return if (what != null) "${gate.tool}: $what" else "Wants to use ${gate.tool}"
+    }
+
+    private fun clearApprovalNotification(approvalId: String) {
+        notifiedApprovals.remove(approvalId)
+        agentReplyNotifier.clearApprovalNotification(approvalId)
+    }
+
+    /**
+     * Every approval notification for conversation [sessionId], whose turn is
+     * over or which the user is looking at. Called for the chat on screen, it
+     * also takes one posted before that chat had an id: the only chat a
+     * notification without one can be for.
+     */
+    private fun clearApprovalNotifications(sessionId: String?, onScreen: Boolean = true) {
+        val ids = notifiedApprovals.filterValues { it == sessionId || (onScreen && it == null) }.keys.toList()
+        ids.forEach { id ->
+            notifiedApprovals.remove(id)
+            agentReplyNotifier.clearApprovalNotification(id)
+        }
     }
 
     /**
@@ -2036,6 +2163,13 @@ open class ChatViewModel @JvmOverloads constructor(
     fun deleteSession(sessionId: String) {
         launchScoped {
             if (conversationHistory.deleteSession(sessionId)) {
+                val workRoomKeyPrefix = "${sessionId}\u0000"
+                workRoomInputs.discardMatching { it.startsWith(workRoomKeyPrefix) }
+                synchronized(workRoomScrollPositions) {
+                    workRoomScrollPositions.keys
+                        .filter { it.startsWith(workRoomKeyPrefix) }
+                        .forEach(workRoomScrollPositions::remove)
+                }
                 _chatComposerDrafts.update { it - sessionId }
                 synchronized(messageListScrollPositions) {
                     messageListScrollPositions.remove(sessionId)
@@ -3005,6 +3139,9 @@ open class ChatViewModel @JvmOverloads constructor(
             }
         }
         agentReplyNotifier.clearReplyNotifications()
+        // The chat on screen shows its own waiting approvals; a notification for
+        // a chat the user is not looking at stays, as the way back to it.
+        clearApprovalNotifications(conversationHistory.activeSessionId.value)
     }
 
     /**
@@ -3014,7 +3151,7 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     /** Typing in the Work Room for [invocationId]. */
     fun editWorkRoomDraft(invocationId: String, text: String) {
-        workRoomInputs.edit(invocationId, text)
+        workRoomInputs.edit(workRoomKey(invocationId), text)
     }
 
     /**
@@ -3026,7 +3163,7 @@ open class ChatViewModel @JvmOverloads constructor(
         val run = _uiState.value.chatItems
             .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
             ?: return
-        workRoomInputs.send(run)
+        workRoomInputs.send(run, workRoomKey(invocationId))
     }
 
     fun respond(itemId: String, answer: String) {
@@ -3176,6 +3313,8 @@ open class ChatViewModel @JvmOverloads constructor(
         }
 
         val decided = gate.copy(decision = ApprovalDecision(approved, scope, mode, feedback))
+        // Answered: its notification, if the user came back some other way, is done with.
+        clearApprovalNotification(itemId)
         _uiState.update { state ->
             state.copy(chatItems = state.chatItems.map { if (it.id == itemId) decided else it })
         }
@@ -3334,6 +3473,7 @@ open class ChatViewModel @JvmOverloads constructor(
                     .filter { it.startsWith(scrollKeyPrefix) }
                     .forEach(workRoomScrollPositions::remove)
             }
+            workRoomInputs.discardMatching { it.startsWith(scrollKeyPrefix) }
             if (clearedSessionId != null) {
                 _chatComposerDrafts.update { it - clearedSessionId }
                 synchronized(messageListScrollPositions) {

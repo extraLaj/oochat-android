@@ -76,20 +76,27 @@ fun WorkRoomScreenWrapper(
     WorkRoomScreen(
         run = run,
         onNavigateBack = onNavigateBack,
-        draft = drafts[invocationId] ?: WorkRoomDraft(),
+        draft = viewModel.workRoomDraft(invocationId, drafts),
         onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
         onSend = { viewModel.sendWorkRoomInput(invocationId) },
         scrollPosition = viewModel.workRoomScrollPosition(invocationId),
-        onScrollPositionChanged = { viewModel.updateWorkRoomScrollPosition(invocationId, it) }
+        onScrollPositionChanged = { viewModel.updateWorkRoomScrollPosition(invocationId, it) },
+        approvals = state.chatItems.workRoomApprovals(invocationId),
+        onApprovalDecision = { itemId, approved, scope ->
+            viewModel.markGateResolved(itemId)
+            viewModel.respondToApproval(itemId, approved, scope, if (approved) null else WORK_ROOM_DENY_MODE)
+        }
     )
 }
+
+internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatItem.ApprovalNeeded> =
+    filterIsInstance<ChatItem.ApprovalNeeded>().filter { it.workRoom?.invocationId == invocationId }
 
 /**
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
  * a phone: the task and where it stands, then each step the provider took, as
- * the Host describes it, and a field to steer it (W16AAPPLE-35). Approving and
- * Stop come with W16AAPPLE-36 and -37. [run] is null once the chat no longer
- * holds it.
+ * the Host describes it, and a field to steer it (W16AAPPLE-35). Stop comes
+ * with W16AAPPLE-37. [run] is null once the chat no longer holds it.
  */
 @Composable
 fun WorkRoomScreen(
@@ -99,7 +106,9 @@ fun WorkRoomScreen(
     onDraftChange: (String) -> Unit = {},
     onSend: () -> Unit = {},
     scrollPosition: WorkRoomScrollPosition = WorkRoomScrollPosition(),
-    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit = {}
+    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit = {},
+    approvals: List<ChatItem.ApprovalNeeded> = emptyList(),
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> }
 ) {
     Scaffold(
         topBar = {
@@ -122,7 +131,7 @@ fun WorkRoomScreen(
                 )
                 return@Box
             }
-            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged)
+            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged, approvals, onApprovalDecision)
         }
     }
 }
@@ -132,12 +141,18 @@ fun WorkRoomScreen(
 private fun WorkRoomTranscript(
     run: ChatItem.ProviderInvocation,
     scrollPosition: WorkRoomScrollPosition,
-    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit
+    onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit,
+    approvals: List<ChatItem.ApprovalNeeded>,
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit
 ) {
+    val pendingApprovals = approvals.filter { it.decision == null }
+    val resolvedApprovals = approvals.filter { it.decision != null }
     val itemKeys = buildList {
         add("header")
+        pendingApprovals.forEach { add("approval:${it.id}") }
         add("steps-heading")
         run.activities.forEach { add("step:${it.id}") }
+        resolvedApprovals.forEach { add("approval:${it.id}") }
         if (run.status.isTerminal) add("outcome")
     }
     val itemCount = itemKeys.size
@@ -178,6 +193,11 @@ private fun WorkRoomTranscript(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
     ) {
         item(key = "header") { RunHeader(run) }
+        items(pendingApprovals, key = { "approval:${it.id}" }) { approval ->
+            WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { approved, scope ->
+                onApprovalDecision(approval.id, approved, scope)
+            }
+        }
         item(key = "steps-heading") {
             Text(
                 text = if (run.activities.isEmpty()) "No steps yet" else "Steps",
@@ -186,6 +206,9 @@ private fun WorkRoomTranscript(
             )
         }
         items(run.activities, key = { "step:${it.id}" }) { step -> Step(step) }
+        items(resolvedApprovals, key = { "approval:${it.id}" }) { approval ->
+            WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { _, _ -> }
+        }
         run.outcome()?.let { outcome ->
             item(key = "outcome") {
                 HorizontalDivider()
