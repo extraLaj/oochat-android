@@ -433,6 +433,26 @@ class ConnectToAgentUseCaseTest {
         assertTrue(connected)
         assertEquals(1, fakeRepository.connectCount)
         assertEquals(0, fakeRepository.disconnectCount)
+        assertTrue("says why it returned true (W16AAPPLE-111)", useCase.lastConnectNeedsOnboarding)
+    }
+
+    @Test
+    fun `a plain connect says no invite code is needed, even after one that needed it`() = runTest(testDispatcher) {
+        val useCase = newUseCase(connectionTimeoutMs = 200L)
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.events.tryEmit(
+                ChatEvent.ChatItemReceived(ChatItem.OnboardRequired(id = "onboard-1", methods = listOf("invite_code")))
+            )
+        }
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.state.value = ConnectionState.Connected(address = validAddress)
+        }
+        assertTrue(useCase.connect(validAddress))
+        assertTrue("test setup: the first connect needed a code", useCase.lastConnectNeedsOnboarding)
+
+        assertTrue(useCase.connect(validAddress))
+
+        assertFalse(useCase.lastConnectNeedsOnboarding)
     }
 
     // ── Timeout ───────────────────────────────────────────────────────

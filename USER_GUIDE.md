@@ -26,8 +26,8 @@ manually** and paste it. An address is `0x` followed by 64 hex characters.
 **Or scan a QR code.** The QR button in the top right opens the camera. It reads
 the code behind the **Share** button on chat.openonion.ai, a code that holds just
 the address, `connectonion://agent/0x…`, and `https://your-server/0x…` for an
-agent on a server of its own. A code it understands fills the form below, and
-**Connect** goes in. Any other QR code is refused with a message above the
+agent on a server of its own. A code it understands connects straight away:
+there is nothing to tap. Any other QR code is refused with a message above the
 Connect button, and the form stays as it was. The camera only reads the code:
 nothing is recorded or uploaded. To make a code for your own agent, put its
 address into any QR generator.
@@ -39,10 +39,12 @@ yourself, and it asks for that agent's own URL instead of the relay's.
 
 ### If the agent asks for an invite code
 
-<img src="screenshots/invite-code-gate.png" alt="A screen headed Onboarding required, explaining that this agent needs an invite code or payment, with a Continue to Onboarding button" width="300">
+<img src="screenshots/invite-code-gate.png" alt="The connecting screen headed Onboarding required, saying this agent needs an invite code or payment before you can chat and that it is taking you there now" width="300">
 
-Some agents are not open to everyone. Tap **Continue to Onboarding** and enter
-the code you were given. Nothing is charged without asking you first.
+Some agents are not open to everyone. The connecting screen says so for a
+moment, then takes you to the chat, where a card asks for the code you were
+given. Enter it and tap **Redeem code**. Nothing is charged without asking you
+first.
 
 ---
 
@@ -306,15 +308,32 @@ rather than saved.
 
 ---
 
-## 9. Being told about a reply while you are elsewhere
+## 9. Being told about a reply or an approval while you are elsewhere
 
 **Settings → Notifications**, off by default. With it on, a reply that arrives
 while you are in another app posts a notification; tapping it brings you back.
 
-There is a real limit worth knowing. The app can only notice a reply while it
-still holds its connection, and Android suspends that connection for apps in the
-background — on some phones within seconds. So this covers stepping away
-mid-answer, not closing the app and coming back an hour later. The sound is
+An approval the agent is waiting on posts one too, so the agent is not left
+stopped while you are away. It says which agent and what it wants to do, and
+tapping it opens that conversation, or the Work Room when a Claude Code or
+Codex run is the one asking. On a locked phone it only says that an approval is
+waiting. Each approval has its own notification, and it goes away once you
+answer it, the turn ends (another device may have answered), or you open that
+chat. Approvals have their own channel, **Approval requests**, which interrupts
+where a reply only waits in the shade; Android's settings for the app can
+silence either one alone.
+
+The first time an approval is on screen while notifications are off, the chat
+offers to turn them on, and asks for Android's permission only then. It offers
+once: **Not now**, or refusing Android's dialog, leaves Settings as the way to
+turn them on later.
+
+There is a real limit worth knowing, for replies and approvals alike. The app
+can only notice either while it still holds its connection, and it has no
+background service to keep that connection: once you swipe it away, or Android
+closes it to save battery (on some phones within seconds of leaving it), no
+notification comes until you open it again. So this covers stepping away mid-answer, not
+closing the app and coming back an hour later. The sound is
 Android's own, on the app's notification channel, which the same Settings row
 opens.
 

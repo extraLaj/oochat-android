@@ -428,6 +428,9 @@ val regressionSuite = mapOf(
         "data.repository.ConnectionRepositoryImplTest",
         "domain.usecase.ConnectToAgentUseCaseTest",
         "ui.onboarding.OnboardingViewModelTest",
+        "ui.loading.LoadingViewModelTest",
+        "ui.loading.LoadingScreenComposeTest",
+        "ui.onboarding.ScanToInviteCodeFlowTest",
     ),
     "work rooms" to listOf(
         "network.ProtocolParserWorkRoomTest",
@@ -442,6 +445,9 @@ val regressionSuite = mapOf(
         "domain.model.RemNotebookTest",
         "ui.rem.RemScreenComposeTest",
         "ui.rem.RemViewModelTest",
+    ),
+    "approval notifications" to listOf(
+        "notification.ApprovalNotificationTest",
     ),
     "sensitive data on screen" to listOf(
         "util.SensitiveTextTest",

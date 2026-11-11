@@ -182,12 +182,11 @@ fun NavigationGraph(
                     defaultValue = false
                 }
             ),
-            deepLinks = listOf(
-                navDeepLink { uriPattern = "connectonion://agent/{address}" },
-                navDeepLink { uriPattern = "https://oo-chat.com/{address}" }
-            )
+            deepLinks = DeepLinks.patterns.map { pattern ->
+                navDeepLink { uriPattern = pattern }
+            }
         ) { backStackEntry ->
-            // `address` only ever comes from one of the two deep links declared
+            // `address` only ever comes from one of the deep links declared
             // above — in-app agent switching goes to CHAT_WITH_AGENT instead —
             // so anything arriving here was supplied by whatever opened the
             // link, which on an exported intent filter is any web page or app.
@@ -505,7 +504,7 @@ fun NavigationGraph(
  * The two destinations that host a [ai.openonion.oochat.ui.chat.ChatViewModel].
  * Only one is ever on the stack at a time — each chat hop pops the other.
  */
-private val CHAT_ROUTES = listOf(
+internal val CHAT_ROUTES = listOf(
     "${Routes.CHAT}?onboardPending={onboardPending}",
     "${Routes.CHAT_WITH_AGENT}?sessionId={sessionId}&startNew={startNew}"
 )
@@ -604,7 +603,8 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isDrillDownEdge():
     initialState.isDrillDown() || targetState.isDrillDown()
 
 /**
- * Gate on `connectonion://agent/<address>` and `https://oo-chat.com/<address>`.
+ * Gate on `connectonion://agent/<address>` and `https://chat.openonion.ai/<address>` (or the old
+ * `https://oo-chat.com/<address>`).
  *
  * Both intent filters are exported, so the address in one of these links is
  * attacker-supplied by default: any web page can fire the scheme link, and the
