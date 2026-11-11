@@ -115,11 +115,14 @@ class ConnectionRepositoryImpl(
      * the newest session, and leaving the older one queued would let it land
      * afterwards and overwrite this one.
      */
-    private suspend fun saveSessionForCurrentConversation(session: SessionState) {
-        val conversationId = currentConversationId ?: return
+    private suspend fun saveSessionForConversation(conversationId: String?, session: SessionState) {
+        conversationId ?: return
         synchronized(sessionSaveLock) { pendingSessionSave = null }
         sessionWriteMutex.withLock { sessionStore?.saveSession(conversationId, session) }
     }
+
+    private suspend fun saveSessionForCurrentConversation(session: SessionState) =
+        saveSessionForConversation(currentConversationId, session)
 
     /**
      * Queue [session] to be persisted within [SESSION_SAVE_WINDOW_MS], keyed
@@ -127,8 +130,8 @@ class ConnectionRepositoryImpl(
      * it. Conflating, not resetting: a continuous stream of frames still gets
      * a write every window rather than being starved to the end of the turn.
      */
-    private fun scheduleSessionSave(session: SessionState) {
-        val conversationId = currentConversationId ?: return
+    private fun scheduleSessionSave(conversationId: String?, session: SessionState) {
+        conversationId ?: return
         if (sessionStore == null) return
         synchronized(sessionSaveLock) {
             pendingSessionSave = conversationId to session
@@ -281,7 +284,7 @@ class ConnectionRepositoryImpl(
                             // Inline, not debounced: CONNECTED is once per
                             // connection and carries the id resume depends on,
                             // so it is worth the one write it costs.
-                            saveSessionForCurrentConversation(session)
+                            saveSessionForConversation(event.conversationId ?: currentConversationId, session)
                             // Wire -> domain mapping of the replayed transcript
                             // happens here, at the same boundary toDomain() sits
                             // on. Assistant entries only; the session is this
@@ -373,7 +376,7 @@ class ConnectionRepositoryImpl(
                         // session, and each one is the whole transcript again.
                         // Conflated rather than written per frame — see the
                         // session-persistence block above.
-                        scheduleSessionSave(event.session)
+                        scheduleSessionSave(event.conversationId ?: currentConversationId, event.session)
                         // CONNECTED, session_sync and OUTPUT all carry the
                         // Host's plan, which is how a reconnect gets it back
                         // without waiting for the next `plan` frame. A snapshot
@@ -421,7 +424,9 @@ class ConnectionRepositoryImpl(
                         // Inline for the same reason as CONNECTED: OUTPUT ends
                         // a turn, so it is the durable checkpoint worth paying
                         // a write for, and there is one per turn.
-                        event.session?.let { session -> saveSessionForCurrentConversation(session) }
+                        event.session?.let { session ->
+                            saveSessionForConversation(event.conversationId ?: currentConversationId, session)
+                        }
                         _chatEvents.tryEmit(ChatEvent.OutputReceived(event.result, event.session?.toDomain()))
                     }
                     is ConnectionEvent.Waiting -> {
@@ -539,13 +544,25 @@ class ConnectionRepositoryImpl(
             conversationId == connection?.currentSession?.sessionId
         ) {
             FileLogger.i(LogTags.CONN_REPO, "switchSession: already on $conversationId, adopting it as the key")
+            val liveSession = connection?.currentSession
+            // Keep the connection's frame attribution in step with the
+            // repository even though this fast path keeps the socket open.
+            connection?.setSession(liveSession, conversationId)
             currentConversationId = conversationId
-            connection?.currentSession?.let { saveSessionForCurrentConversation(it) }
+            liveSession?.let { saveSessionForConversation(conversationId, it) }
             return
         }
-        currentConversationId = conversationId
+        // Stop reconnect/open activity before the suspendable session lookup;
+        // otherwise a pending rung can reopen the old session while B loads.
+        connection?.beginSessionSwitch()
         // Belongs to the conversation being left — a late subscriber must not
         // reconcile the new conversation against the previous one's history.
+        val session = try {
+            sessionFor(conversationId)
+        } catch (t: Throwable) {
+            connection?.abortSessionSwitch()
+            throw t
+        }
         _serverTranscript.value = null
         // So does the Host's answer to the CONNECT being left: it described that session, and the
         // new one's own CONNECTED has yet to arrive.
@@ -564,11 +581,20 @@ class ConnectionRepositoryImpl(
         _hostSessionStatus.value = ServerSessionStatus.UNKNOWN
         // Agent profile and dashboard deliberately survive: same agent, only
         // a different conversation with it.
-        val session = sessionFor(conversationId)
         // The plan is the left conversation's. The one coming in is its stored
         // plan: an idle session's CONNECTED carries no snapshot of its own.
         showStoredPlan(session)
-        connection?.switchSession(session, conversationId)
+        // Register the new session on the connection before publishing the
+        // new repository key. The switch barrier prevents a reconnect from
+        // opening during sessionFor(), and a synchronous CONNECTED from the
+        // replacement socket already carries this conversation id.
+        try {
+            connection?.switchSession(session, conversationId)
+            currentConversationId = conversationId
+        } catch (t: Throwable) {
+            connection?.abortSessionSwitch()
+            throw t
+        }
     }
 
     /** The plan [session] was saved with, or none — see SessionStateEntity.planJson. */

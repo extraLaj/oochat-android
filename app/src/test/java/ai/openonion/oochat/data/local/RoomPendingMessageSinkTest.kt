@@ -144,13 +144,41 @@ class RoomPendingMessageSinkTest {
         repeat(3) { i -> sink.enqueue(agent, session, "m-$i", null, listOf(file("f-$i.pdf", 1024))) }
 
         val remainingWhileDraining = mutableListOf<Int>()
-        sink.drain(agent, session, null) { remainingWhileDraining += db.pendingMessageDao().countForAgent(agent) }
+        sink.drain(agent, session, null) {
+            remainingWhileDraining += db.pendingMessageDao().countForAgent(agent)
+            true
+        }
 
         assertEquals(
             "the queue must shrink one message at a time as each is handed over",
             listOf(2, 1, 0),
             remainingWhileDraining
         )
+    }
+
+    @Test
+    fun `a rejected send keeps the row queued`() {
+        sink.enqueue(agent, session, "retry me", null, null)
+
+        sink.drain(agent, session, null) { false }
+
+        assertEquals(listOf("retry me"), sink.drainAll().map { it.prompt })
+    }
+
+    @Test
+    fun `a rejected first send stays before later messages`() {
+        sink.enqueue(agent, session, "first", null, null)
+        sink.enqueue(agent, session, "second", null, null)
+        sink.enqueue(agent, session, "third", null, null)
+
+        val attempted = mutableListOf<String>()
+        sink.drain(agent, session, null) {
+            attempted += it.prompt
+            false
+        }
+
+        assertEquals(listOf("first"), attempted)
+        assertEquals(listOf("first", "second", "third"), sink.drainAll().map { it.prompt })
     }
 
     @Test
