@@ -3,6 +3,8 @@ package ai.openonion.oochat.network
 import ai.openonion.oochat.util.FileLogger
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -90,5 +92,67 @@ class AgentDiscoveryServiceTest {
 
         assertEquals(upper, resolved.address)
         assertTrue("hex is case-insensitive", log.contains("Input is valid address"))
+    }
+
+    // -- A server's /info, from any form of its URL (W16AAPPLE-98) --
+
+    @Test
+    fun `a server's info is read over HTTP whatever form its URL was saved in`() {
+        assertEquals("https://agent.example.com/info", AgentDiscoveryService.infoUrl("https://agent.example.com"))
+        assertEquals("https://agent.example.com/info", AgentDiscoveryService.infoUrl("https://agent.example.com/"))
+        assertEquals("http://agent.example.com/info", AgentDiscoveryService.infoUrl("http://agent.example.com"))
+        // The socket forms: wss is TLS, ws is plain.
+        assertEquals("https://agent.example.com/info", AgentDiscoveryService.infoUrl("wss://agent.example.com"))
+        assertEquals("http://10.5.27.133:8797/info", AgentDiscoveryService.infoUrl("ws://10.5.27.133:8797"))
+    }
+
+    @Test
+    fun `the socket path the Host announces is dropped before info is added`() {
+        assertEquals("http://10.5.27.133:8797/info", AgentDiscoveryService.infoUrl("ws://10.5.27.133:8797/ws"))
+        assertEquals("http://10.5.27.133:8797/info", AgentDiscoveryService.infoUrl("ws://10.5.27.133:8797/ws/"))
+        assertEquals("https://example.com/agents/sam/info", AgentDiscoveryService.infoUrl("wss://example.com/agents/sam/ws"))
+        // Only a whole /ws segment: a path that merely ends in "ws" is kept.
+        assertEquals("https://example.com/news/info", AgentDiscoveryService.infoUrl("https://example.com/news"))
+    }
+
+    @Test
+    fun `the scheme is read in any case, and surrounding spaces are ignored`() {
+        assertEquals("https://agent.example.com/info", AgentDiscoveryService.infoUrl("  WSS://agent.example.com "))
+    }
+
+    @Test
+    fun `a ws server URL is resolved through its info, like an https one`() {
+        val server = MockWebServer().apply {
+            enqueue(MockResponse().setBody("""{"address":"$realAddress"}"""))
+            start()
+        }
+        try {
+            val url = "ws://${server.hostName}:${server.port}/ws"
+
+            val resolved = runBlocking { service.resolveAgentAddress(url) }
+
+            assertEquals(realAddress, resolved.address)
+            assertEquals(url, resolved.directUrl)
+            assertEquals("/info", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `info naming something other than an address leaves the URL unresolved`() {
+        val server = MockWebServer().apply {
+            enqueue(MockResponse().setBody("""{"address":"0xabc"}"""))
+            start()
+        }
+        try {
+            val url = "http://${server.hostName}:${server.port}"
+
+            val resolved = runBlocking { service.resolveAgentAddress(url) }
+
+            assertEquals("not taken as the agent: the Host would refuse it", url, resolved.address)
+        } finally {
+            server.shutdown()
+        }
     }
 }
