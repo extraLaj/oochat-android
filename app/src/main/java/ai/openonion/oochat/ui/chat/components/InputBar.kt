@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,10 +97,16 @@ fun InputBar(
     onVoiceTranscriptConsumed: () -> Unit = {},
     onQueryVoiceAmplitude: () -> Float = { 0f },
     onStop: () -> Unit = {},
+    draft: ChatComposerDraft = ChatComposerDraft(),
+    draftKey: String? = null,
+    onDraftChange: (ChatComposerDraft) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var input by remember { mutableStateOf(TextFieldValue("")) }
+    val initialDraft = remember(draftKey) { draft }
+    var input by remember(draftKey) {
+        mutableStateOf(TextFieldValue(initialDraft.text, TextRange(initialDraft.text.length)))
+    }
     // One cap across images *and* files, not one each. The modern photo picker
     // enforces it in its own UI; the gallery and document fallbacks cannot —
     // they let you select fifty — so they are truncated on the way back, and
@@ -124,8 +131,14 @@ fun InputBar(
         }
         return existing + incoming
     }
-    var attachedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var attachedFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var attachedImages by remember(draftKey) {
+        mutableStateOf(initialDraft.imageUris.mapNotNull { it.takeIf(String::isNotBlank)?.let(Uri::parse) })
+    }
+    var attachedFiles by remember(draftKey) {
+        mutableStateOf(initialDraft.files.mapNotNull { file ->
+            file.uri.takeIf(String::isNotBlank)?.let { PickedFile(Uri.parse(it), file.name) }
+        })
+    }
     // Null when no dictation is running. Held here, not in the ViewModel, because
     // the field's text is here — see [DictationAnchor].
     var dictationAnchor by remember { mutableStateOf<DictationAnchor?>(null) }
@@ -137,6 +150,34 @@ fun InputBar(
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var showModeSheet by remember { mutableStateOf(false) }
     val fieldInteractionSource = remember { MutableInteractionSource() }
+    val latestOnDraftChange by rememberUpdatedState(onDraftChange)
+
+    fun makeDraft(
+        text: String = input.text,
+        images: List<Uri> = attachedImages,
+        files: List<PickedFile> = attachedFiles
+    ) = ChatComposerDraft(
+        text = text,
+        imageUris = images.map(Uri::toString),
+        files = files.map { ChatComposerFile(it.uri.toString(), it.name) }
+    )
+
+    fun publishDraft(
+        text: String = input.text,
+        images: List<Uri> = attachedImages,
+        files: List<PickedFile> = attachedFiles
+    ) {
+        latestOnDraftChange(makeDraft(text, images, files))
+    }
+
+    LaunchedEffect(draftKey, draft) {
+        if (makeDraft() == draft) return@LaunchedEffect
+        input = TextFieldValue(draft.text, TextRange(draft.text.length))
+        attachedImages = draft.imageUris.mapNotNull { it.takeIf(String::isNotBlank)?.let(Uri::parse) }
+        attachedFiles = draft.files.mapNotNull { file ->
+            file.uri.takeIf(String::isNotBlank)?.let { PickedFile(Uri.parse(it), file.name) }
+        }
+    }
 
     // Text is required even with attachments staged: the relay rejects any
     // INPUT with an empty prompt regardless of images/files, in both the
@@ -171,13 +212,17 @@ fun InputBar(
         input = TextFieldValue("")
         attachedImages = emptyList()
         attachedFiles = emptyList()
+        publishDraft(text = "", images = emptyList(), files = emptyList())
     }
 
     // Every update is recomputed from the anchor, so a stream of partials
     // replaces its own last guess instead of appending each one.
     LaunchedEffect(voiceInput.transcript, voiceInput.phase) {
         val anchor = dictationAnchor ?: return@LaunchedEffect
-        DictationMerge.merge(anchor, voiceInput.transcript)?.let { input = it }
+        DictationMerge.merge(anchor, voiceInput.transcript)?.let {
+            input = it
+            publishDraft(text = it.text)
+        }
         if (!voiceInput.isBusy) {
             dictationAnchor = null
             onVoiceTranscriptConsumed()
@@ -194,7 +239,10 @@ fun InputBar(
     ) { uris ->
         if (uris.isNotEmpty()) {
             val fresh = uris.filterNot(attachedImages::contains)
-            accepted(attachedImages, fresh, attachedFiles.size)?.let { attachedImages = it }
+            accepted(attachedImages, fresh, attachedFiles.size)?.let {
+                attachedImages = it
+                publishDraft(images = it)
+            }
         }
     }
 
@@ -204,7 +252,10 @@ fun InputBar(
     ) { uris ->
         if (uris.isNotEmpty()) {
             val fresh = uris.filterNot(attachedImages::contains)
-            accepted(attachedImages, fresh, attachedFiles.size)?.let { attachedImages = it }
+            accepted(attachedImages, fresh, attachedFiles.size)?.let {
+                attachedImages = it
+                publishDraft(images = it)
+            }
         }
     }
 
@@ -213,7 +264,10 @@ fun InputBar(
     ) { uris ->
         if (uris.isNotEmpty()) {
             val fresh = uris.filterNot(attachedImages::contains)
-            accepted(attachedImages, fresh, attachedFiles.size)?.let { attachedImages = it }
+            accepted(attachedImages, fresh, attachedFiles.size)?.let {
+                attachedImages = it
+                publishDraft(images = it)
+            }
         }
     }
 
@@ -255,7 +309,10 @@ fun InputBar(
         if (success && uri != null) {
             // The camera adds one, but it still has to fit the same budget.
             accepted(attachedImages, listOf(uri).filterNot(attachedImages::contains), attachedFiles.size)
-                ?.let { attachedImages = it }
+                ?.let {
+                    attachedImages = it
+                    publishDraft(images = it)
+                }
         }
         pendingCameraUri = null
     }
@@ -284,7 +341,10 @@ fun InputBar(
             // OpenMultipleDocuments has no built-in cap, so it is applied here
             // after merging with whatever was already picked.
             val fresh = picked.filterNot { p -> attachedFiles.any { it.uri == p.uri } }
-            accepted(attachedFiles, fresh, attachedImages.size)?.let { attachedFiles = it }
+            accepted(attachedFiles, fresh, attachedImages.size)?.let {
+                attachedFiles = it
+                publishDraft(files = it)
+            }
         }
     }
 
@@ -361,7 +421,11 @@ fun InputBar(
                 itemsIndexed(attachedImages, key = { _, it -> it.toString() }) { index, uri ->
                     AttachmentThumbnail(
                         uri = uri,
-                        onRemove = { attachedImages = attachedImages - uri },
+                        onRemove = {
+                            val next = attachedImages - uri
+                            attachedImages = next
+                            publishDraft(images = next)
+                        },
                         index = index,
                         total = attachedImages.size
                     )
@@ -377,7 +441,11 @@ fun InputBar(
                 itemsIndexed(attachedFiles, key = { _, it -> "file-${it.uri}" }) { _, file ->
                     AttachmentFileChip(
                         name = file.name,
-                        onRemove = { attachedFiles = attachedFiles - file }
+                        onRemove = {
+                            val next = attachedFiles - file
+                            attachedFiles = next
+                            publishDraft(files = next)
+                        }
                     )
                 }
             }
@@ -420,6 +488,7 @@ fun InputBar(
             onSelect = {
                 val completed = SlashCommandMatcher.completion(it)
                 input = TextFieldValue(completed, TextRange(completed.length))
+                publishDraft(text = completed)
             }
         )
 
@@ -430,6 +499,7 @@ fun InputBar(
                     DictationMerge.onFieldChanged(it, input.text, edited.text)
                 }
                 input = edited
+                publishDraft(text = edited.text)
             },
             isConnected = isConnected,
             awaitingOnboardCode = awaitingOnboardCode,

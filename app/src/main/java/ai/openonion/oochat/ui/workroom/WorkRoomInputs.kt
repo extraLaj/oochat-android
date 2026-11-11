@@ -43,7 +43,7 @@ internal class WorkRoomInputs(
 ) {
     private val _drafts = MutableStateFlow<Map<String, WorkRoomDraft>>(emptyMap())
 
-    /** Each room's draft, by invocation id. A room with none typed has no entry. */
+    /** Each room's draft, by the key supplied by its owner. A room with none typed has no entry. */
     val drafts: StateFlow<Map<String, WorkRoomDraft>> = _drafts.asStateFlow()
 
     /**
@@ -58,8 +58,8 @@ internal class WorkRoomInputs(
         var timeout: Job? = null
     }
 
-    fun edit(invocationId: String, text: String) {
-        update(invocationId) { draft ->
+    fun edit(roomKey: String, text: String) {
+        update(roomKey) { draft ->
             // Locked while sending: the text on screen is the text that went out.
             if (draft.sending) draft else draft.copy(text = text.take(ProviderInputMessage.MAX_TEXT_LENGTH))
         }
@@ -70,30 +70,30 @@ internal class WorkRoomInputs(
      * nothing while a send is waiting, or with nothing typed; [blockedReason]
      * says when the run cannot take a message at all.
      */
-    fun send(run: ChatItem.ProviderInvocation) {
-        val draft = _drafts.value[run.id] ?: return
+    fun send(run: ChatItem.ProviderInvocation, roomKey: String = run.id) {
+        val draft = _drafts.value[roomKey] ?: return
         if (draft.sending || draft.text.isBlank()) return
         blockedReason(run)?.let { reason ->
-            update(run.id) { it.copy(error = reason) }
+            update(roomKey) { it.copy(error = reason) }
             return
         }
         val revision = run.stateRevision ?: return
         val pending = Awaiting(newRequestId(), draft.text)
-        awaiting[run.id]?.timeout?.cancel()
-        awaiting[run.id] = pending
-        update(run.id) { it.copy(sending = true, error = null) }
+        awaiting[roomKey]?.timeout?.cancel()
+        awaiting[roomKey] = pending
+        update(roomKey) { it.copy(sending = true, error = null) }
         pending.timeout = scope.launch {
             val wentOut = send(ProviderInput(run.id, revision, pending.text, pending.requestId))
-            if (awaiting[run.id] !== pending) return@launch
+            if (awaiting[roomKey] !== pending) return@launch
             if (!wentOut) {
-                awaiting.remove(run.id)
-                update(run.id) { it.copy(sending = false, error = WorkRoomText.INPUT_NOT_CONNECTED) }
+                awaiting.remove(roomKey)
+                update(roomKey) { it.copy(sending = false, error = WorkRoomText.INPUT_NOT_CONNECTED) }
                 return@launch
             }
             delay(ackTimeoutMs)
-            if (awaiting[run.id] === pending && _drafts.value[run.id]?.sending == true) {
+            if (awaiting[roomKey] === pending && _drafts.value[roomKey]?.sending == true) {
                 FileLogger.w(LogTags.CHAT_VM, "No PROVIDER_INPUT_ACK for ${pending.requestId.take(8)} in ${ackTimeoutMs}ms")
-                update(run.id) { it.copy(sending = false, error = WorkRoomText.INPUT_NO_ANSWER) }
+                update(roomKey) { it.copy(sending = false, error = WorkRoomText.INPUT_NO_ANSWER) }
             }
         }
     }
@@ -117,10 +117,20 @@ internal class WorkRoomInputs(
         }
     }
 
-    private fun update(invocationId: String, change: (WorkRoomDraft) -> WorkRoomDraft) {
+    /** Forget rooms that belong to a deleted or cleared conversation. */
+    fun discardMatching(matches: (String) -> Boolean) {
+        awaiting.entries.removeAll { (key, pending) ->
+            if (!matches(key)) return@removeAll false
+            pending.timeout?.cancel()
+            true
+        }
+        _drafts.update { all -> all.filterKeys { !matches(it) } }
+    }
+
+    private fun update(roomKey: String, change: (WorkRoomDraft) -> WorkRoomDraft) {
         _drafts.update { all ->
-            val next = change(all[invocationId] ?: WorkRoomDraft())
-            if (next == WorkRoomDraft()) all - invocationId else all + (invocationId to next)
+            val next = change(all[roomKey] ?: WorkRoomDraft())
+            if (next == WorkRoomDraft()) all - roomKey else all + (roomKey to next)
         }
     }
 

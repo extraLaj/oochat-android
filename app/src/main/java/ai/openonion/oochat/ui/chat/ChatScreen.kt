@@ -5,6 +5,7 @@ import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
 import ai.openonion.oochat.ui.chat.components.ApprovalNotificationOffer
+import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.chat.components.ChatTopBar
 import ai.openonion.oochat.ui.chat.components.FailedMessagesBar
 import ai.openonion.oochat.ui.chat.components.InputBar
@@ -126,6 +127,7 @@ fun ChatScreen(
     val modePending by viewModel.modePending.collectAsState()
     val sessionModes by viewModel.sessionModes.collectAsState()
     val sessionActivity by viewModel.sessionActivity.collectAsState()
+    val chatComposerDrafts by viewModel.chatComposerDrafts.collectAsState()
     val availableTools = agentProfile?.tools.orEmpty()
 
     val dashboardHtml by viewModel.dashboardHtml.collectAsState()
@@ -378,6 +380,10 @@ fun ChatScreen(
                 renderMarkdown = renderMarkdown,
                 hasLiveConnection = hasLiveConnection,
                 conversationKey = activeSessionId,
+                scrollPosition = viewModel.messageListScrollPosition(activeSessionId),
+                onScrollPositionChanged = { position ->
+                    viewModel.updateMessageListScrollPosition(activeSessionId, position)
+                },
                 hasOlderMessages = hasOlderMessages,
                 onLoadOlderMessages = viewModel::loadOlderMessages,
                 onOpenWorkRoom = onNavigateToWorkRoom,
@@ -441,6 +447,9 @@ fun ChatScreen(
                 onCycleApprovalMode = viewModel::cycleApprovalMode,
                 onSelectApprovalMode = viewModel::setApprovalMode,
                 isAgentWorking = isAgentWorking,
+                draft = chatComposerDrafts[activeSessionId] ?: ChatComposerDraft(),
+                draftKey = activeSessionId,
+                onDraftChange = { viewModel.updateChatComposerDraft(activeSessionId, it) },
                 onSend = { text, images, files ->
                     if (hapticFeedbackEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     if (soundEffectsEnabled) SoundEffectPlayer.playSent()
@@ -537,6 +546,9 @@ private fun ChatInput(
     onCycleApprovalMode: () -> Unit,
     onSelectApprovalMode: (ApprovalMode, Int?) -> Unit,
     onSend: (String, List<String>, List<String>) -> Unit,
+    draft: ChatComposerDraft,
+    draftKey: String?,
+    onDraftChange: (ChatComposerDraft) -> Unit,
     voiceInput: VoiceInputState,
     onStartVoiceRecording: () -> Unit,
     onCancelVoiceRecording: () -> Unit,
@@ -562,6 +574,9 @@ private fun ChatInput(
             onCycleApprovalMode = onCycleApprovalMode,
             onSelectApprovalMode = onSelectApprovalMode,
             isAgentWorking = isAgentWorking,
+            draft = draft,
+            draftKey = draftKey,
+            onDraftChange = onDraftChange,
             onSend = onSend,
             voiceInput = voiceInput,
             onStartVoiceRecording = onStartVoiceRecording,

@@ -56,6 +56,7 @@ import ai.openonion.oochat.network.OFFLINE_GRACE_MS
 import ai.openonion.oochat.network.RecognizerReadiness
 import ai.openonion.oochat.network.SpeechRecognitionEvent
 import ai.openonion.oochat.network.offlineSustainedFor
+import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.chat.components.VoiceInputPhase
 import ai.openonion.oochat.ui.chat.components.VoiceInputState
 import ai.openonion.oochat.ui.common.launchScoped
@@ -71,6 +72,7 @@ import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
+import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
 import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
@@ -285,8 +287,73 @@ open class ChatViewModel @JvmOverloads constructor(
     // the room's own screen, so a draft outlives leaving the room.
     private val workRoomInputs = WorkRoomInputs(viewModelScope, send = { connectUseCase.sendProviderInput(it) })
 
-    /** Each Work Room's draft and send state, by invocation id. */
+    /** Each Work Room's draft and send state, by conversation-and-invocation key. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
+
+    // Keep Work Room viewports by conversation and run.
+    private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
+
+    private val _chatComposerDrafts = MutableStateFlow<Map<String, ChatComposerDraft>>(emptyMap())
+
+    /** Each conversation's unsent chat composer state. */
+    val chatComposerDrafts: StateFlow<Map<String, ChatComposerDraft>> = _chatComposerDrafts.asStateFlow()
+
+    /** Return the saved chat draft. */
+    fun chatComposerDraft(sessionId: String?): ChatComposerDraft =
+        sessionId?.let { _chatComposerDrafts.value[it] } ?: ChatComposerDraft()
+
+    /** Save the chat draft for a conversation. */
+    fun updateChatComposerDraft(sessionId: String?, draft: ChatComposerDraft) {
+        if (sessionId.isNullOrBlank()) return
+        _chatComposerDrafts.update { all ->
+            if (draft == ChatComposerDraft()) all - sessionId else all + (sessionId to draft)
+        }
+    }
+
+    // Keep chat viewports by conversation.
+    private val messageListScrollPositions = mutableMapOf<String, MessageListScrollPosition>()
+
+    /** Return the saved chat viewport. */
+    fun messageListScrollPosition(sessionId: String?): MessageListScrollPosition = synchronized(messageListScrollPositions) {
+        sessionId?.let(messageListScrollPositions::get) ?: MessageListScrollPosition()
+    }
+
+    /** Save the chat viewport. */
+    fun updateMessageListScrollPosition(sessionId: String?, position: MessageListScrollPosition) {
+        if (sessionId.isNullOrBlank()) return
+        val normalised = position.normalised()
+        synchronized(messageListScrollPositions) {
+            if (messageListScrollPositions[sessionId] != normalised) {
+                messageListScrollPositions[sessionId] = normalised
+            }
+        }
+    }
+
+    /** Return the saved viewport for a run. */
+    fun workRoomScrollPosition(invocationId: String): WorkRoomScrollPosition = synchronized(workRoomScrollPositions) {
+        workRoomScrollPositions[workRoomKey(invocationId)] ?: WorkRoomScrollPosition()
+    }
+
+    /** Save the viewport for a run. */
+    fun updateWorkRoomScrollPosition(invocationId: String, position: WorkRoomScrollPosition) {
+        if (invocationId.isBlank()) return
+        val key = workRoomKey(invocationId)
+        val normalised = position.normalised()
+        synchronized(workRoomScrollPositions) {
+            if (workRoomScrollPositions[key] != normalised) {
+                workRoomScrollPositions[key] = normalised
+            }
+        }
+    }
+
+    /** Return the draft belonging to the active conversation's Work Room. */
+    fun workRoomDraft(
+        invocationId: String,
+        drafts: Map<String, WorkRoomDraft> = workRoomDrafts.value
+    ): WorkRoomDraft = drafts[workRoomKey(invocationId)] ?: WorkRoomDraft()
+
+    private fun workRoomKey(invocationId: String): String =
+        "${activeSessionId.value.orEmpty()}\u0000$invocationId"
 
     // The streaming toggle only filters in-progress items from what's
     // exposed; the wire protocol has no token-level streaming to actually
@@ -2096,6 +2163,17 @@ open class ChatViewModel @JvmOverloads constructor(
     fun deleteSession(sessionId: String) {
         launchScoped {
             if (conversationHistory.deleteSession(sessionId)) {
+                val workRoomKeyPrefix = "${sessionId}\u0000"
+                workRoomInputs.discardMatching { it.startsWith(workRoomKeyPrefix) }
+                synchronized(workRoomScrollPositions) {
+                    workRoomScrollPositions.keys
+                        .filter { it.startsWith(workRoomKeyPrefix) }
+                        .forEach(workRoomScrollPositions::remove)
+                }
+                _chatComposerDrafts.update { it - sessionId }
+                synchronized(messageListScrollPositions) {
+                    messageListScrollPositions.remove(sessionId)
+                }
                 _uiState.update { it.copy(chatItems = emptyList()) }
                 // Deleting the open conversation starts a fresh one in its
                 // place; the connection follows it onto that one's session.
@@ -3073,7 +3151,7 @@ open class ChatViewModel @JvmOverloads constructor(
      */
     /** Typing in the Work Room for [invocationId]. */
     fun editWorkRoomDraft(invocationId: String, text: String) {
-        workRoomInputs.edit(invocationId, text)
+        workRoomInputs.edit(workRoomKey(invocationId), text)
     }
 
     /**
@@ -3085,7 +3163,7 @@ open class ChatViewModel @JvmOverloads constructor(
         val run = _uiState.value.chatItems
             .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
             ?: return
-        workRoomInputs.send(run)
+        workRoomInputs.send(run, workRoomKey(invocationId))
     }
 
     fun respond(itemId: String, answer: String) {
@@ -3375,6 +3453,8 @@ open class ChatViewModel @JvmOverloads constructor(
     fun clearChat() {
         launchScoped {
             connectUseCase.reset()
+            val clearedSessionId = activeSessionId.value
+            val scrollKeyPrefix = "${clearedSessionId.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the
             // UI. Awaiting (rather than fire-and-forget) means a
@@ -3388,6 +3468,18 @@ open class ChatViewModel @JvmOverloads constructor(
             // preview/count for this conversation reflects the clear.
             conversationHistory.clearActiveSession()
             clearExecItems()
+            synchronized(workRoomScrollPositions) {
+                workRoomScrollPositions.keys
+                    .filter { it.startsWith(scrollKeyPrefix) }
+                    .forEach(workRoomScrollPositions::remove)
+            }
+            workRoomInputs.discardMatching { it.startsWith(scrollKeyPrefix) }
+            if (clearedSessionId != null) {
+                _chatComposerDrafts.update { it - clearedSessionId }
+                synchronized(messageListScrollPositions) {
+                    messageListScrollPositions.remove(clearedSessionId)
+                }
+            }
             _uiState.update { it.copy(chatItems = emptyList()) }
         }
     }

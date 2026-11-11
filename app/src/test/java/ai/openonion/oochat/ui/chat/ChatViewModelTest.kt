@@ -68,6 +68,7 @@ import ai.openonion.oochat.ui.controlcenter.ControlCenterConnection
 import ai.openonion.oochat.ui.controlcenter.ControlCenterConversation
 import ai.openonion.oochat.ui.controlcenter.ControlCenterSkill
 import ai.openonion.oochat.ui.controlcenter.controlCenterSkillMessage
+import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.SensitiveText
 import ai.openonion.oochat.util.stringField
@@ -2853,12 +2854,12 @@ class ChatViewModelTest {
         assertEquals("codex:call-1", sent.invocationId)
         assertEquals("the newest revision the screen holds", 4L, sent.stateRevision)
         assertEquals("Use the existing auth helper", sent.text)
-        assertEquals(true, vm.workRoomDrafts.value["codex:call-1"]?.sending)
+        assertEquals(true, vm.workRoomDraft("codex:call-1").sending)
 
         connectUseCase.emit(ChatEvent.ProviderInputAcked(ProviderInputAck(sent.requestId, "codex:call-1", accepted = true, stateRevision = 4)))
         testScheduler.runCurrent()
 
-        assertNull(vm.workRoomDrafts.value["codex:call-1"])
+        assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
     }
 
     @Test
@@ -2881,11 +2882,38 @@ class ChatViewModelTest {
         )
         testScheduler.runCurrent()
 
-        val draft = vm.workRoomDrafts.value.getValue("codex:call-1")
+        val draft = vm.workRoomDraft("codex:call-1")
         assertEquals("Use the existing auth helper", draft.text)
         assertEquals(false, draft.sending)
         assertEquals(WorkRoomText.inputRefused("not_active"), draft.error)
         assertEquals("the chat is not touched", listOf("codex:call-1"), vm.uiState.value.chatItems.map { it.id })
+    }
+
+    @Test
+    fun `Work Room drafts with the same invocation id stay with their conversation`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+
+        vm.sendMessage("conversation A")
+        testScheduler.runCurrent()
+        val sessionA = vm.activeSessionId.value!!
+        vm.editWorkRoomDraft("codex:call-1", "draft for A")
+
+        vm.startNewSession()
+        testScheduler.runCurrent()
+        vm.sendMessage("conversation B")
+        testScheduler.runCurrent()
+        assertNotEquals(sessionA, vm.activeSessionId.value)
+        assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
+
+        vm.editWorkRoomDraft("codex:call-1", "draft for B")
+        vm.switchToSession(sessionA)
+        testScheduler.runCurrent()
+
+        assertEquals("draft for A", vm.workRoomDraft("codex:call-1").text)
     }
 
     @Test

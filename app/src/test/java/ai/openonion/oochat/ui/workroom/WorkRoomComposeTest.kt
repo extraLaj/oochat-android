@@ -8,15 +8,21 @@ import ai.openonion.oochat.ui.chat.components.ChatItemBubble
 import ai.openonion.oochat.ui.chat.components.WorkRoomCard
 import ai.openonion.oochat.ui.navigation.Routes
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextReplacement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -138,6 +144,68 @@ class WorkRoomComposeTest {
     @Test
     fun `the room's route carries an invocation id with its colon`() {
         assertEquals("work_room/codex%3Acall-1", Routes.workRoom("codex:call-1"))
+    }
+
+    @Test
+    fun `the Work Room restores its viewport after leaving and reopening`() {
+        val manySteps = running.copy(
+            activities = (1..12).map { step ->
+                ProviderActivity(
+                    id = "step-$step",
+                    sequence = step,
+                    kind = "command",
+                    status = ProviderActivityStatus.COMPLETED,
+                    title = "Step $step",
+                    summary = "Completed step $step"
+                )
+            }
+        )
+        var room by mutableStateOf(manySteps)
+        var showing by mutableStateOf(true)
+        var savedPosition by mutableStateOf(WorkRoomScrollPosition())
+
+        composeRule.setContent {
+            ConnectOnionTheme {
+                if (showing) {
+                    WorkRoomScreen(
+                        run = room,
+                        onNavigateBack = {},
+                        scrollPosition = savedPosition,
+                        onScrollPositionChanged = { savedPosition = it }
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag(WORK_ROOM_TRANSCRIPT_TAG).performScrollToIndex(8)
+        composeRule.waitForIdle()
+        val beforeLeaving = savedPosition
+        assertTrue("the list must have moved before leaving", beforeLeaving.firstVisibleItemIndex > 0)
+        assertTrue("the viewport must record a stable item key", beforeLeaving.firstVisibleItemKey != null)
+
+        composeRule.runOnIdle { showing = false }
+        composeRule.waitForIdle()
+        room = manySteps.copy(
+            activities = listOf(
+                ProviderActivity(
+                    id = "inserted-before-reopen",
+                    sequence = 0,
+                    kind = "command",
+                    status = ProviderActivityStatus.COMPLETED,
+                    title = "Inserted step",
+                    summary = "Arrived while chat was showing"
+                )
+            ) + manySteps.activities
+        )
+        composeRule.runOnIdle { showing = true }
+        composeRule.waitForIdle()
+
+        assertEquals(
+            "reopening must keep the same item anchored after an insertion",
+            beforeLeaving.firstVisibleItemKey,
+            savedPosition.firstVisibleItemKey
+        )
+        composeRule.onNodeWithText("Step 8").assertIsDisplayed()
     }
 
     @Test
