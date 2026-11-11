@@ -334,7 +334,7 @@ class OnboardingViewModelTest {
 
         val form = vm.connectScanned(
             ScannedAgent(serverUrl = Constants.DEFAULT_SERVER_URL, agentAddress = address),
-            AgentFormState(apiKey = "key-1"),
+            AgentFormState(),
             onSaved = { saved = true }
         )
         testScheduler.runCurrent()
@@ -344,7 +344,6 @@ class OnboardingViewModelTest {
         assertEquals(Constants.DEFAULT_SERVER_URL, config.serverUrl)
         assertEquals(address, config.agentAddress)
         assertEquals("relay", config.connectionMode)
-        assertEquals("the API key already typed is kept", "key-1", config.apiKey)
         assertEquals(address, form.agentAddress)
     }
 

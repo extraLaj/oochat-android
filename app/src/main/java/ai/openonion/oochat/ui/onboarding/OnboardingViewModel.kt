@@ -115,8 +115,8 @@ class OnboardingViewModel @JvmOverloads constructor(
 
     /**
      * Setup's form with the scanned [agent] in it, already connecting (W16AAPPLE-111): a code that
-     * names an agent says all there is to say, so there is no Connect to tap. The rest of [form]
-     * (the API key) is kept, and a server the code names other than the default relay is dialled
+     * names an agent says all there is to say, so there is no Connect to tap. The scanned server
+     * and address replace the corresponding form values, and a non-default server is dialled
      * direct, as when it is typed. [connect] still checks it; one it refuses stays in the form
      * returned, with the reason in [errorMessage], for the user to correct and Connect by hand.
      */
