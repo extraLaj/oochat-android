@@ -6,6 +6,7 @@ import ai.openonion.oochat.util.LogTags
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -66,7 +67,14 @@ internal fun OpenNotificationTarget(
         navController.navigate(notificationChatRoute(tapped)) {
             popUpTo(chat) { inclusive = true }
         }
-        tapped.invocationId?.let { navController.navigate(Routes.workRoom(it)) }
+        tapped.invocationId?.let { invocationId ->
+            // The Work Room reads its run from the chat under it, which loads the
+            // conversation only once it is on screen: covered at once, it never would.
+            navController.currentBackStackEntry?.lifecycle?.currentStateFlow?.let { state ->
+                withTimeoutOrNull(CHAT_SHOWN_WAIT_MS) { state.first { it.isAtLeast(Lifecycle.State.RESUMED) } }
+            }
+            navController.navigate(Routes.workRoom(invocationId))
+        }
         onHandled()
     }
 }
@@ -76,6 +84,9 @@ internal fun OpenNotificationTarget(
  * chat or on the error screen; this only bounds one that never does.
  */
 private const val LOADING_WAIT_MS = 60_000L
+
+/** How long a Work Room tap waits for its chat to show before opening the room anyway. */
+private const val CHAT_SHOWN_WAIT_MS = 5_000L
 
 /** The chat route on the back stack, or null while there is none yet (Loading, Onboarding). */
 private fun chatEntryRoute(navController: NavHostController): String? =
