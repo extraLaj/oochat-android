@@ -26,8 +26,8 @@ manually** and paste it. An address is `0x` followed by 64 hex characters.
 **Or scan a QR code.** The QR button in the top right opens the camera. It reads
 the code behind the **Share** button on chat.openonion.ai, a code that holds just
 the address, `connectonion://agent/0x…`, and `https://your-server/0x…` for an
-agent on a server of its own. A code it understands fills the form below, and
-**Connect** goes in. Any other QR code is refused with a message above the
+agent on a server of its own. A code it understands connects straight away:
+there is nothing to tap. Any other QR code is refused with a message above the
 Connect button, and the form stays as it was. The camera only reads the code:
 nothing is recorded or uploaded. To make a code for your own agent, put its
 address into any QR generator.
@@ -39,10 +39,12 @@ yourself, and it asks for that agent's own URL instead of the relay's.
 
 ### If the agent asks for an invite code
 
-<img src="screenshots/invite-code-gate.png" alt="A screen headed Onboarding required, explaining that this agent needs an invite code or payment, with a Continue to Onboarding button" width="300">
+<img src="screenshots/invite-code-gate.png" alt="The connecting screen headed Onboarding required, saying this agent needs an invite code or payment before you can chat and that it is taking you there now" width="300">
 
-Some agents are not open to everyone. Tap **Continue to Onboarding** and enter
-the code you were given. Nothing is charged without asking you first.
+Some agents are not open to everyone. The connecting screen says so for a
+moment, then takes you to the chat, where a card asks for the code you were
+given. Enter it and tap **Redeem code**. Nothing is charged without asking you
+first.
 
 ---
 

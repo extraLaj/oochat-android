@@ -121,7 +121,7 @@ disagree: app dark on a light phone, and app light on a dark phone. Do it once a
 
 | Screen | Look for |
 |---|---|
-| Setup and Loading, including the invite-code gate | The "Redeem code" and "Continue to Onboarding" buttons are the brand green, the gate card is a warm grey, no stray blue |
+| Setup and Loading, including the invite-code gate | The "Redeem code" button is the brand green, the gate card is a warm grey, no stray blue |
 | Chat | Bubbles are 8dp with a small tail, the composer is a field and not a pill, the Stop and approval-mode chips read as buttons, captions are legible on every surface |
 | Chat tabs (phone) | The Chat and Dashboard or Control Center tabs sit under the status bar with no gap, the selected one is clear, switching keeps the draft |
 | Dashboard | The page is dark in dark mode, including one that has no dark styles of its own; cards are legible; flipping the theme reloads it |

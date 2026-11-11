@@ -1,5 +1,6 @@
 package ai.openonion.oochat.ui.onboarding
 
+import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
 import ai.openonion.oochat.data.local.CONNECTION_MODE_RELAY
 import ai.openonion.oochat.data.local.ConnectionConfig
@@ -112,6 +113,23 @@ class OnboardingViewModel @JvmOverloads constructor(
             null
         }
         return agent
+    }
+
+    /**
+     * Setup's form with the scanned [agent] in it, already connecting (W16AAPPLE-111): a code that
+     * names an agent says all there is to say, so there is no Connect to tap. The rest of [form]
+     * (the API key) is kept, and a server the code names other than the default relay is dialled
+     * direct, as when it is typed. [connect] still checks it; one it refuses stays in the form
+     * returned, with the reason in [errorMessage], for the user to correct and Connect by hand.
+     */
+    internal fun connectScanned(agent: ScannedAgent, form: AgentFormState, onSaved: () -> Unit): AgentFormState {
+        val scanned = form.copy(
+            serverUrl = agent.serverUrl,
+            agentAddress = agent.agentAddress,
+            useDirectConnection = !Constants.isDefaultServerUrl(agent.serverUrl)
+        )
+        connect(scanned, onSaved)
+        return scanned
     }
 
     private fun validate(trimmedUrl: String, trimmedAddress: String): String? = when {

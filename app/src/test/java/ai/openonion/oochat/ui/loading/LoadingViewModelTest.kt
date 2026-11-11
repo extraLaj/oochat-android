@@ -38,7 +38,8 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class LoadingViewModelTest {
 
-    private class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
+    // Internal, not private: LoadingScreenComposeTest drives the screen with the same fakes.
+    internal class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
         val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
         override val connectionState: StateFlow<ConnectionState> = _connectionState
         override val agentProfile: StateFlow<ai.openonion.oochat.domain.model.AgentLiveProfile?> =
@@ -46,6 +47,7 @@ class LoadingViewModelTest {
         override val dashboardHtml: StateFlow<String?> = MutableStateFlow(null)
 
         var connectResult: Boolean = true
+        override var lastConnectNeedsOnboarding: Boolean = false
         var connectInvocations = 0
         var lastAddress: String? = null
         var lastDirectUrl: String? = null
@@ -108,7 +110,7 @@ class LoadingViewModelTest {
         override suspend fun reset() { resetCount++ }
     }
 
-    private class FakeConnectionConfigRepository : ConnectionConfigRepository {
+    internal class FakeConnectionConfigRepository : ConnectionConfigRepository {
         var config: ConnectionConfig? = ConnectionConfig(
             serverUrl = "https://relay.example.com",
             agentAddress = "0xabc123"
@@ -243,7 +245,7 @@ class LoadingViewModelTest {
     }
 
     @Test
-    fun `an ONBOARD_REQUIRED chat event wins the race and abandons connect()`() = runTest(testDispatcher) {
+    fun `an ONBOARD_REQUIRED chat event wins the race, abandons connect() and moves on by itself`() = runTest(testDispatcher) {
         // connect() never resolves on its own — only the event flow can
         // produce a terminal outcome here, proving the race is driven by
         // the event, not by connect() eventually returning.
@@ -258,10 +260,63 @@ class LoadingViewModelTest {
 
         assertEquals(LoadingOutcome.ONBOARD_REQUIRED, viewModel.uiState.value.outcome)
         assertEquals(1.0f, viewModel.uiState.value.progress)
-        assertTrue(
-            "no Failed/Cancelled event should fire when onboarding is required",
-            events.isEmpty()
-        )
+        // Straight on to the invite-code card, with no "Continue" tap to wait
+        // for (W16AAPPLE-111), and no Failed/Cancelled alongside it.
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `connect() returning because of an invite-code request still goes on with it pending`() = runTest(testDispatcher) {
+        // ConnectToAgentUseCase treats ONBOARD_REQUIRED as success too. Here
+        // its connect() returns before this screen's own listener saw the
+        // event (W16AAPPLE-111): the chat must still be told a code is pending.
+        connectUseCase.connectResult = true
+        connectUseCase.onConnect = { connectUseCase.lastConnectNeedsOnboarding = true }
+        val events = mutableListOf<LoadingEvent>()
+        val collectJob = launch { viewModel.events.toList(events) }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(LoadingOutcome.ONBOARD_REQUIRED, viewModel.uiState.value.outcome)
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `connect() that emits the invite-code request and then returns still goes on with it pending`() = runTest(testDispatcher) {
+        connectUseCase.connectResult = true
+        connectUseCase.onConnect = {
+            connectUseCase.emitOnboardRequired()
+            connectUseCase.lastConnectNeedsOnboarding = true
+        }
+        val events = mutableListOf<LoadingEvent>()
+        val collectJob = launch { viewModel.events.toList(events) }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `a Cancel after the invite-code prompt changes nothing`() = runTest(testDispatcher) {
+        // The screen is already on its way to the invite-code card; a late
+        // Cancel must not also send it back to Setup or drop the connection.
+        connectUseCase.suspendConnectForever = true
+        connectUseCase.onConnect = { connectUseCase.emitOnboardRequired() }
+        val events = mutableListOf<LoadingEvent>()
+        val collectJob = launch { viewModel.events.toList(events) }
+        viewModel.start()
+        advanceUntilIdle()
+
+        viewModel.cancel()
+        advanceUntilIdle()
+
+        assertEquals(listOf<LoadingEvent>(LoadingEvent.OnboardRequired), events.toList())
+        assertEquals(0, connectUseCase.disconnectCount)
         collectJob.cancel()
     }
 
