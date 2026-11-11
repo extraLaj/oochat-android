@@ -2,7 +2,9 @@ package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.ConnectOnionApplication
 import ai.openonion.oochat.Constants
+import ai.openonion.oochat.data.local.ActiveWork
 import ai.openonion.oochat.data.local.AgentReplyNotifier
+import ai.openonion.oochat.data.local.BackgroundWork
 import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
 import ai.openonion.oochat.data.local.CONNECTION_MODE_RELAY
 import ai.openonion.oochat.data.local.ConnectionConfig
@@ -254,6 +256,8 @@ open class ChatViewModel @JvmOverloads constructor(
     // maybeNotifyAgentReply's gating doc.
     private val agentReplyNotifier: AgentReplyNotifier =
         application.appContainer.agentReplyNotifier,
+    private val backgroundWork: BackgroundWork =
+        (application as? ConnectOnionApplication)?.backgroundWork ?: BackgroundWork.None,
     // POST_NOTIFICATIONS is only a runtime permission from API 33 onward —
     // mirrors SettingsViewModel's own gate on the same permission.
     private val requiresNotificationPermission: Boolean =
@@ -1011,6 +1015,23 @@ open class ChatViewModel @JvmOverloads constructor(
             for ((messageId, failedToSend) in failedToSendWrites) {
                 conversationHistory.saveFailedToSend(messageId, failedToSend)
             }
+        }
+
+        // An approval waiting counts as work: the connection has to be there to answer it.
+        viewModelScope.launch {
+            combine(
+                isAgentWorking,
+                _uiState.map { it.listFlags.hasPendingGate },
+                agentProfile,
+                conversationHistory.activeSessionId,
+                appSettings.pushNotificationsEnabled
+            ) { working, gate, profile, _, enabled ->
+                if ((working || gate) && enabled && hasNotificationPermission()) {
+                    ActiveWork(profile?.name, currentNotificationTarget())
+                } else {
+                    null
+                }
+            }.distinctUntilChanged().collect { backgroundWork.update(it) }
         }
 
         // Initial state stays ChatUiState's own default (""), so there is
@@ -3519,9 +3540,13 @@ open class ChatViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(error = null) }
     }
 
-    // No onCleared() teardown on purpose: connectUseCase is the app-scoped
+    // The connection is not closed here on purpose: connectUseCase is the app-scoped
     // shared connection (see AppContainer), so closing it here would kill a
     // socket the next ChatScreen is about to reuse. disconnect() is the user's.
+    // Background work ends, though: nothing would save what arrives without this screen.
+    override fun onCleared() {
+        backgroundWork.update(null)
+    }
 
     companion object {
         /** How long a queued send waits out the running turn — see [sendWhenTheAgentIsIdle]. */

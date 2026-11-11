@@ -331,12 +331,16 @@ offers to turn them on, and asks for Android's permission only then. It offers
 once: **Not now**, or refusing Android's dialog, leaves Settings as the way to
 turn them on later.
 
-There is a real limit worth knowing, for replies and approvals alike. The app
-can only notice either while it still holds its connection, and it has no
-background service to keep that connection: once you swipe it away, or Android
-closes it to save battery (on some phones within seconds of leaving it), no
-notification comes until you open it again. So this covers stepping away mid-answer, not
-closing the app and coming back an hour later. The sound is
+While the agent or a Work Room is working and you leave the app (Home, another
+app, or locking the phone), a quiet **"*agent* is working"** notification keeps
+the connection open, so the notifications above still arrive. It goes away when
+the work ends, when you come back, or after an hour (an approval nobody
+answers, say). Nothing runs while the agent is idle.
+
+Swiping the app away from Recents closes it as before: nothing more comes until
+you open it again, and it then catches up on what it missed. Some phones
+(Samsung, Xiaomi) also close background apps to save battery; setting the app's
+battery use to **Unrestricted** in Android's settings avoids that. The sound is
 Android's own, on the app's notification channel, which the same Settings row
 opens.
 

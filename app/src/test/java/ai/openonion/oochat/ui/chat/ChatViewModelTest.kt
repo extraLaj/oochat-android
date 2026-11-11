@@ -461,6 +461,11 @@ class ChatViewModelTest {
         override fun clearApprovalNotification(approvalId: String) { clearedApprovals += approvalId }
     }
 
+    private class FakeBackgroundWork : ai.openonion.oochat.data.local.BackgroundWork {
+        val updates = mutableListOf<ai.openonion.oochat.data.local.ActiveWork?>()
+        override fun update(work: ai.openonion.oochat.data.local.ActiveWork?) { updates += work }
+    }
+
     private class FakeImageAttachmentStore : ImageAttachmentStore {
         var storedUris = mutableListOf<String>()
         var shouldFail = false
@@ -704,6 +709,7 @@ class ChatViewModelTest {
     private lateinit var networkMonitor: FakeNetworkMonitor
     private lateinit var recentChatsSync: FakeRecentChatsSync
     private lateinit var agentReplyNotifier: FakeAgentReplyNotifier
+    private lateinit var backgroundWork: FakeBackgroundWork
 
     // Backing vars for the two gates ChatViewModel reads through lambdas
     // rather than fakeable objects — see maybeNotifyAgentReply's doc. Tests
@@ -732,6 +738,7 @@ class ChatViewModelTest {
         networkMonitor = FakeNetworkMonitor()
         recentChatsSync = FakeRecentChatsSync()
         agentReplyNotifier = FakeAgentReplyNotifier()
+        backgroundWork = FakeBackgroundWork()
         appInForeground = false
         notificationPermissionGranted = true
 
@@ -757,6 +764,7 @@ class ChatViewModelTest {
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
+            backgroundWork = backgroundWork,
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
@@ -3373,6 +3381,49 @@ class ChatViewModelTest {
         assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
     }
 
+    // ── Background work (W16AAPPLE-45) ──────────────────────────────────
+
+    @Test
+    fun `a running Work Room run is reported as background work for its conversation, until it finishes`() =
+        runTest(testDispatcher) {
+            val address = connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+            testScheduler.runCurrent()
+            val work = requireNotNull(backgroundWork.updates.last())
+            assertEquals(NotificationTarget(address, vm.activeSessionId.value), work.target)
+
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)))
+            testScheduler.runCurrent()
+            assertNull(backgroundWork.updates.last())
+        }
+
+    @Test
+    fun `a waiting approval keeps background work going`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+
+        assertNotNull(backgroundWork.updates.last())
+    }
+
+    @Test
+    fun `no background work is reported with notifications off or not allowed`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(false)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        assertNull(backgroundWork.updates.lastOrNull())
+
+        notificationPermissionGranted = false
+        appSettings.setPushNotificationsEnabled(true)
+        testScheduler.runCurrent()
+        assertNull(backgroundWork.updates.lastOrNull())
+    }
+
     @Test
     fun `the chat offers approval notifications once, while an approval waits and they are off`() =
         runTest(testDispatcher) {
@@ -3651,6 +3702,7 @@ class ChatViewModelTest {
         initialMyAddress = "0xTEST",
         networkMonitor = networkMonitor,
         agentReplyNotifier = agentReplyNotifier,
+        backgroundWork = backgroundWork,
         requiresNotificationPermission = true,
         hasNotificationPermission = { notificationPermissionGranted },
         isAppInForeground = { appInForeground },
@@ -5111,6 +5163,7 @@ class ChatViewModelTest {
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
+            backgroundWork = backgroundWork,
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
