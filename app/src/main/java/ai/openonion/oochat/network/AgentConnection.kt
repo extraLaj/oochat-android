@@ -259,6 +259,10 @@ class AgentConnection(
     // unable to suppress the other.
     private val socketGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
+    // Test-only seam for pausing after the callback's first generation check.
+    @Volatile
+    internal var beforeHandleMessageForTest: (() -> Unit)? = null
+
     /**
      * Frames the current socket has delivered, so [probeAfterForeground] can tell whether
      * anything arrived after its query without a clock.
@@ -295,6 +299,15 @@ class AgentConnection(
      * how it ended.
      */
     private data class SessionEpochs(val connected: Int = 0, val refused: Int = 0, val closed: Int = 0)
+
+    private data class PendingMessageFlush(
+        val socket: WebSocket,
+        val generation: Int,
+        val agentAddress: String,
+        val direct: Boolean,
+        val sessionId: String?,
+        val conversationId: String?
+    )
 
     private val sessionEpochs = MutableStateFlow(SessionEpochs())
 
@@ -488,12 +501,15 @@ class AgentConnection(
      * network round-trip, and losing that race surfaced the replaced socket's
      * own close as a [ConnectionEvent.Disconnected].
      */
-    private fun retireSocket(reason: String) {
+    private fun retireSocket(
+        reason: String,
+        pendingExecMessage: String = "The agent connection was replaced"
+    ) {
         // Its CONNECT can no longer be answered, so nothing is waiting on it.
         awaitingConnected = false
         connectedWaitJob?.cancel()
         connectedWaitJob = null
-        settlePendingExecs("The agent connection was replaced")
+        settlePendingExecs(pendingExecMessage)
         // A probe of this socket can no longer be answered, and its reply must not swallow one on the next.
         probeJob?.cancel()
         probeJob = null
@@ -952,7 +968,14 @@ class AgentConnection(
     private fun pendingMessageRouteId(): String? = currentConversationId ?: _currentSession?.sessionId
 
     /** @return false when the socket refused the write, so the caller can queue it. */
-    private fun sendMessageInternal(prompt: String, agentAddress: String, images: List<String>? = null, files: List<FileAttachment>? = null): Boolean {
+    private fun sendMessageInternal(
+        prompt: String,
+        agentAddress: String,
+        images: List<String>? = null,
+        files: List<FileAttachment>? = null,
+        socket: WebSocket? = webSocket,
+        direct: Boolean = isDirect
+    ): Boolean {
         val inputId = java.util.UUID.randomUUID().toString()
         synchronized(outstandingInputIds) {
             // Bounded: a run whose OUTPUT never arrives would otherwise leak an
@@ -966,14 +989,14 @@ class AgentConnection(
         val msg = InputMsg(
             inputId = inputId,
             prompt = prompt,
-            to = if (!isDirect) agentAddress else null,
+            to = if (!direct) agentAddress else null,
             images = images,
             files = files
         )
 
         val msgStr = signedCommand(msg, to = agentAddress)
         FileLogger.i(LogTags.AGENT_CONN, "INPUT → ${LogSanitizer.contentSummary(prompt)}")
-        val accepted = msgStr != null && webSocket?.send(msgStr) == true
+        val accepted = msgStr != null && socket?.send(msgStr) == true
         if (!accepted) {
             // The id would otherwise sit in the set forever, and an OUTPUT
             // arriving for some other send could be matched against it.
@@ -989,19 +1012,32 @@ class AgentConnection(
         any
     }
 
-    private fun flushPendingMessages() {
+    private fun flushPendingMessages(flush: PendingMessageFlush) {
+        if (flush.generation != socketGeneration.get()) return
         // Only what belongs on the session now established — see the sink.
         // Drained one at a time rather than read out as a list: a queued
         // attachment is base64, so the whole outbox used to be decoded at once
         // and then re-encoded per send.
         var flushed = 0
         pendingMessageSink.drain(
-            agentAddress,
-            _currentSession?.sessionId,
-            currentConversationId
+            flush.agentAddress,
+            flush.sessionId,
+            flush.conversationId
         ) { pending ->
-            flushed++
-            sendMessageInternal(pending.prompt, agentAddress, pending.images, pending.files)
+            if (flush.generation != socketGeneration.get()) {
+                false
+            } else {
+                val accepted = sendMessageInternal(
+                    pending.prompt,
+                    flush.agentAddress,
+                    pending.images,
+                    pending.files,
+                    socket = flush.socket,
+                    direct = flush.direct
+                )
+                if (accepted) flushed++
+                accepted
+            }
         }
         if (flushed > 0) FileLogger.i(LogTags.AGENT_CONN, "Flushed $flushed pending messages")
     }
@@ -1183,12 +1219,10 @@ class AgentConnection(
         synchronized(this) {
             isReconnecting = false
             isConnectionReady = false
-            settlePendingExecs("The agent connection was closed")
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempts = 0
-            webSocket?.close(1000, "User disconnected")
-            webSocket = null
+            retireSocket("User disconnected", pendingExecMessage = "The agent connection was closed")
             clearOutstandingInputs()
             reconnectScope.cancel()
         }
@@ -1238,8 +1272,9 @@ class AgentConnection(
      * changed under it) still reads as connected, and nothing would notice until OkHttp's ping
      * failed; see [probeAfterForeground].
      */
+    @Synchronized
     fun retryNow() {
-        if (protocolRejected) return
+        if (protocolRejected || sessionSwitchInProgress) return
         if (!isReconnecting) {
             if (isConnectionReady) probeAfterForeground()
             return
@@ -1252,12 +1287,10 @@ class AgentConnection(
         pollingOfflineAgent = false
         reconnectJob = reconnectScope.launch {
             runCatchingCancellable {
-                // Re-checked under stopAfterProtocolRejection's lock: retryNow
-                // runs on the main thread and the refusal lands on OkHttp's, so
-                // it can arrive after the guard above but before this job exists
-                // to be cancelled, and would be answered with one more CONNECT.
+                // Re-check state under the same lock as session switching and
+                // protocol rejection before opening the replacement socket.
                 synchronized(this@AgentConnection) {
-                    if (!protocolRejected) {
+                    if (!protocolRejected && !sessionSwitchInProgress) {
                         retireSocket("Reconnecting")
                         openWebSocket(agentAddress, directUrl)
                     }
@@ -1306,11 +1339,13 @@ class AgentConnection(
      * repeats that explanation instead of a bare [ConnectionEvent.Disconnected],
      * which the UI reads (correctly) as a network drop.
      */
+    @Synchronized
     private fun attemptReconnect() {
         if (protocolRejected) {
             FileLogger.i(LogTags.AGENT_CONN, "OIP version rejected — not reconnecting")
             return
         }
+        if (sessionSwitchInProgress) return
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             isConnectionReady = false
             if (lastAttemptAgentOffline && !onboardingPending) {
@@ -1341,13 +1376,15 @@ class AgentConnection(
 
         reconnectJob = reconnectScope.launch {
             delay(delayMs)
-            if (!isReconnecting) return@launch
-            runCatchingCancellable {
-                retireSocket("Reconnecting")
-                openWebSocket(agentAddress, directUrl)
-            }.onFailure { e ->
-                FileLogger.e(LogTags.AGENT_CONN, "Reconnect failed: ${e.message}")
-                attemptReconnect()
+            synchronized(this@AgentConnection) {
+                if (!isReconnecting || sessionSwitchInProgress) return@launch
+                runCatching {
+                    retireSocket("Reconnecting")
+                    openWebSocket(agentAddress, directUrl)
+                }.onFailure { e ->
+                    FileLogger.e(LogTags.AGENT_CONN, "Reconnect failed: ${e.message}")
+                    attemptReconnect()
+                }
             }
         }
     }
@@ -1384,20 +1421,23 @@ class AgentConnection(
      * screen calls on its way back, goes at once with a fresh ladder.
      */
     private fun pollOfflineAgent() {
+        if (sessionSwitchInProgress) return
         pollingOfflineAgent = true
         isReconnecting = true
         reconnectJob = reconnectScope.launch {
             delay(OFFLINE_POLL_INTERVAL_MS)
-            if (!isReconnecting) return@launch
+            synchronized(this@AgentConnection) {
+                if (!isReconnecting || sessionSwitchInProgress) return@launch
+            }
             if (!isAppVisible()) {
                 FileLogger.i(LogTags.AGENT_CONN, "Agent offline, app in background — waiting for the foreground to try again")
                 return@launch
             }
             FileLogger.i(LogTags.AGENT_CONN, "Agent offline — trying again")
             runCatchingCancellable {
-                // Same lock as stopAfterProtocolRejection; see retryNow.
+                // Re-check the switch barrier before opening a replacement.
                 synchronized(this@AgentConnection) {
-                    if (!protocolRejected) {
+                    if (!protocolRejected && !sessionSwitchInProgress) {
                         retireSocket("Polling an offline agent")
                         openWebSocket(agentAddress, directUrl)
                     }
@@ -1633,8 +1673,8 @@ class AgentConnection(
                     FileLogger.i(LogTags.AGENT_CONN, "Ignoring frame from a replaced socket (gen=$generationForThisSocket, current=${socketGeneration.get()})")
                     return
                 }
-                framesReceived.incrementAndGet()
-                handleMessage(text)
+                beforeHandleMessageForTest?.invoke()
+                handleMessage(text, generationForThisSocket, webSocket)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -1751,8 +1791,20 @@ class AgentConnection(
     }
 
     /** Handle incoming WebSocket message using ProtocolParser. */
-    @Synchronized
-    private fun handleMessage(text: String) {
+    private fun handleMessage(text: String, generation: Int, socket: WebSocket?) {
+        val flush = synchronized(this) {
+            handleMessageLocked(text, generation, socket)
+        }
+        flush?.let(::flushPendingMessages)
+    }
+
+    private fun handleMessageLocked(text: String, generation: Int, socket: WebSocket?): PendingMessageFlush? {
+        if (generation != socketGeneration.get()) {
+            FileLogger.i(LogTags.AGENT_CONN, "Ignoring frame from a replaced socket inside lock (gen=$generation, current=${socketGeneration.get()})")
+            return null
+        }
+        framesReceived.incrementAndGet()
+        var pendingMessageFlush: PendingMessageFlush? = null
         try {
             FileLogger.d(LogTags.AGENT_CONN, "RX ← ${LogSanitizer.jsonTypeSummary(text)}")
             // Capture this while holding the same monitor as switchSession.
@@ -1769,7 +1821,7 @@ class AgentConnection(
             val dedupeKey = result.dedupeKey
             if (dedupeKey != null && !isFirstSighting(dedupeKey)) {
                 FileLogger.d(LogTags.AGENT_CONN, "Dropping replayed frame: ${LogSanitizer.jsonTypeSummary(text)}")
-                return
+                return null
             }
 
             // The run these ids belonged to has answered (or given up), so the
@@ -1803,7 +1855,7 @@ class AgentConnection(
                         "Could not switch conversation: the server kept the previous session."
                     )
                 )
-                return
+                return null
             }
 
             // Update session state. A frame can carry the id without a session
@@ -1885,7 +1937,16 @@ class AgentConnection(
                     connectedWaitJob?.cancel()
                     lastAttemptAgentOffline = false
                     pollingOfflineAgent = false
-                    flushPendingMessages()
+                    pendingMessageFlush = socket?.let {
+                        PendingMessageFlush(
+                            socket = it,
+                            generation = generation,
+                            agentAddress = agentAddress,
+                            direct = isDirect,
+                            sessionId = _currentSession?.sessionId,
+                            conversationId = currentConversationId
+                        )
+                    }
                     sessionEpochs.update { it.copy(connected = it.connected + 1) }
                     // The frame's session payload is forwarded, not dropped:
                     // it is the server's own transcript for this agent, and
@@ -2088,6 +2149,7 @@ class AgentConnection(
         } catch (e: Exception) {
             FileLogger.e(LogTags.AGENT_CONN, "handleMessage failed: ${e.message}")
         }
+        return pendingMessageFlush
     }
 
     companion object {

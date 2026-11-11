@@ -30,16 +30,15 @@ interface PendingMessageSink {
      * queued for a different conversation stays put: flushing it here would
      * send it as this conversation.
      *
-     * A callback rather than a returned list, and that is the point: an
-     * attachment is base64, so materializing the whole queue at once meant
-     * every queued attachment resident simultaneously. One message is decoded
-     * at a time and is free again as soon as it has been sent.
+     * The callback returns false when the message was not accepted. The sink
+     * keeps that message queued and stops, so a socket replacement cannot
+     * lose it.
      */
     fun drain(
         agentAddress: String,
         sessionId: String?,
         conversationId: String?,
-        send: (QueuedMessage) -> Unit
+        send: (QueuedMessage) -> Boolean
     )
 
     /** Discards every message queued for [agentAddress] without sending them. */
@@ -56,6 +55,7 @@ class InMemoryPendingMessageSink : PendingMessageSink {
 
     private val lock = Any()
     private val entries = mutableListOf<Entry>()
+    private val clearGenerations = mutableMapOf<String, Long>()
 
     override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?) {
         val incoming = attachmentBytes(images, files)
@@ -80,18 +80,24 @@ class InMemoryPendingMessageSink : PendingMessageSink {
         agentAddress: String,
         sessionId: String?,
         conversationId: String?,
-        send: (QueuedMessage) -> Unit
+        send: (QueuedMessage) -> Boolean
     ) {
         while (true) {
-            val next = synchronized(lock) {
+            val (next, drainGeneration) = synchronized(lock) {
                 val entry = entries.firstOrNull {
                     it.agentAddress == agentAddress && (it.sessionId == null ||
                         it.sessionId == sessionId || it.sessionId == conversationId)
                 } ?: return
                 entries.remove(entry)
-                entry.message
+                entry to (clearGenerations[agentAddress] ?: 0L)
             }
-            send(next)
+            val accepted = runCatching { send(next.message) }.getOrDefault(false)
+            if (!accepted) {
+                synchronized(lock) {
+                    if ((clearGenerations[agentAddress] ?: 0L) == drainGeneration) entries.add(0, next)
+                }
+                return
+            }
         }
     }
 
@@ -104,6 +110,9 @@ class InMemoryPendingMessageSink : PendingMessageSink {
             files.orEmpty().sumOf { it.name.length.toLong() + it.data.length.toLong() }
 
     override fun clear(agentAddress: String) {
-        synchronized(lock) { entries.removeAll { it.agentAddress == agentAddress } }
+        synchronized(lock) {
+            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
+            entries.removeAll { it.agentAddress == agentAddress }
+        }
     }
 }

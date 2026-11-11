@@ -18,6 +18,8 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -133,12 +135,16 @@ class ConnectToAgentUseCaseTest {
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var fakeRepository: FakeConnectionRepository
 
-    private fun newUseCase(connectionTimeoutMs: Long = 30_000L): ConnectToAgentUseCase {
+    private fun newUseCase(
+        connectionTimeoutMs: Long = 30_000L,
+        onAddressResolved: suspend (String, String) -> Unit = { _, _ -> }
+    ): ConnectToAgentUseCase {
         fakeRepository = FakeConnectionRepository()
         return ConnectToAgentUseCase(
             keyManager = KeyManager(android.app.Application()),
             connectionTimeoutMs = connectionTimeoutMs,
             agentDiscovery = AgentDiscoveryService(),
+            onAddressResolved = onAddressResolved,
             repositoryFactory = { fakeRepository }
         )
     }
@@ -214,6 +220,76 @@ class ConnectToAgentUseCaseTest {
         useCase.connect(validAddress)
 
         assertEquals(validAddress, fakeRepository.connectedAddresses.single())
+    }
+
+    // -- A server URL standing in for the address (W16AAPPLE-98) --
+
+    /** A real ConnectOnion address: 0x + 64 hex. */
+    private val agentAddress = "0x" + "ab12".repeat(16)
+
+    private fun infoServer(body: String) = MockWebServer().apply {
+        enqueue(MockResponse().setBody(body))
+        start()
+    }
+
+    @Test
+    fun `a server URL in place of an address connects to the agent its info names, and reports it`() = runTest(testDispatcher) {
+        // An older install saved a direct server with no address; the Host
+        // refuses a CONNECT that names the URL ("wrong recipient").
+        val server = infoServer("""{"address":"$agentAddress","name":"sam"}""")
+        try {
+            val reported = mutableListOf<Pair<String, String>>()
+            val useCase = newUseCase(onAddressResolved = { url, address -> reported += url to address })
+            fakeRepository.connectBehaviors.add {
+                fakeRepository.state.value = ConnectionState.Connected(address = agentAddress)
+            }
+            // The form the Host announces its socket in: ws:// and ending in /ws.
+            val url = "ws://${server.hostName}:${server.port}/ws"
+
+            useCase.connect(url)
+
+            assertEquals("the agent is named, not the URL", agentAddress, fakeRepository.connectedAddresses.first())
+            assertEquals("its /info, over HTTP, without the /ws", "/info", server.takeRequest().path)
+            assertEquals("reported so the config can be given the address", listOf(url to agentAddress), reported)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `an address that cannot be saved still connects`() = runTest(testDispatcher) {
+        // Saving the address only helps next time; a keystore that refuses
+        // the write must not cost the connection it already has an address for.
+        val server = infoServer("""{"address":"$agentAddress","name":"sam"}""")
+        try {
+            val useCase = newUseCase(onAddressResolved = { _, _ -> throw IllegalStateException("keystore unavailable") })
+            fakeRepository.connectBehaviors.add {
+                fakeRepository.state.value = ConnectionState.Connected(address = agentAddress)
+            }
+
+            val connected = useCase.connect("http://${server.hostName}:${server.port}")
+
+            assertTrue("a failed save does not stop the connection", connected)
+            assertEquals(agentAddress, fakeRepository.connectedAddresses.first())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `info that names no usable address is not reported`() = runTest(testDispatcher) {
+        val server = infoServer("""{"address":"not-an-address"}""")
+        try {
+            val reported = mutableListOf<Pair<String, String>>()
+            val useCase = newUseCase(onAddressResolved = { url, address -> reported += url to address })
+            fakeRepository.connectBehaviors.add { fakeRepository.state.value = ConnectionState.Disconnected }
+
+            useCase.connect("http://${server.hostName}:${server.port}")
+
+            assertTrue("nothing is saved from an answer the Host would refuse: $reported", reported.isEmpty())
+        } finally {
+            server.shutdown()
+        }
     }
 
     // ── Stale-session retry ───────────────────────────────────────────
@@ -357,6 +433,26 @@ class ConnectToAgentUseCaseTest {
         assertTrue(connected)
         assertEquals(1, fakeRepository.connectCount)
         assertEquals(0, fakeRepository.disconnectCount)
+        assertTrue("says why it returned true (W16AAPPLE-111)", useCase.lastConnectNeedsOnboarding)
+    }
+
+    @Test
+    fun `a plain connect says no invite code is needed, even after one that needed it`() = runTest(testDispatcher) {
+        val useCase = newUseCase(connectionTimeoutMs = 200L)
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.events.tryEmit(
+                ChatEvent.ChatItemReceived(ChatItem.OnboardRequired(id = "onboard-1", methods = listOf("invite_code")))
+            )
+        }
+        fakeRepository.connectBehaviors.add {
+            fakeRepository.state.value = ConnectionState.Connected(address = validAddress)
+        }
+        assertTrue(useCase.connect(validAddress))
+        assertTrue("test setup: the first connect needed a code", useCase.lastConnectNeedsOnboarding)
+
+        assertTrue(useCase.connect(validAddress))
+
+        assertFalse(useCase.lastConnectNeedsOnboarding)
     }
 
     // ── Timeout ───────────────────────────────────────────────────────

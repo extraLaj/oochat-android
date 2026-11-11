@@ -34,6 +34,7 @@ import ai.openonion.oochat.data.repository.SessionRepositoryImpl
 import ai.openonion.oochat.data.repository.SessionStore
 import ai.openonion.oochat.data.repository.SessionStoreImpl
 import ai.openonion.oochat.data.repository.SessionSyncRepositoryImpl
+import ai.openonion.oochat.data.repository.adoptResolvedAddress
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCase
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.PersistenceTransaction
@@ -305,7 +306,10 @@ class DefaultAppContainer(context: Context) : AppContainer {
             ),
             // Gates the slow retry against an offline agent to while the app
             // is visible (W16AAPPLE-79). Read on each try, never cached.
-            isAppVisible = { (appContext as? ai.openonion.oochat.ConnectOnionApplication)?.isInForeground ?: true }
+            isAppVisible = { (appContext as? ai.openonion.oochat.ConnectOnionApplication)?.isInForeground ?: true },
+            // A saved direct server with no agent address gets the one its
+            // /info names, so the next read of the config has it (W16AAPPLE-98).
+            onAddressResolved = { serverUrl, address -> configRepository.adoptResolvedAddress(serverUrl, address) }
         )
     }
 

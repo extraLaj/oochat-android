@@ -1505,6 +1505,33 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
+    fun `a reconnect cannot open a socket while a conversation switch is held`() = runTest {
+        val conn = connectionOnVirtualClock()
+        conn.setSession(SessionState(sessionId = "sess-A"), "conv-A")
+        conn.connect("0xAGENT")
+        val oldSocket = factory.lastWebSocket!!
+        factory.lastListener!!.onClosed(oldSocket, 1006, "network drop")
+        runCurrent()
+
+        conn.beginSessionSwitch()
+        conn.retryNow()
+        // Exercise the final open guard directly too: every reconnect caller
+        // checks the barrier, but the socket-opening method must be safe alone.
+        val openWebSocket = AgentConnection::class.java
+            .getDeclaredMethod("openWebSocket", String::class.java, String::class.java)
+            .apply { isAccessible = true }
+        openWebSocket.invoke(conn, "0xAGENT", null)
+        advanceUntilIdle()
+
+        assertEquals("the held switch must block retryNow's socket", 1, factory.socketCount)
+
+        conn.switchSession(SessionState(sessionId = "sess-B"), "conv-B")
+        runCurrent()
+        assertEquals("the replacement opens after the target is registered", 2, factory.socketCount)
+        conn.teardown()
+    }
+
+    @Test
     fun `a CONNECTED still in flight on the replaced socket is ignored`() = runBlocking {
         // The switch window. The old socket's reply arrives after the new
         // socket exists; processing it would put the connection back on the

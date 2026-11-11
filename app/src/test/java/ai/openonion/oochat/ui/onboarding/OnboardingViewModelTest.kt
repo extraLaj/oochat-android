@@ -327,6 +327,64 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `a scanned agent connects straight away, with no Connect to tap`() = runTest(testDispatcher) {
+        val vm = createVm()
+        testScheduler.runCurrent()
+        var saved = false
+
+        val form = vm.connectScanned(
+            ScannedAgent(serverUrl = Constants.DEFAULT_SERVER_URL, agentAddress = address),
+            AgentFormState(apiKey = "key-1"),
+            onSaved = { saved = true }
+        )
+        testScheduler.runCurrent()
+
+        assertTrue("the scan must go on to connecting by itself (W16AAPPLE-111)", saved)
+        val config = configRepository.savedConfig ?: error("nothing was saved")
+        assertEquals(Constants.DEFAULT_SERVER_URL, config.serverUrl)
+        assertEquals(address, config.agentAddress)
+        assertEquals("relay", config.connectionMode)
+        assertEquals("the API key already typed is kept", "key-1", config.apiKey)
+        assertEquals(address, form.agentAddress)
+    }
+
+    @Test
+    fun `a scanned agent on a server of its own is connected to direct`() = runTest(testDispatcher) {
+        val vm = createVm()
+        testScheduler.runCurrent()
+
+        val form = vm.connectScanned(
+            ScannedAgent(serverUrl = "https://agent.example.com", agentAddress = address),
+            AgentFormState(),
+            onSaved = {}
+        )
+        testScheduler.runCurrent()
+
+        assertTrue(form.useDirectConnection)
+        assertEquals("direct", configRepository.savedConfig?.connectionMode)
+        assertEquals("https://agent.example.com", configRepository.savedConfig?.serverUrl)
+    }
+
+    @Test
+    fun `a scanned agent Setup cannot use stays in the form with the reason`() = runTest(testDispatcher) {
+        val vm = createVm()
+        testScheduler.runCurrent()
+        var saved = false
+
+        val form = vm.connectScanned(
+            ScannedAgent(serverUrl = "https://" + "a".repeat(500) + ".example.com", agentAddress = address),
+            AgentFormState(),
+            onSaved = { saved = true }
+        )
+        testScheduler.runCurrent()
+
+        assertFalse("nothing to connect to, so no Loading screen", saved)
+        assertNull(configRepository.savedConfig)
+        assertEquals("the code is left in the form to correct and Connect by hand", address, form.agentAddress)
+        assertEquals("URL is too long (maximum 500 characters)", vm.errorMessage.value)
+    }
+
+    @Test
     fun `a good scan after a bad one clears the message`() = runTest(testDispatcher) {
         val vm = createVm()
         vm.onScanned("hello")

@@ -105,13 +105,10 @@ fun OnboardingScreen(
         }
     }
 
+    // A code that names an agent connects straight away, with no Connect to tap (W16AAPPLE-111).
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         onboardingViewModel.onScanned(result.contents)?.let { scanned ->
-            formState = formState.copy(
-                serverUrl = scanned.serverUrl,
-                agentAddress = scanned.agentAddress,
-                useDirectConnection = !Constants.isDefaultServerUrl(scanned.serverUrl)
-            )
+            formState = onboardingViewModel.connectScanned(scanned, formState, onSaved = onProceedToConnect)
         }
     }
     fun launchScan() {

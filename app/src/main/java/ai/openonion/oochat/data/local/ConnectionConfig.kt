@@ -76,9 +76,13 @@ data class ConnectTarget(
  *
  * `serverUrl` is the relay/direct *server* URL, not the agent address, so
  * passing it as the agent address would open the WebSocket at the wrong path.
- * The saved [ConnectionConfig.agentAddress] (falling back to `serverUrl` when
- * blank/absent) is what actually gets dialled; `serverUrl` only says where.
- * See [resolveServerRoute] for the rule.
+ * The saved [ConnectionConfig.agentAddress] is what actually gets dialled;
+ * `serverUrl` only says where. See [resolveServerRoute] for the rule.
+ *
+ * A config with no address (saved by an older version) falls back to
+ * `serverUrl`. ConnectToAgentUseCase then reads the agent's address from that
+ * server's /info rather than naming the URL in CONNECT, which the Host refuses,
+ * and has it saved to the config (W16AAPPLE-98).
  */
 fun ConnectionConfig.toConnectTarget(): ConnectTarget {
     val route = resolveServerRoute(serverUrl, connectionMode)

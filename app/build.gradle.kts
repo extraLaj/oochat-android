@@ -406,6 +406,7 @@ val regressionSuite = mapOf(
         "network.AgentConnectionRobolectricTest",
         "network.AgentConnectionTest",
         "network.DirectSocketUrlTest",
+        "data.repository.AdoptResolvedAddressTest",
         "network.ProtocolParserTest",
         "data.local.ConnectionConfigTest",
         "ConstantsTest",
@@ -427,6 +428,9 @@ val regressionSuite = mapOf(
         "data.repository.ConnectionRepositoryImplTest",
         "domain.usecase.ConnectToAgentUseCaseTest",
         "ui.onboarding.OnboardingViewModelTest",
+        "ui.loading.LoadingViewModelTest",
+        "ui.loading.LoadingScreenComposeTest",
+        "ui.onboarding.ScanToInviteCodeFlowTest",
     ),
     "work rooms" to listOf(
         "network.ProtocolParserWorkRoomTest",
