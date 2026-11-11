@@ -32,6 +32,7 @@ import ai.openonion.oochat.domain.model.NotificationTarget
 import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanReviewReply
+import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionActivity
 import ai.openonion.oochat.domain.model.SessionModes
@@ -1194,7 +1195,8 @@ open class ChatViewModel @JvmOverloads constructor(
                     }
 
                     val ignoredIds = ignoredIdsManager.ignoredIdsFor(_targetAgentAddress)
-                    val result = ChatEventReducer.reduce(_uiState.value.chatItems, event, ignoredIds, resolvedGateIds)
+                    val before = _uiState.value.chatItems
+                    val result = ChatEventReducer.reduce(before, event, ignoredIds, resolvedGateIds)
                     if (result.chatItems !== _uiState.value.chatItems) {
                         val retained = trimToRetentionWindow(result.chatItems)
                         _uiState.update { it.copy(chatItems = retained) }
@@ -1214,6 +1216,7 @@ open class ChatViewModel @JvmOverloads constructor(
                             _agentReplyArrived.tryEmit(Unit)
                             maybeNotifyAgentReply(item)
                         }
+                        maybeNotifyRunFinished(before, item)
                     }
                     // After persisting: a conversation is only created once
                     // something is saved to it, and the notification has to
@@ -1323,7 +1326,35 @@ open class ChatViewModel @JvmOverloads constructor(
             is ChatItem.Turn -> item.agent?.content.orEmpty()
             else -> return
         }
-        agentReplyNotifier.notifyAgentReply(agentProfile.value?.name, preview)
+        agentReplyNotifier.notifyAgentReply(agentProfile.value?.name, preview, currentNotificationTarget())
+    }
+
+    /** The conversation on screen, as a notification tap opens it. */
+    private fun currentNotificationTarget(invocationId: String? = null): NotificationTarget? =
+        _targetAgentAddress.takeIf { it.isNotBlank() }
+            ?.let { NotificationTarget(it, conversationHistory.activeSessionId.value, invocationId) }
+
+    /**
+     * Posts a Work Room run's "finished" notification (W16AAPPLE-45) when [item]
+     * is a run that [before] still showed as working. Only that change counts, so
+     * a replayed or stored finished run stays quiet, and so does
+     * [ProviderInvocationStatus.ENDED], which is this app's guess, not the Host's.
+     */
+    private suspend fun maybeNotifyRunFinished(before: List<ChatItem>, item: ChatItem) {
+        val run = item as? ChatItem.ProviderInvocation ?: return
+        if (!run.status.isTerminal || run.status == ProviderInvocationStatus.ENDED) return
+        val was = before.firstOrNull { it.id == run.id } as? ChatItem.ProviderInvocation ?: return
+        if (was.status.isTerminal) return
+        val target = currentNotificationTarget(run.id) ?: return
+        if (!mayPostNotification()) return
+        val provider = WorkRoomText.providerName(run)
+        val title = when (run.status) {
+            ProviderInvocationStatus.FAILED -> "$provider failed"
+            ProviderInvocationStatus.CANCELLED -> "$provider was stopped"
+            else -> "$provider finished"
+        }
+        val summary = listOfNotNull(WorkRoomText.title(run), WorkRoomText.summary(run)).joinToString(": ")
+        agentReplyNotifier.notifyRunFinished(run.id, title, summary, target)
     }
 
     /** Backgrounded, opted in, and allowed by the OS: see [maybeNotifyAgentReply]. */

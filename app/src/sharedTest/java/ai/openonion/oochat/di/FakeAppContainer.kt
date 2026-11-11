@@ -25,6 +25,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.NotificationTarget
 import ai.openonion.oochat.domain.model.UserProfile
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.domain.usecase.PersistenceTransaction
@@ -282,7 +283,9 @@ class FakeAppSettings : AppSettings {
 class FakeAgentReplyNotifier : AgentReplyNotifier {
     var notified: Pair<String?, String>? = null
     var cleared = false
-    override fun notifyAgentReply(agentName: String?, preview: String) { notified = agentName to preview }
+    override fun notifyAgentReply(agentName: String?, preview: String, target: NotificationTarget?) {
+        notified = agentName to preview
+    }
     override fun clearReplyNotifications() { cleared = true }
 }
 

@@ -311,7 +311,10 @@ rather than saved.
 ## 9. Being told about a reply or an approval while you are elsewhere
 
 **Settings → Notifications**, off by default. With it on, a reply that arrives
-while you are in another app posts a notification; tapping it brings you back.
+while you are in another app posts a notification; tapping it opens that
+conversation. A Claude Code or Codex run that finishes, fails or is stopped
+while you are away posts one too, with its task and result, and tapping it
+opens its Work Room. Both go away once you come back to the app.
 
 An approval the agent is waiting on posts one too, so the agent is not left
 stopped while you are away. It says which agent and what it wants to do, and
