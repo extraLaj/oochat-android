@@ -3452,23 +3452,29 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     fun clearChat() {
+        // What is being cleared is read now, before the first suspension. The
+        // steps below wait on storage, and a conversation opened meanwhile must
+        // not be the one wiped, hidden or blanked (W16AAPPLE-106).
+        val clearedSessionId = activeSessionId.value
+        val clearedAgentAddress = _targetAgentAddress
+        val clearedItems = _uiState.value.chatItems
+        // With the outer tool call of each run: its result can still be on its way, and
+        // must not come back as a card of its own.
+        val snapshot = clearedItems.map { it.id } + WorkRooms.parentToolCallIds(clearedItems)
         launchScoped {
             connectUseCase.reset()
-            val clearedSessionId = activeSessionId.value
             val scrollKeyPrefix = "${clearedSessionId.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the
             // UI. Awaiting (rather than fire-and-forget) means a
             // process kill between clearChat and the next launch
             // can't leave the persistence half-done.
-            // With the outer tool call of each run: its result can still be on its way, and
-            // must not come back as a card of its own.
-            val snapshot = _uiState.value.chatItems.map { it.id } + WorkRooms.parentToolCallIds(_uiState.value.chatItems)
-            ignoredIdsManager.ignoreAll(_targetAgentAddress, snapshot)
-            // Wipe the active session's persisted log too, so the drawer's
+            ignoredIdsManager.ignoreAll(clearedAgentAddress, snapshot)
+            // Wipe the cleared session's persisted log too, so the drawer's
             // preview/count for this conversation reflects the clear.
-            conversationHistory.clearActiveSession()
-            clearExecItems()
+            conversationHistory.clearSession(clearedSessionId)
+            val stillOpen = activeSessionId.value == clearedSessionId
+            if (stillOpen) clearExecItems()
             synchronized(workRoomScrollPositions) {
                 workRoomScrollPositions.keys
                     .filter { it.startsWith(scrollKeyPrefix) }
@@ -3481,7 +3487,7 @@ open class ChatViewModel @JvmOverloads constructor(
                     messageListScrollPositions.remove(clearedSessionId)
                 }
             }
-            _uiState.update { it.copy(chatItems = emptyList()) }
+            if (stillOpen) _uiState.update { it.copy(chatItems = emptyList()) }
         }
     }
 

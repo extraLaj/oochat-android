@@ -660,16 +660,24 @@ class ConversationHistoryUseCase(
         return session.id
     }
 
-    /** Wipes the active session's persisted log (used by `clearChat`). */
-    suspend fun clearActiveSession() {
-        val sessionId = _activeSessionId.value ?: return
+    /** Wipes the active session's persisted log. */
+    suspend fun clearActiveSession() = clearSession(_activeSessionId.value)
+
+    /**
+     * Wipes [sessionId]'s persisted log (used by `clearChat`). Named by the
+     * caller rather than read here: Clear chat waits on storage before this
+     * runs, and a conversation opened meanwhile must not be the one wiped
+     * (W16AAPPLE-106).
+     */
+    suspend fun clearSession(sessionId: String?) {
+        if (sessionId == null) return
         runCatchingCancellable {
             messageRepository.deleteMessagesBySession(sessionId)
             sessionRepository.updateMessageInfo(sessionId, 0, null)
         }.onFailure { e -> FileLogger.e(LogTags.CONV_HISTORY, "session clear failed: ${e.message}") }
         // The rows the window pointed into are gone, so there is nothing older
-        // to page back in — leaving the offset would offer a "load earlier"
-        // that returns an empty page forever.
-        resetWindow()
+        // to page back in, and leaving the offset would offer a "load earlier"
+        // that returns an empty page forever. Only if it is still the one shown.
+        if (_activeSessionId.value == sessionId) resetWindow()
     }
 }

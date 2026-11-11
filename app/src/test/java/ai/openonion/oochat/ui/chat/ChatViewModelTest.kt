@@ -319,7 +319,12 @@ class ChatViewModelTest {
         }
 
         var resetCount = 0
-        override suspend fun reset() { resetCount++ }
+        /** When set, reset() waits on it: lets a test act while Clear chat is still under way. */
+        var resetGate: CompletableDeferred<Unit>? = null
+        override suspend fun reset() {
+            resetCount++
+            resetGate?.await()
+        }
 
 
         // When true, the NEXT collected event throws CancellationException
@@ -2783,6 +2788,61 @@ class ChatViewModelTest {
             connectUseCase.resetCount >= 1
         )
     }
+
+    @Test
+    fun `opening another conversation while Clear chat is still running leaves that conversation alone`() =
+        runTest(testDispatcher) {
+            // Clear chat waits on storage between its steps. A conversation
+            // opened in the meantime used to be the one deleted, hidden and
+            // blanked, because each step read the active conversation afresh.
+            val address = validHexAddress()
+            val kept = seedPreviousConversation(address)
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.startNewSession()
+            testScheduler.runCurrent()
+            // Its first message is what saves a new conversation.
+            vm.sendMessage("to be cleared")
+            testScheduler.runCurrent()
+            val cleared = vm.activeSessionId.value
+            assertTrue("test setup: a second conversation is open", cleared != null && cleared != kept.id)
+            assertTrue("test setup: it has a saved message", messageRepo.snapshot().any { it.sessionId == cleared })
+            val gate = CompletableDeferred<Unit>()
+            connectUseCase.resetGate = gate
+
+            vm.clearChat()
+            testScheduler.runCurrent()
+            vm.switchToSession(kept.id)
+            testScheduler.runCurrent()
+            gate.complete(Unit)
+            testScheduler.runCurrent()
+
+            assertEquals(kept.id, vm.activeSessionId.value)
+            assertEquals(
+                "the conversation opened is still on screen",
+                listOf("hi", "hello"),
+                vm.uiState.value.chatItems.map {
+                    when (it) {
+                        is ChatItem.User -> it.content
+                        is ChatItem.Turn -> it.agent?.content.orEmpty()
+                        else -> ""
+                    }
+                }
+            )
+            assertEquals(
+                "and still saved",
+                listOf("m1", "m2"),
+                messageRepo.snapshot().filter { it.sessionId == kept.id }.map { it.id }
+            )
+            assertTrue(
+                "the cleared one is what was deleted",
+                messageRepo.snapshot().none { it.sessionId == cleared }
+            )
+            assertFalse(
+                "and only its ids are ignored, not the opened conversation's",
+                storage.loadAll()[address].orEmpty().contains("m1")
+            )
+        }
 
     // ── ignoredIds semantics ───────────────────────────────────────────
 
