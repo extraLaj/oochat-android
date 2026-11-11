@@ -16,7 +16,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 /** Shared with SettingsScreen's "Notification sound" row, which opens the OS's own settings for this channel. */
-const val AGENT_REPLY_CHANNEL_ID = "agent_replies"
+const val AGENT_REPLY_CHANNEL_ID = "agent_replies_alerting"
+
+/**
+ * The first reply channel, at default importance, which only shows in the shade.
+ * Android never lets an app raise a channel's importance, so it is replaced.
+ */
+private const val OLD_AGENT_REPLY_CHANNEL_ID = "agent_replies"
 
 /**
  * Approvals the agent is waiting on (W16AAPPLE-44). A channel of its own, so
@@ -69,7 +75,7 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
             .setContentTitle(agentName?.takeIf { it.isNotBlank() } ?: "New reply")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .build()
@@ -103,7 +109,7 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .build()
@@ -157,7 +163,11 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
 
     private fun ensureChannel() {
         if (channelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(AGENT_REPLY_CHANNEL_ID, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT)
+        // High, so a reply or a finished run pops up: the user left the app waiting for it.
+        val channel = NotificationChannel(AGENT_REPLY_CHANNEL_ID, "Agent replies", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "When an agent replies or a Work Room run finishes while the app is in the background"
+        }
+        context.getSystemService(NotificationManager::class.java).deleteNotificationChannel(OLD_AGENT_REPLY_CHANNEL_ID)
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         channelCreated = true
     }
