@@ -24,6 +24,7 @@ import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
+import ai.openonion.oochat.util.runCatchingCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -59,7 +60,8 @@ class ConnectToAgentUseCase(
     // Told when a server URL was given in place of an agent address and the
     // server's /info named the agent, so the caller can save the address
     // (W16AAPPLE-98). Called before connecting, so it is saved by the time
-    // anything that reads the config next runs.
+    // anything that reads the config next runs. If it throws, the failure is
+    // logged and the connection goes ahead.
     private val onAddressResolved: suspend (serverUrl: String, address: String) -> Unit = { _, _ -> },
     // Factory (not a shared instance) so getOrCreateRepository() below still
     // creates at most one repository per use-case instance. Defaults to the
@@ -132,7 +134,12 @@ class ConnectToAgentUseCase(
         val effectiveAddress = resolved.address
         val effectiveDirectUrl = resolved.directUrl ?: directUrl
         if (resolved.directUrl != null && AgentDiscoveryService.ADDRESS_REGEX.matches(effectiveAddress)) {
-            onAddressResolved(resolved.directUrl, effectiveAddress)
+            // Saving is for next time; this connection already has its address,
+            // so a write that fails (a keystore error, say) is logged, not thrown.
+            runCatchingCancellable { onAddressResolved(resolved.directUrl, effectiveAddress) }
+                .onFailure { error ->
+                    FileLogger.w(LogTags.CONNECT_USE_CASE, "Could not save the resolved agent address: ${error.message}")
+                }
         }
 
         // First attempt — uses the conversation's persisted sessionId if any.

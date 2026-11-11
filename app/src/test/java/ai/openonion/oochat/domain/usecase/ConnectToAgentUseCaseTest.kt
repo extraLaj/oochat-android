@@ -257,6 +257,26 @@ class ConnectToAgentUseCaseTest {
     }
 
     @Test
+    fun `an address that cannot be saved still connects`() = runTest(testDispatcher) {
+        // Saving the address only helps next time; a keystore that refuses
+        // the write must not cost the connection it already has an address for.
+        val server = infoServer("""{"address":"$agentAddress","name":"sam"}""")
+        try {
+            val useCase = newUseCase(onAddressResolved = { _, _ -> throw IllegalStateException("keystore unavailable") })
+            fakeRepository.connectBehaviors.add {
+                fakeRepository.state.value = ConnectionState.Connected(address = agentAddress)
+            }
+
+            val connected = useCase.connect("http://${server.hostName}:${server.port}")
+
+            assertTrue("a failed save does not stop the connection", connected)
+            assertEquals(agentAddress, fakeRepository.connectedAddresses.first())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `info that names no usable address is not reported`() = runTest(testDispatcher) {
         val server = infoServer("""{"address":"not-an-address"}""")
         try {
