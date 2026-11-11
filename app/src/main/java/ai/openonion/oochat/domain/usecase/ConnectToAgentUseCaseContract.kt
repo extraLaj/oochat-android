@@ -257,8 +257,8 @@ interface ConnectToAgentUseCaseContract {
 
     /**
      * Drop the connection. [keepOutbox] keeps the messages queued for the
-     * agent; see ConnectionRepository.disconnect. Only a user stopping the
-     * connection should leave it false (W16AAPPLE-102).
+     * agent; see ConnectionRepository.disconnect. Every caller in the app keeps
+     * it, the chat's Stop included (W16AAPPLE-106).
      */
     suspend fun disconnect(keepOutbox: Boolean = false)
 

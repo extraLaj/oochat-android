@@ -287,10 +287,10 @@ interface ConnectionRepository {
     suspend fun querySessionStatus(sessionId: String)
 
     /**
-     * Drop the connection. By default the outbox goes with it: the user chose
-     * to stop. [keepOutbox] is for giving up on an attempt the user did not
-     * end (ConnectToAgentUseCase's timeout), whose queued messages must still
-     * go out on the next connect (W16AAPPLE-102).
+     * Drop the connection. By default the outbox goes with it. [keepOutbox]
+     * keeps it, so its queued messages still go out on the next connect: for
+     * ConnectToAgentUseCase's timeout (W16AAPPLE-102) and for the user's Stop,
+     * whose "Waiting to send..." bubbles must stay true (W16AAPPLE-106).
      */
     suspend fun disconnect(keepOutbox: Boolean = false)
 

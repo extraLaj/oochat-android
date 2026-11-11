@@ -1252,12 +1252,19 @@ class AgentConnection(
         }
     }
 
+    /**
+     * Clear chat: forget this conversation's session and drop what it queued.
+     * Only this conversation's: the outbox is per agent, and another
+     * conversation's queued messages still say "Waiting to send..."
+     * (W16AAPPLE-106).
+     */
     fun reset() {
+        val clearedSessionId = _currentSession?.sessionId
         _currentSession = null
         replayCursor = null
         synchronized(seenFrames) { seenFrames.clear() }
         clearOutstandingInputs()
-        pendingMessageSink.clear(agentAddress)
+        pendingMessageSink.clearConversation(agentAddress, clearedSessionId, currentConversationId)
     }
 
     /**

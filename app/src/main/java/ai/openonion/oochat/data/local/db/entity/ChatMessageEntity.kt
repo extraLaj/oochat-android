@@ -81,14 +81,16 @@ data class ChatMessageEntity(
 
     /**
      * USER rows only: what the message should come back as after a restart.
-     * [DELIVERY_FAILED] when it did not get through, or might not have; null
-     * when it was sent or is in the outbox, which survives a restart and will
-     * still deliver it. Added in MIGRATION_13_14.
+     * [DELIVERY_FAILED] when it did not get through, or might not have;
+     * [DELIVERY_QUEUED] while it is in the outbox, which survives a restart and
+     * will still deliver it (W16AAPPLE-106); null once it was sent. Added in
+     * MIGRATION_13_14.
      */
     @ColumnInfo(name = "delivery_state")
     val deliveryState: String? = null
 ) {
     companion object {
         const val DELIVERY_FAILED = "FAILED"
+        const val DELIVERY_QUEUED = "QUEUED"
     }
 }

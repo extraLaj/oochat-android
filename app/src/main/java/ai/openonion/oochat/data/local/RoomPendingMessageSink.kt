@@ -115,6 +115,17 @@ class RoomPendingMessageSink(
         }
     }
 
+    override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
+        synchronized(lock) {
+            // Bumped as clear() does; see InMemoryPendingMessageSink.clearConversation.
+            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
+            val ids = dao.idsForConversation(agentAddress, sessionId, conversationId)
+            if (ids.isEmpty()) return
+            ids.forEach { spillFile(it).delete() }
+            dao.deleteByIds(ids)
+        }
+    }
+
     /** Caller holds [lock]. Drops oldest-first until [incomingBytes] fits under both caps. */
     private fun evictUntilRoomFor(agentAddress: String, incomingBytes: Long) {
         while (

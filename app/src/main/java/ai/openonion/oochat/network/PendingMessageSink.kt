@@ -43,6 +43,15 @@ interface PendingMessageSink {
 
     /** Discards every message queued for [agentAddress] without sending them. */
     fun clear(agentAddress: String)
+
+    /**
+     * Discards, without sending them, the messages [drain] would send for the
+     * same arguments: those queued for [agentAddress] on [sessionId] or
+     * [conversationId], plus any queued before there was a session to name.
+     * Clear chat uses it, so what another conversation with the agent queued
+     * stays queued for that conversation (W16AAPPLE-106).
+     */
+    fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?)
 }
 
 /**
@@ -113,6 +122,19 @@ class InMemoryPendingMessageSink : PendingMessageSink {
         synchronized(lock) {
             clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
             entries.removeAll { it.agentAddress == agentAddress }
+        }
+    }
+
+    override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
+        synchronized(lock) {
+            // Bumped as clear() does, so a drain racing this cannot put back a
+            // message it had claimed. A drain only runs for the conversation
+            // connected, which is the one Clear chat clears.
+            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
+            entries.removeAll {
+                it.agentAddress == agentAddress &&
+                    (it.sessionId == null || it.sessionId == sessionId || it.sessionId == conversationId)
+            }
         }
     }
 }

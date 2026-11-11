@@ -922,8 +922,18 @@ class ConnectionRepositoryImpl(
 
     override suspend fun reset() {
         withContext(Dispatchers.IO) {
-            currentConversationId?.let { sessionStore?.deleteSessionByConversation(it) }
-            connection?.reset()
+            val conversationId = currentConversationId
+            val savedSessionId = conversationId?.let { sessionStore?.getSession(it)?.sessionId }
+            conversationId?.let { sessionStore?.deleteSessionByConversation(it) }
+            val live = connection
+            if (live != null) {
+                live.reset()
+            } else {
+                // After Stop there is no connection, and sendMessage queued for
+                // the conversation itself, so the clear has to come from here
+                // too. Only this conversation's (W16AAPPLE-106).
+                currentAgentAddress?.let { pendingMessageSink.clearConversation(it, savedSessionId, conversationId) }
+            }
         }
     }
 

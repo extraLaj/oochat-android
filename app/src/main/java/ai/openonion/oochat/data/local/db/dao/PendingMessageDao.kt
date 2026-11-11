@@ -54,6 +54,20 @@ abstract class PendingMessageDao {
     abstract fun deleteById(id: Long)
 
     /**
+     * Every row [oldestClaimableForAgent] could hand out for [sessionId] and
+     * [conversationId], at any id: what Clear chat drops (W16AAPPLE-106).
+     */
+    @Query(
+        "SELECT id FROM pending_messages WHERE agent_address = :agentAddress " +
+            "AND (session_id IS NULL OR session_id = :sessionId OR session_id = :conversationId) " +
+            "ORDER BY id ASC"
+    )
+    abstract fun idsForConversation(agentAddress: String, sessionId: String?, conversationId: String?): List<Long>
+
+    @Query("DELETE FROM pending_messages WHERE id IN (:ids)")
+    abstract fun deleteByIds(ids: List<Long>)
+
+    /**
      * The oldest row for [agentAddress] that belongs on [sessionId] or the
      * active local [conversationId], and is no newer than [maxId]. The local
      * id is needed when Memory is off: the Host mints a new random session id,
