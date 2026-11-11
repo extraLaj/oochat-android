@@ -112,13 +112,23 @@ class ConnectionRepositorySessionPersistenceTest {
         val writeCount = java.util.concurrent.atomic.AtomicInteger(0)
 
         @Volatile var pauseNextGet = false
+        @Volatile var failNextGet = false
         lateinit var getEntered: CompletableDeferred<Unit>
         lateinit var releaseGet: CompletableDeferred<Unit>
+        @Volatile var pauseNextSave = false
+        lateinit var saveEntered: CompletableDeferred<Unit>
+        lateinit var releaseSave: CompletableDeferred<Unit>
 
         fun pauseNextSessionLookup() {
             getEntered = CompletableDeferred()
             releaseGet = CompletableDeferred()
             pauseNextGet = true
+        }
+
+        fun pauseNextSessionSave() {
+            saveEntered = CompletableDeferred()
+            releaseSave = CompletableDeferred()
+            pauseNextSave = true
         }
 
         /** Seed a session as if a previous run had stored it. */
@@ -128,9 +138,18 @@ class ConnectionRepositorySessionPersistenceTest {
 
         override suspend fun saveSession(conversationId: String, session: SessionState) {
             writeCount.incrementAndGet()
+            if (pauseNextSave) {
+                pauseNextSave = false
+                saveEntered.complete(Unit)
+                releaseSave.await()
+            }
             _saved.update { it + (conversationId to session) }
         }
         override suspend fun getSession(conversationId: String): SessionState? {
+            if (failNextGet) {
+                failNextGet = false
+                error("test session lookup failure")
+            }
             if (pauseNextGet) {
                 pauseNextGet = false
                 getEntered.complete(Unit)
@@ -269,6 +288,9 @@ class ConnectionRepositorySessionPersistenceTest {
 
     private fun connectedWithBody(sessionId: String, turn: Int) =
         """{"type":"CONNECTED","session_id":"$sessionId","session":{"session_id":"$sessionId","turn":$turn,"messages":[]}}"""
+
+    private fun outputWithBody(sessionId: String, turn: Int) =
+        """{"type":"OUTPUT","result":"done","session_id":"$sessionId","session":{"session_id":"$sessionId","turn":$turn,"messages":[]}}"""
 
     private fun sessionSync(sessionId: String, turn: Int, reply: String) =
         """{"type":"session_sync","session":{"session_id":"$sessionId","turn":$turn,""" +
@@ -425,18 +447,23 @@ class ConnectionRepositorySessionPersistenceTest {
         frameJob.join()
         awaitFramesDrained()
 
-        assertFalse(
-            "the in-flight frame from A must not persist its session under B",
-            store.saved.containsKey(convB)
-        )
+        val misattributed = withTimeoutOrNull(2_500L) {
+            store.savedFlow.first { it[convB]?.turn == 9 }
+            true
+        } ?: false
+        assertFalse("the in-flight frame from A must not persist under B", misattributed)
         assertEquals(1, store.saved[convA]?.turn)
     }
 
     @Test
     fun `a session update keeps A attribution when the user switches to B`() = runBlocking {
-        repository.connect(agentA, convA)
+        // Hold the repository on an earlier save. The frame is handled on A,
+        // then the switch makes B current before its save is scheduled.
+        repository.connect(agentA, conversationId = null)
+        agentConnection.setSession(SessionState(sessionId = convA, turn = 0), convA)
+        store.pauseNextSessionSave()
         send(connectedWithBody(convA, turn = 1))
-        awaitConnected()
+        store.saveEntered.await()
 
         val updateJob = async(start = CoroutineStart.UNDISPATCHED) {
             agentConnection.events.filterIsInstance<ConnectionEvent.SessionUpdated>().first()
@@ -445,9 +472,70 @@ class ConnectionRepositorySessionPersistenceTest {
         assertEquals(convA, updateJob.await().conversationId)
 
         repository.switchConversation(convB)
+        store.releaseSave.complete(Unit)
 
-        assertEquals(2, store.saved[convA]?.turn)
-        assertFalse(store.saved.containsKey(convB))
+        val saved = withTimeoutOrNull(AWAIT_TIMEOUT_MS) {
+            store.savedFlow.first { it[convA]?.turn == 2 || it[convB]?.turn == 2 }
+        }
+        assertEquals("the update must eventually be persisted", 2, saved?.get(convA)?.turn)
+        assertFalse("the update from A must not be persisted under B", saved?.containsKey(convB) == true)
+    }
+
+    @Test
+    fun `an OUTPUT keeps A attribution when B is already current`() = runBlocking {
+        repository.connect(agentA, conversationId = null)
+        agentConnection.setSession(SessionState(sessionId = convA, turn = 0), convA)
+        store.pauseNextSessionSave()
+        send(connectedWithBody(convA, turn = 1))
+        store.saveEntered.await()
+
+        send(outputWithBody(convA, turn = 2))
+        repository.switchConversation(convB)
+        store.releaseSave.complete(Unit)
+
+        val saved = withTimeoutOrNull(AWAIT_TIMEOUT_MS) {
+            store.savedFlow.first { it[convA]?.turn == 2 || it[convB]?.turn == 2 }
+        }
+        assertEquals("OUTPUT must be saved for A", 2, saved?.get(convA)?.turn)
+        assertFalse("OUTPUT from A must not be saved under B", saved?.containsKey(convB) == true)
+    }
+
+    @Test
+    fun `a CONNECTED keeps A attribution when B is already current`() = runBlocking {
+        repository.connect(agentA, conversationId = null)
+        agentConnection.setSession(SessionState(sessionId = convA, turn = 0), convA)
+        store.pauseNextSessionSave()
+        send(connectedWithBody(convA, turn = 1))
+        store.saveEntered.await()
+
+        send(connectedWithBody(convA, turn = 2))
+        repository.switchConversation(convB)
+        store.releaseSave.complete(Unit)
+
+        val saved = withTimeoutOrNull(AWAIT_TIMEOUT_MS) {
+            store.savedFlow.first { it[convA]?.turn == 2 || it[convB]?.turn == 2 }
+        }
+        assertEquals("CONNECTED must be saved for A", 2, saved?.get(convA)?.turn)
+        assertFalse("CONNECTED from A must not be saved under B", saved?.containsKey(convB) == true)
+    }
+
+    @Test
+    fun `a failed switch does not make B current before the socket switches`() = runBlocking {
+        repository.connect(agentA, convA)
+        send(connectedWithBody(convA, turn = 1))
+        awaitConnected()
+        awaitUntil("conversation A's session to be stored", store.savedFlow) { it[convA]?.turn == 1 }
+
+        store.failNextGet = true
+        assertNotNull(runCatching { repository.switchConversation(convB) }.exceptionOrNull())
+        awaitSockets(2)
+
+        send(sessionSync(convA, turn = 2, reply = "still A"))
+        val saved = withTimeoutOrNull(AWAIT_TIMEOUT_MS) {
+            store.savedFlow.first { it[convA]?.turn == 2 || it[convB]?.turn == 2 }
+        }
+        assertEquals("A must remain current after a failed switch", 2, saved?.get(convA)?.turn)
+        assertFalse("a failed switch must not file A under B", saved?.containsKey(convB) == true)
     }
 
     @Test

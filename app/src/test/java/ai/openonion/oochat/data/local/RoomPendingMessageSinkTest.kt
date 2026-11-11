@@ -166,6 +166,22 @@ class RoomPendingMessageSinkTest {
     }
 
     @Test
+    fun `a rejected first send stays before later messages`() {
+        sink.enqueue(agent, session, "first", null, null)
+        sink.enqueue(agent, session, "second", null, null)
+        sink.enqueue(agent, session, "third", null, null)
+
+        val attempted = mutableListOf<String>()
+        sink.drain(agent, session, null) {
+            attempted += it.prompt
+            false
+        }
+
+        assertEquals(listOf("first"), attempted)
+        assertEquals(listOf("first", "second", "third"), sink.drainAll().map { it.prompt })
+    }
+
+    @Test
     fun `a message queued in another session stays put`() {
         sink.enqueue(agent, "sess-other", "meant for the other conversation", null, null)
         sink.enqueue(agent, null, "queued before any session existed", null, null)

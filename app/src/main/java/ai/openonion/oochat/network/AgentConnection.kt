@@ -259,7 +259,7 @@ class AgentConnection(
     // unable to suppress the other.
     private val socketGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
-    // Test seam for pausing after the callback's first generation check.
+    // Test-only seam for pausing after the callback's first generation check.
     @Volatile
     internal var beforeHandleMessageForTest: (() -> Unit)? = null
 
