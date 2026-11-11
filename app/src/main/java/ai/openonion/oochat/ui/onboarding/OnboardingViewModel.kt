@@ -77,7 +77,6 @@ class OnboardingViewModel @JvmOverloads constructor(
         // The chat screen saves this agent from the config, so it gets the
         // same form as everywhere else (W16AAPPLE-57).
         val trimmedAddress = canonicalAgentAddress(formState.agentAddress.trim())
-        val trimmedApiKey = formState.apiKey.trim().takeIf { it.isNotBlank() }
 
         val error = validate(trimmedUrl, trimmedAddress)
         _errorMessage.value = error
@@ -86,7 +85,6 @@ class OnboardingViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             val config = ConnectionConfig(
                 serverUrl = trimmedUrl,
-                apiKey = trimmedApiKey,
                 agentAddress = trimmedAddress.takeIf { it.isNotBlank() },
                 // The mode the user picked, so a custom relay is gone through
                 // rather than dialled direct (W16AAPPLE-56).

@@ -4,7 +4,6 @@ import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.CONNECTION_MODE_DIRECT
 import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.ui.agent.AgentViewModel
-import ai.openonion.oochat.ui.agent.components.AdvancedSettingsSection
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import ai.openonion.oochat.ui.agent.components.EmbeddedDiscoveryPanel
 import ai.openonion.oochat.ui.common.appViewModel
@@ -61,7 +60,7 @@ import com.journeyapps.barcodescanner.ScanOptions
  * Onboarding screen for first-time setup.
  *
  * Leads with [EmbeddedDiscoveryPanel], which auto-starts a radar scan and connects immediately to
- * a tapped agent. The manual form (Server URL / Agent Address / API Key) remains as a collapsed
+ * a tapped agent. The manual form (Server URL / Agent Address) remains as a collapsed
  * fallback for Direct/peer-to-peer connections or relays with no discovery endpoint.
  * The actual connection attempt happens on the shared [ai.openonion.oochat.ui.loading.LoadingScreen].
  */
@@ -191,12 +190,6 @@ fun OnboardingScreen(
                     agentViewModel.connectToDiscoveredAgent(agent, onSaved = onProceedToConnect)
                 },
                 actionLabel = "Connect",
-                advancedSettings = {
-                    AdvancedSettingsSection(
-                        apiKey = formState.apiKey,
-                        onApiKeyChange = { formState = formState.copy(apiKey = it) }
-                    )
-                },
                 submitButton = {
                     // Error message — blended (low-alpha error-over-surface) tint
                     // with a slide+fade entrance, rather than a flat errorContainer
@@ -290,7 +283,6 @@ private fun ConnectionConfig?.toFormStateOrDefault(): AgentFormState {
     return AgentFormState(
         serverUrl = serverUrl,
         agentAddress = agentAddress.orEmpty(),
-        apiKey = apiKey.orEmpty(),
         useDirectConnection = connectionMode?.let { it == CONNECTION_MODE_DIRECT }
             ?: !Constants.isDefaultServerUrl(serverUrl)
     )
