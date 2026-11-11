@@ -887,8 +887,12 @@ turn and gets no such reply.
 | Any other `ERROR` frame | No change. It says nothing about whether the host took this message; the host's own refusal arrives as its own event. |
 | Disconnect / reconnect | `FAILED`. No reply can arrive on a dead socket and whether the host queued it is unknown. |
 
-**After a restart.** Only `FAILED` is saved (`chat_messages.delivery_state`,
-added in database v14). `SENT` and outbox messages come back `SENT`. A message
+**After a restart.** `FAILED` is saved (`chat_messages.delivery_state`, added
+in database v14), and so is a message still in the outbox, as `QUEUED` in the
+same column (W16AAPPLE-106). `SENT` comes back `SENT`. One still in the outbox
+comes back `QUEUED` ("Waiting to send..."), since the outbox survives the restart
+and will still send it, and the next `Connected` on its conversation settles it
+to `SENT` and saves it so. A message
 that was awaiting an answer, or held in memory (behind a running turn, for a
 resend, or after a retryable refusal), comes back `FAILED`, since its delivery
 is unknown or the hold was lost. A new message held behind a running turn is
@@ -1213,13 +1217,17 @@ the turn, not for the socket.
 The composer stays usable while disconnected, so the outbox is reachable
 (W16AAPPLE-102). With no connection object at all (before the first connect, or
 after one gave up) `ConnectionRepositoryImpl.sendMessage` queues the message for
-the conversation itself. Only a user disconnect (the banner's Stop) empties the
-outbox: replacing the connection (Reconnect) and `ConnectToAgentUseCase`'s
-first-connect timeout (and cancelling the Loading screen) keep it. When Stop
-does empty it, the bubbles this screen queued in this process turn failed rather
-than staying "Waiting to send". The outbox is per agent, though, so Stop also
-drops what other conversations with that agent, or a previous run, queued, and
-those bubbles do not change.
+the conversation itself. Stopping the connection keeps the outbox: the banner's
+Stop, replacing the connection (Reconnect), `ConnectToAgentUseCase`'s
+first-connect timeout and cancelling the Loading screen all leave it alone, so a
+"Waiting to send..." bubble always goes out on the next connect to its
+conversation (W16AAPPLE-106, reversing W16AAPPLE-96's drop on Stop). The outbox
+is per agent but flushes per conversation, so another conversation's queued
+messages wait until it is the one connected. Their rows are saved as queued, so
+they still say "Waiting to send..." when that conversation is opened again, or
+after a restart. Clear chat drops only the cleared conversation's queued
+messages (`PendingMessageSink.clearConversation`, which matches what a drain
+into that conversation would send), with or without a connection.
 
 **Known gaps.**
 

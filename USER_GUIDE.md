@@ -382,8 +382,8 @@ never saved.
 and send while offline: the message is queued on the device and goes out when
 the connection returns, including after the app is killed. If the banner has
 given up reconnecting, tap **Reconnect**. Tapping **Stop** on the connecting
-banner discards queued messages; the ones on screen turn red so you can send
-them again.
+banner keeps queued messages: they still go out the next time you connect, and
+still say "Waiting to send..." until they do, even after a restart.
 
 **"Not sent · Tap to try again" in red.** The message did not reach the agent.
 Tap it, or tap **Retry** in the bar above the message box, to send it again. It
