@@ -51,21 +51,38 @@ first.
 ## 2. Having a conversation
 
 Type in the box at the bottom and send. The agent's reply arrives in the
-transcript, and under each reply is a line like:
+transcript as plain text, and under each reply is a line like:
 
-> ✓ 8s · 3.4k tokens · $0.0046
+> ⧉ 2:10 PM · 25.3k tokens · $0.015
 
-That is how long the agent took, how much of its context the exchange used, and
-what it cost — the agent's owner pays this, not you, unless you have supplied
-your own key.
+That is when the reply arrived, how much of the agent's context the whole
+exchange used, and what it cost. The agent's owner pays this, not you, unless
+you have supplied your own key. Tap the copy icon at the start of the line to
+copy the reply.
 
-**While the agent is working**, a **Stop** chip appears. Stop is a request, not
-a kill switch: the agent finishes the step it is on and sends a closing message,
-so expect one more line after you press it.
+**While the agent is working** you can see what it is doing: a line such as
+**Working… 12s · step 5** sits above its newest steps (what it is thinking, the
+commands it runs, the files it reads), with older steps folded behind
+**N earlier steps**. The send button becomes a round **Stop** button. Stop is a
+request, not a kill switch: the agent finishes the step it is on and sends a
+closing message, so expect one more line after you press it.
 
-**You do not have to wait.** Keep typing while a reply is still coming.
+**Once it is done, only the answer stays in view.** The steps fold into one
+line above it, such as **Worked for 16s · 7 steps**, with a red **1 failed**
+badge if any step failed. Tap that line to see every step again, and tap a step
+to see the whole command or thought and what it produced; the line stays open
+for as long as you stay in the chat. Earlier conversations open with their
+steps folded. A turn that ended without an answer, because it failed or you
+stopped it, keeps its steps open so you can see where it got to, and a question
+or an approval waiting for you is never folded away.
 
-<img src="screenshots/keep-typing-while-working.png" alt="A reply is still generating, the Stop chip is showing, and a follow-up message is already typed in the composer" width="300">
+<img src="screenshots/turn-steps-summary.png" alt="A finished answer under the line Worked for 16s, 7 steps, 1 failed, opened to show the agent's thought and each command it ran, one marked Failed" width="300">
+
+**You do not have to wait.** Keep typing while a reply is still coming: the box
+says **Queue a follow-up…**, and once you have typed something a send button
+appears beside Stop.
+
+<img src="screenshots/keep-typing-while-working.png" alt="The agent is working on step 4, with its newest steps showing, and a follow-up message is already typed in the box, with Send beside the Stop button" width="300">
 
 A message typed mid-answer waits for the current turn and goes out when it
 ends, so nothing is lost and nothing interrupts.
@@ -212,6 +229,14 @@ room lists each step the coding agent takes, such as updating files or running
 tests, with the files it changed, and says how the run ended. It keeps updating
 while you watch. You only see the steps the agent's Host describes, never the
 raw commands it ran.
+
+The room also shows the conversation with the coding agent, your messages and its
+replies, under **Conversation**, with any code in a reply set in a fixed-width
+font. Under the task, **Latest view** is the most recent picture of its workspace
+or browser, when the agent's Host has sent one. A long run keeps only its most
+recent part of the conversation. Passwords and keys are hidden, as elsewhere in
+the app, and a reply that is nothing but the coding agent's raw output is replaced
+by a note that the details are in the agent's logs.
 
 To steer the run, type into the field at the bottom of the room and tap Send.
 The message goes to the coding agent itself, not to the agent that started it.
@@ -402,8 +427,11 @@ never saved.
 and send while offline: the message is queued on the device and goes out when
 the connection returns, including after the app is killed. If the banner has
 given up reconnecting, tap **Reconnect**. Tapping **Stop** on the connecting
-banner discards queued messages; the ones on screen turn red so you can send
-them again.
+banner keeps queued messages: they still go out the next time you connect, and
+still say "Waiting to send..." until they do, even after a restart. If 50
+messages are already waiting, or their attachments are too large to hold, a new
+one is not queued: it shows as not sent, so you can send it again once you are
+back online.
 
 **"Not sent · Tap to try again" in red.** The message did not reach the agent.
 Tap it, or tap **Retry** in the bar above the message box, to send it again. It

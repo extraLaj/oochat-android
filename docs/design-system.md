@@ -45,10 +45,18 @@ coming up is the connected green pulsing, and the word "Connecting" says so.
 
 ## Type
 
-The system's own sans face, which is Android's `FontFamily.SansSerif`, so text matches the phone it is
-on and the app bundles no font. Monospace is for code, log lines, addresses and anything that ticks.
-`tabularFigures()` is monospace as well as `tnum`, so a recording timer does not jitter on a system
-font that has no tabular digits.
+Inter, the chat design's face (W16AAPPLE-112). This reverses W16AAPPLE-49's "system font, nothing
+bundled": the design is drawn in Inter, and the system face (Roboto on most phones) read noticeably
+looser and wider beside it. It is bundled as Inter's two variable fonts, `res/font/inter.ttf` and
+`res/font/inter_italic.ttf` (about 1.7MB together in the APK), from the official Google Fonts
+repository; the SIL Open Font License that lets it ship sits beside it in
+`assets/licenses/inter_OFL.txt`, and must stay there while the font does. `Type.kt` builds one
+`FontFamily`, `Inter`, with an entry per weight the app uses, each drawn at its true weight from the
+variable font rather than synthesised. Body text drops Material 3's positive letter spacing, which was
+tuned for Roboto.
+
+Monospace is still the system's, for code, log lines, addresses and anything that ticks.
+`tabularFigures()` is monospace as well as `tnum`, so a recording timer does not jitter.
 
 Use the roles in `Type.kt` (the ladder is documented there) and do not pass a `fontSize` or build a
 `FontFamily` of your own.
@@ -56,10 +64,11 @@ Use the roles in `Type.kt` (the ladder is documented there) and do not pass a `f
 ## Radii
 
 One scale, in `Radii` and `AppShapes`: 2, 4, 6, 8 and 12dp. Nothing is rounder than 12dp apart from a
-circle (dots, avatars, the Send button).
+circle (dots, avatars, the Send and Stop buttons) and one named exception, `Radii.composer` (22dp):
+the chat composer's corners, measured off the chat design (W16AAPPLE-112).
 
 Use `MaterialTheme.shapes.<size>`, or `Radii.<size>` where a plain value is needed, as the dashed
-attachment tile does. Chat bubbles, the composer and buttons are `large` (8dp), sheets, dialogs and
+attachment tile does. Chat bubbles and buttons are `large` (8dp), sheets, dialogs and
 menus `extraLarge` (12dp). Material draws filled, tonal and outlined buttons fully round unless told
 otherwise, and the scale cannot reach that default, so each one passes `shape = MaterialTheme.shapes.large`.
 
@@ -97,8 +106,8 @@ browser's best guess and will not match this palette exactly.
 | `LogColorsTest` | The logs console uses green, warm greys and the error red, each 4.5:1 on the console |
 | `ThemeColorsOnlyInThemeTest` | No colour literal or named colour outside `ui/theme` |
 | `ContrastUsageTest` | No `outline` caption on the highest container, no `outlineVariant` border on a high one |
-| `TypographyTest` | System font only, no bundled font, no custom family, monospace timer |
-| `ShapesTest` | The scale, the tokens, the bubble's tail, no numeric radius, every button passes a shape |
+| `TypographyTest` | Every style is Inter, only Inter's two files are bundled and its licence ships with them, no custom family elsewhere, monospace timer |
+| `ShapesTest` | The scale, the tokens (the composer on `Radii.composer`), the bubble's tail, no numeric radius, every button passes a shape |
 | `ElevationTest` | No tint, no shadow above 1dp, every menu sets its shadow, no Material snackbar |
 | `AgentStatusColorComposeTest` | Connecting is the brand green, apart from disabled grey and error red |
 | `AppSnackbarHostComposeTest` | The app's snackbar shows its message and answers its action |

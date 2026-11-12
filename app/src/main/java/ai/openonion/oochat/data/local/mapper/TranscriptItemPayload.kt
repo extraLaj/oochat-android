@@ -9,7 +9,10 @@ import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
+import ai.openonion.oochat.domain.model.ProviderArtifact
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.ProviderMessage
+import ai.openonion.oochat.domain.model.ProviderMessageRole
 import ai.openonion.oochat.domain.model.ProviderPermissionOption
 import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ReceivedFile
@@ -211,6 +214,8 @@ sealed class TranscriptItemPayload {
         val elapsedMs: Long? = null,
         val stateRevision: Long? = null,
         val activities: List<Step> = emptyList(),
+        val messages: List<Message> = emptyList(),
+        val artifact: Artifact? = null,
         val providerPermission: Permission? = null
     ) : TranscriptItemPayload() {
         /** The run's provider permission mode as last confirmed by the Host (W16AAPPLE-43). */
@@ -243,6 +248,22 @@ sealed class TranscriptItemPayload {
             val summary: String = "",
             val files: List<String> = emptyList(),
             val legacy: Boolean = false
+        )
+
+        @Serializable
+        data class Message(
+            val id: String,
+            val role: String,
+            val text: String,
+            val continuationOf: String? = null
+        )
+
+        @Serializable
+        data class Artifact(
+            val id: String,
+            val dataUrl: String,
+            val alt: String,
+            val stateRevision: Long
         )
     }
 }
@@ -434,6 +455,22 @@ object TranscriptItemCodec {
                     files = it.files,
                     legacy = it.legacy
                 )
+            },
+            messages = item.messages.map {
+                TranscriptItemPayload.ProviderInvocation.Message(
+                    id = it.id,
+                    role = it.role.name,
+                    text = it.text,
+                    continuationOf = it.continuationOf
+                )
+            },
+            artifact = item.artifact?.let {
+                TranscriptItemPayload.ProviderInvocation.Artifact(
+                    id = it.id,
+                    dataUrl = it.dataUrl,
+                    alt = it.alt,
+                    stateRevision = it.stateRevision
+                )
             }
         )
         else -> null
@@ -584,6 +621,16 @@ object TranscriptItemCodec {
                     files = it.files,
                     legacy = it.legacy
                 )
+            },
+            // A role this build does not know is a message it cannot place, so it is left out
+            // rather than shown as someone else's.
+            messages = payload.messages.mapNotNull {
+                val role = runCatching { enumValueOf<ProviderMessageRole>(it.role) }.getOrNull()
+                    ?: return@mapNotNull null
+                ProviderMessage(id = it.id, role = role, text = it.text, continuationOf = it.continuationOf)
+            },
+            artifact = payload.artifact?.let {
+                ProviderArtifact(id = it.id, dataUrl = it.dataUrl, alt = it.alt, stateRevision = it.stateRevision)
             }
         )
     }

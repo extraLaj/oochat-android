@@ -42,6 +42,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -100,6 +102,10 @@ fun InputBar(
     draft: ChatComposerDraft = ChatComposerDraft(),
     draftKey: String? = null,
     onDraftChange: (ChatComposerDraft) -> Unit = {},
+    // The empty chat's layout (W16AAPPLE-113): the field as a card in the
+    // middle of the screen, every control on one row inside it, and no shelf.
+    centred: Boolean = false,
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -394,8 +400,16 @@ fun InputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 16.dp)
+            .then(
+                // Centred, the card sits on the page itself; its parent sets the margins.
+                if (centred) {
+                    Modifier
+                } else {
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 16.dp)
+                }
+            )
     ) {
         if (showModeSheet) {
             ApprovalModeSheet(
@@ -492,15 +506,84 @@ fun InputBar(
             }
         )
 
+        val onFieldChange: (TextFieldValue) -> Unit = { edited ->
+            dictationAnchor = dictationAnchor?.let {
+                DictationMerge.onFieldChanged(it, input.text, edited.text)
+            }
+            input = edited
+            publishDraft(text = edited.text)
+        }
+        // Idle: mic and Send. Running: Stop takes the circle, with Send
+        // beside it once there is a follow-up to queue. The mic stays
+        // through a dictation started before the turn, so it can finish.
+        val sendControls: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!isAgentWorking || voiceInput.isBusy) {
+                    MicButton(enabled = micEnabled, onClick = requestMicPermission)
+                }
+                if (!isAgentWorking || canSend) {
+                    SendButton(enabled = canSend, onClick = ::submit, quietWhenDisabled = centred)
+                }
+                if (isAgentWorking) {
+                    StopButton(onClick = onStop)
+                }
+            }
+        }
+        val approvalChip: @Composable () -> Unit = {
+            ApprovalModeChip(
+                mode = approvalMode,
+                // Switching mode is a message to a running agent; with no live
+                // socket there is nothing to send it to. A Host that owns the
+                // mode also refuses a change mid-turn ("Session is busy"), so
+                // there the chip waits for the turn instead of inviting one.
+                enabled = isConnected && !(sessionModes.hostManaged && isAgentWorking),
+                // Only offline reads as switched off; held for a running turn,
+                // it still shows the mode in force.
+                dimmed = !isConnected,
+                pending = modePending,
+                turnsLeft = sessionModes.turnsLeft,
+                onCycle = onCycleApprovalMode,
+                onOpenSheet = { showModeSheet = true }
+            )
+        }
+
+        if (centred) {
+            val attachmentCount = attachedImages.size + attachedFiles.size
+            CentredTextInputField(
+                value = input,
+                onValueChange = onFieldChange,
+                placeholder = composerPlaceholder(
+                    isConnected = isConnected,
+                    awaitingOnboardCode = awaitingOnboardCode,
+                    hasAgent = hasAgent,
+                    isAgentWorking = isAgentWorking,
+                    attachmentCount = attachmentCount,
+                    idle = "Ask a question or describe a task…"
+                ),
+                enabled = fieldEnabled,
+                interactionSource = fieldInteractionSource,
+                minTextHeight = if (LocalConfiguration.current.screenWidthDp >= 600) 82.dp else 66.dp,
+                focusRequester = focusRequester,
+                leadingTools = {
+                    AttachmentMenuButton(
+                        enabled = fieldEnabled,
+                        onCameraClick = requestCameraPermission,
+                        onGalleryClick = { launchImagePicker() },
+                        onFileClick = { filePicker.launch(arrayOf("*/*")) }
+                    )
+                    approvalChip()
+                },
+                trailingTools = {
+                    if (attachmentCount > 0) AttachmentCountBadge(attachmentCount)
+                    sendControls()
+                }
+            )
+            return@Column
+        }
+
         TextInputField(
             value = input,
-            onValueChange = { edited ->
-                dictationAnchor = dictationAnchor?.let {
-                    DictationMerge.onFieldChanged(it, input.text, edited.text)
-                }
-                input = edited
-                publishDraft(text = edited.text)
-            },
+            onValueChange = onFieldChange,
             isConnected = isConnected,
             awaitingOnboardCode = awaitingOnboardCode,
             hasAgent = hasAgent,
@@ -511,46 +594,20 @@ fun InputBar(
             onCameraClick = requestCameraPermission,
             onGalleryClick = { launchImagePicker() },
             onFileClick = { filePicker.launch(arrayOf("*/*")) },
-            trailingContent = {
-                // Mic and Send both, always: dictation appends to whatever is
-                // already in the field, so the two stopped being alternatives.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    MicButton(enabled = micEnabled, onClick = requestMicPermission)
-                    SendButton(enabled = canSend, onClick = ::submit)
-                }
-            }
+            focusRequester = focusRequester,
+            trailingContent = sendControls
         )
 
-        // The composer's secondary shelf. Stop lives here rather than in the
-        // send slot: sending is a real option mid-run now, so Stop needed a
-        // home of its own, and a fourth button would not fit inside the pill.
+        // The composer's secondary shelf: approval mode, and what the session
+        // has cost so far.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = MaterialTheme.spacing.xs),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ApprovalModeChip(
-                mode = approvalMode,
-                // Switching mode is a message to a running agent; with no live
-                // socket there is nothing to send it to. A Host that owns the
-                // mode also refuses a change mid-turn ("Session is busy"), so
-                // there the chip waits for the turn instead of inviting one.
-                enabled = isConnected && !(sessionModes.hostManaged && isAgentWorking),
-                pending = modePending,
-                turnsLeft = sessionModes.turnsLeft,
-                onCycle = onCycleApprovalMode,
-                onOpenSheet = { showModeSheet = true }
-            )
+            approvalChip()
             Spacer(modifier = Modifier.weight(1f))
-            if (isAgentWorking) {
-                // Live throughout a dictation now: the mic slot no longer turns
-                // into a second square glyph, so there is nothing to confuse it
-                // with, and interrupting a runaway agent should not need to wait
-                // for the sentence you are dictating at it to finish.
-                StopButton(onClick = onStop)
-                Spacer(modifier = Modifier.padding(horizontal = MaterialTheme.spacing.xxs))
-            }
             SessionUsageSummary(usage)
         }
     }

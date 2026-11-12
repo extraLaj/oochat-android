@@ -107,7 +107,7 @@ class LoadingViewModelTest {
         override fun isConnected(): Boolean = isConnectedResult
 
         var resetCount = 0
-        override suspend fun reset() { resetCount++ }
+        override suspend fun reset(conversationId: String?) { resetCount++ }
     }
 
     internal class FakeConnectionConfigRepository : ConnectionConfigRepository {

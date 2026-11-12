@@ -296,16 +296,30 @@ interface ConnectionRepository {
     suspend fun querySessionStatus(sessionId: String)
 
     /**
-     * Drop the connection. By default the outbox goes with it: the user chose
-     * to stop. [keepOutbox] is for giving up on an attempt the user did not
-     * end (ConnectToAgentUseCase's timeout), whose queued messages must still
-     * go out on the next connect (W16AAPPLE-102).
+     * Drop the connection. By default the outbox goes with it. [keepOutbox]
+     * keeps it, so its queued messages still go out on the next connect: for
+     * ConnectToAgentUseCase's timeout (W16AAPPLE-102) and for the user's Stop,
+     * whose "Waiting to send..." bubbles must stay true (W16AAPPLE-106).
      */
     suspend fun disconnect(keepOutbox: Boolean = false)
 
     fun isConnected(): Boolean
 
-    suspend fun reset()
+    /**
+     * Clear chat: forget [conversationId]'s server session and drop what it
+     * queued. Named by the caller, since another conversation may be open by
+     * the time this runs; null means the current one (W16AAPPLE-106).
+     */
+    suspend fun reset(conversationId: String? = null)
+
+    /**
+     * How many of [agentAddress]'s messages for [conversationId] the outbox
+     * still holds. The agent is the caller's, not whichever this connection is
+     * on: a chat can load another agent's conversation before the connection
+     * moves to it. See
+     * [ai.openonion.oochat.network.PendingMessageSink.countForConversation].
+     */
+    suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = null
 
     fun getCurrentSession(): SessionState?
 

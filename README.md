@@ -47,7 +47,7 @@ This needs `runtime_input` on the agent, which is opt-in
 (`Agent(plugins=[runtime_input])`). Without it the relay acknowledges the
 mid-run message and queues it, and nothing drains the queue.
 
-<img src="screenshots/keep-typing-while-working.png" alt="A reply is still generating, Stop is showing, and a follow-up is already typed with Send enabled" width="320">
+<img src="screenshots/keep-typing-while-working.png" alt="The agent is working, its newest steps showing, and a follow-up is already typed with Send beside the Stop button" width="320">
 
 ### A message that did not send says so
 

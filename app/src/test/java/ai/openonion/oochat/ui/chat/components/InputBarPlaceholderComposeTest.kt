@@ -52,7 +52,7 @@ class InputBarPlaceholderComposeTest {
         bar(isConnected = true, isAgentWorking = true)
 
         composeRule.onNodeWithText("Connect to an agent first").assertDoesNotExist()
-        composeRule.onNodeWithText("Agent is working…").assertIsDisplayed()
+        composeRule.onNodeWithText("Queue a follow-up…").assertIsDisplayed()
     }
 
     @Test

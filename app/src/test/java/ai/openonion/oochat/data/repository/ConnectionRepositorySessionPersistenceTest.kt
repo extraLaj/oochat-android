@@ -170,9 +170,11 @@ class ConnectionRepositorySessionPersistenceTest {
             prompt: String,
             images: List<String>?,
             files: List<FileAttachment>?
-        ) = Unit
+        ): Boolean = true
         override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Boolean) = Unit
         override fun clear(agentAddress: String) = Unit
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) = Unit
+        override fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int = 0
     }
 
     private class BlockingDrainSink : PendingMessageSink {
@@ -187,8 +189,9 @@ class ConnectionRepositorySessionPersistenceTest {
             prompt: String,
             images: List<String>?,
             files: List<FileAttachment>?
-        ) {
+        ): Boolean {
             queued = true
+            return true
         }
 
         override fun drain(
@@ -207,6 +210,13 @@ class ConnectionRepositorySessionPersistenceTest {
         override fun clear(agentAddress: String) {
             queued = false
         }
+
+        override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
+            queued = false
+        }
+
+        override fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int =
+            if (queued) 1 else 0
     }
 
     private lateinit var factory: FakeWebSocketFactory

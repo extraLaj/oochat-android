@@ -143,6 +143,14 @@ object SensitiveText {
         Regex("""(?i)<!doctype html|<html[\s>]"""),
     )
 
+    /** The few of those that mark a message as a payload when it begins with one: a snippet quoted in prose does not. */
+    private val WHOLE_RAW_PAYLOAD = listOf(
+        Regex("""^\s*\{\s*["']?\w{1,64}["']?\s*:"""),
+        Regex("""^\s*\[\s*[{"']"""),
+        Regex("""^\s*Traceback \(most recent call last\)"""),
+        Regex("""(?i)^\s*(<!doctype html|<html[\s>])""")
+    )
+
     /**
      * [text] with every credential masked and home folders shortened to `~`.
      * Other paths are kept: in a tool card or an approval they are what the
@@ -220,6 +228,18 @@ object SensitiveText {
      */
     fun summaryText(raw: String): String =
         if (isRawPayload(raw)) UNREADABLE_SUMMARY else redact(raw)
+
+    /**
+     * A line of the conversation inside a Work Room (W16AAPPLE-34): prose and code the
+     * user is meant to read, so a snippet in it keeps its braces and its calls and is
+     * only [redact]ed. Replaced whole, as in [summaryText], only when the message itself
+     * is a raw payload, that is when it begins with one (see [isWholeRawPayload]).
+     */
+    fun messageText(raw: String): String =
+        if (isWholeRawPayload(raw)) UNREADABLE_SUMMARY else redact(raw)
+
+    /** Whether [text] is a provider's object, array, stack trace or error page from its first character, not one quoted in a sentence. */
+    private fun isWholeRawPayload(text: String): Boolean = WHOLE_RAW_PAYLOAD.any { it.containsMatchIn(text) }
 
     /** Whether [text] carries a provider's object, a stack trace or an error page rather than a sentence. */
     fun isRawPayload(text: String): Boolean = RAW_PAYLOAD.any { it.containsMatchIn(text) }

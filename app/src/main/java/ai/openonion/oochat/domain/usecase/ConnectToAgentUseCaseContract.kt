@@ -261,8 +261,8 @@ interface ConnectToAgentUseCaseContract {
 
     /**
      * Drop the connection. [keepOutbox] keeps the messages queued for the
-     * agent; see ConnectionRepository.disconnect. Only a user stopping the
-     * connection should leave it false (W16AAPPLE-102).
+     * agent; see ConnectionRepository.disconnect. Every caller in the app keeps
+     * it, the chat's Stop included (W16AAPPLE-106).
      */
     suspend fun disconnect(keepOutbox: Boolean = false)
 
@@ -272,8 +272,17 @@ interface ConnectToAgentUseCaseContract {
     fun isConnected(): Boolean
 
     /**
-     * Reset the underlying session (used by `clearChat` so a re-connect
-     * doesn't replay stale events).
+     * Reset [conversationId]'s session and drop what it queued (used by
+     * `clearChat` so a re-connect doesn't replay stale events). Named by the
+     * caller, since another conversation may be open by the time this runs;
+     * null means the current one (W16AAPPLE-106).
      */
-    suspend fun reset()
+    suspend fun reset(conversationId: String? = null)
+
+    /**
+     * How many of [agentAddress]'s messages for [conversationId] are still
+     * waiting in the outbox, or null when that cannot be told. The chat
+     * settles "Waiting to send..." bubbles by it (W16AAPPLE-106).
+     */
+    suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = null
 }

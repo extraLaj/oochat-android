@@ -90,6 +90,9 @@ sealed class ChatEvent {
      * the run itself is updated by the `provider_invocation` that follows.
      */
     data class ProviderPermissionAcked(val ack: ProviderPermissionAck) : ChatEvent()
+
+    /** The connection finished flushing the outbox for [conversationId] (W16AAPPLE-106). */
+    data class OutboxFlushed(val conversationId: String?) : ChatEvent()
 }
 
 /**

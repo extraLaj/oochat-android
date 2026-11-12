@@ -443,6 +443,7 @@ val regressionSuite = mapOf(
         "network.ProtocolParserWorkRoomApprovalTest",
         "ui.workroom.WorkRoomApprovalComposeTest",
         "ui.chat.WorkRoomApprovalReconnectTest",
+        "data.local.mapper.TranscriptItemCodecTest",
     ),
     "rem notebook" to listOf(
         "domain.model.RemNotebookTest",

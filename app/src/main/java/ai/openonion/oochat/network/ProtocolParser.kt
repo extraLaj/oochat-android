@@ -1204,6 +1204,14 @@ sealed class ConnectionEvent {
      * provider permission mode (W16AAPPLE-43). Settles the control, not a chat item.
      */
     data class ProviderPermissionAcked(val ack: ProviderPermissionAck) : ConnectionEvent()
+
+    /**
+     * Not a frame: the connection has finished flushing its outbox after a
+     * CONNECTED, for [conversationId]. What is left in the outbox then is what
+     * did not go (a send the socket refused goes back), so the chat settles its
+     * "Waiting to send..." bubbles by it (W16AAPPLE-106).
+     */
+    data class OutboxFlushed(val conversationId: String?) : ConnectionEvent()
     data class ConnectionError(
         val message: String,
         /** Machine-readable ERROR code, when the Host supplied one. */

@@ -30,10 +30,17 @@ class ShapesTest {
     }
 
     @Test
-    fun `chat bubbles, the composer and image tiles use the scale`() {
+    fun `chat bubbles and image tiles use the scale`() {
         assertEquals(8f, MessageBubbleToken.BorderRadius.value)
-        assertEquals(8f, InputBarToken.BorderRadius.value)
         assertEquals(4f, ImageGridToken.BorderRadius.value)
+    }
+
+    @Test
+    fun `the composer takes the design's own radius, named in the theme`() {
+        // Off the scale on purpose (W16AAPPLE-112), so it lives in Radii rather
+        // than as a number in the composer.
+        assertEquals(22f, InputBarToken.BorderRadius.value)
+        assertEquals(Radii.composer, InputBarToken.BorderRadius)
     }
 
     @Test

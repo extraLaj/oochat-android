@@ -3,7 +3,6 @@ package ai.openonion.oochat.ui.agent
 import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.domain.model.AppError
-import ai.openonion.oochat.ui.agent.components.AdvancedSettingsSection
 import ai.openonion.oochat.ui.agent.components.AgentFormContent
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import ai.openonion.oochat.ui.agent.components.EmbeddedDiscoveryPanel
@@ -107,7 +106,6 @@ fun AgentFormScreen(
             AgentFormState(
                 serverUrl = existingAgent?.serverUrl ?: "https://oo.openonion.ai",
                 agentAddress = existingAgent?.address ?: "",
-                apiKey = existingAgent?.apiKey ?: "",
                 useDirectConnection = existingAgent?.connectionMode == "direct"
             )
         )
@@ -155,7 +153,6 @@ fun AgentFormScreen(
             description = description.trim().takeIf { it.isNotBlank() },
             // Without a trailing slash, as Setup saves it (W16AAPPLE-55).
             serverUrl = formState.serverUrl.trim().trimEnd('/'),
-            apiKey = formState.apiKey.trim().takeIf { it.isNotBlank() },
             avatarUrl = existingAgent?.avatarUrl,
             createdAt = existingAgent?.createdAt ?: System.currentTimeMillis(),
             lastConnectedAt = existingAgent?.lastConnectedAt,
@@ -329,12 +326,6 @@ fun AgentFormScreen(
                 // Add Agent picks from the radar above; a quick-pick of agents
                 // already saved on this device would only re-add a duplicate.
                 savedAgentDropdown = false,
-                advancedSettings = {
-                    AdvancedSettingsSection(
-                        apiKey = formState.apiKey,
-                        onApiKeyChange = { formState = formState.copy(apiKey = it) }
-                    )
-                },
                 submitButton = {
                     Button(
                         onClick = { save() },
