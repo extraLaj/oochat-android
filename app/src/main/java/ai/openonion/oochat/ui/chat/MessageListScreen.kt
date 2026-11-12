@@ -116,7 +116,10 @@ fun MessageList(
     val keyIndex = restoredPosition.firstVisibleItemKey?.let { key ->
         when (key) {
             BEGINNING_ITEM_KEY -> 0
-            else -> items.indexOfFirst { it.id == key }
+            // A step folded since the position was saved is found through the
+            // block that now stands for it, not by falling back to its index —
+            // which, with rows folded away above it, points somewhere else.
+            else -> (turnSteps.foldedInto[key] ?: key).let { shown -> items.indexOfFirst { it.id == shown } }
                 .takeIf { it >= 0 }
                 ?.plus(HEADER_ITEM_COUNT)
         }

@@ -11,11 +11,15 @@ package ai.openonion.oochat.domain.model
  * @param turns for each such row, keyed by its id, the steps it stands for.
  * @param footers for the answer of each turn with steps, keyed by its id, the
  *   footer it shows: the whole turn's usage rather than its last LLM call's.
+ * @param foldedInto for each row folded away, the id of the visible row that
+ *   now stands for it — its turn's step block. A saved scroll position names
+ *   a row by id, and one taken before a step folded must still find its place.
  */
 data class TurnStepGroups(
     val visible: List<ChatItem>,
     val turns: Map<String, TurnSteps>,
-    val footers: Map<String, ChatItem.Thinking> = emptyMap()
+    val footers: Map<String, ChatItem.Thinking> = emptyMap(),
+    val foldedInto: Map<String, String> = emptyMap()
 )
 
 /**
@@ -87,7 +91,7 @@ private fun ChatItem.isIntermediateFooter(): Boolean =
  * list is returned when no turn has any.
  */
 fun List<ChatItem>.groupTurnSteps(): TurnStepGroups {
-    val hidden = HashSet<String>()
+    val hidden = HashMap<String, String>()
     val turns = HashMap<String, TurnSteps>()
     val footers = HashMap<String, ChatItem.Thinking>()
     // Answers that come before their turn's first step, to the step that has
@@ -109,7 +113,7 @@ fun List<ChatItem>.groupTurnSteps(): TurnStepGroups {
         leadIns[item.id]?.let { visible += it }
         if (item.id !in hidden && item.id !in moved) visible += item
     }
-    return TurnStepGroups(visible, turns, footers)
+    return TurnStepGroups(visible, turns, footers, foldedInto = hidden)
 }
 
 /**
@@ -130,7 +134,7 @@ private fun List<ChatItem>.groupTurn(
     start: Int,
     end: Int,
     isNewest: Boolean,
-    hidden: MutableSet<String>,
+    hidden: MutableMap<String, String>,
     turns: MutableMap<String, TurnSteps>,
     footers: MutableMap<String, ChatItem.Thinking>,
     leadIns: MutableMap<String, ChatItem>
@@ -140,12 +144,13 @@ private fun List<ChatItem>.groupTurn(
     if (steps.isEmpty()) return
     val answer = turn.lastOrNull { it.isAnswer() }
 
-    steps.drop(1).forEach { hidden += it.id }
+    val anchor = steps.first().id
+    steps.drop(1).forEach { hidden[it.id] = anchor }
     // A reply is written into the turn's newest pending footer, which can sit
     // above tool cards that came after it. The summary still belongs above
     // the answer, not trailing under it.
     if (answer != null && turn.indexOf(answer) < turn.indexOf(steps.first())) leadIns[answer.id] = steps.first()
-    turn.filter { it.isIntermediateFooter() }.forEach { hidden += it.id }
+    turn.filter { it.isIntermediateFooter() }.forEach { hidden[it.id] = anchor }
 
     val calls = turn.mapNotNull { (it as? ChatItem.Turn)?.thinking }
     val workMs = calls.sumOf { it.durationMs?.toLong() ?: 0L } +
@@ -154,7 +159,7 @@ private fun List<ChatItem>.groupTurn(
         key = steps.first().id,
         steps = steps,
         // A stale RUNNING row in an older turn is history, not work in flight.
-        running = isNewest && turn.any { it.isInProgress() },
+        running = isNewest && turn.any { it.isInProgress() || it.holdsTurnOpen() },
         hasAnswer = answer != null,
         startId = getOrNull(start - 1)?.id,
         endId = (answer ?: turn.last()).id,
@@ -171,6 +176,19 @@ private fun List<ChatItem>.groupTurn(
             costUsd = done.mapNotNull { it.costUsd }.takeIf { it.isNotEmpty() }?.sum()
         )
     }
+}
+
+/**
+ * Not a step in flight, but a reason the turn is not over: a Claude Code or
+ * Codex run it started that is still going, or a question still waiting on the
+ * user. Summing it up as "Worked for …" then would claim a finish the top bar
+ * and the card beside it contradict.
+ */
+private fun ChatItem.holdsTurnOpen(): Boolean = when (this) {
+    is ChatItem.ProviderInvocation -> !status.isTerminal
+    is ChatItem.ApprovalNeeded -> decision == null
+    is ChatItem.AskUser -> answer == null
+    else -> false
 }
 
 private inline fun List<ChatItem>.indexOfFirstFrom(from: Int, predicate: (ChatItem) -> Boolean): Int {

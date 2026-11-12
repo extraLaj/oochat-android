@@ -55,6 +55,19 @@ class TurnStepsTest {
     }
 
     @Test
+    fun `a turn waiting on its Work Room or on the user is still running`() {
+        val run = ChatItem.ProviderInvocation(id = "w1", status = ProviderInvocationStatus.AWAITING_APPROVAL)
+        val question = ChatItem.AskUser(id = "q1", text = "Which one?", options = listOf("a", "b"), multiSelect = false)
+
+        assertTrue(listOf(user("u1"), tool("c1"), run).groupTurnSteps().turns.getValue("c1").running)
+        assertTrue(listOf(user("u1"), tool("c1"), question).groupTurnSteps().turns.getValue("c1").running)
+        assertFalse(
+            listOf(user("u1"), tool("c1"), run.copy(status = ProviderInvocationStatus.COMPLETED), reply("r1"))
+                .groupTurnSteps().turns.getValue("c1").running
+        )
+    }
+
+    @Test
     fun `a stale running row in an older turn is history`() {
         val items = listOf(user("u1"), tool("c1", ToolStatus.RUNNING), reply("r1"), user("u2"), reply("r2"))
 
@@ -93,6 +106,32 @@ class TurnStepsTest {
 
         assertEquals(listOf("u1", "i1", "r1"), grouped.visible.map { it.id })
         assertEquals(listOf("i1", "c1", "a1"), grouped.turns.getValue("i1").steps.map { it.id })
+    }
+
+    @Test
+    fun `an answered Work Room approval stays, since it is how that run is reached`() {
+        val roomApproval = ChatItem.ApprovalNeeded(
+            id = "a1",
+            tool = "claude_code",
+            arguments = emptyMap(),
+            decision = ApprovalDecision(approved = true, scope = "once", mode = null),
+            workRoom = WorkRoomApproval(provider = "claude_code", invocationId = "w1", parentToolCallId = "c0")
+        )
+        val items = listOf(user("u1"), tool("c1"), roomApproval, tool("c2"), reply("r1"))
+
+        val grouped = items.groupTurnSteps()
+
+        assertEquals(listOf("u1", "c1", "a1", "r1"), grouped.visible.map { it.id })
+        assertEquals(listOf("c1", "c2"), grouped.turns.getValue("c1").steps.map { it.id })
+    }
+
+    @Test
+    fun `every folded row names the block that now stands for it`() {
+        val items = listOf(user("u1"), tool("c1"), call("l1"), tool("c2"), reply("r1"))
+
+        val folded = items.groupTurnSteps().foldedInto
+
+        assertEquals(mapOf("c2" to "c1", "l1" to "c1"), folded)
     }
 
     @Test
