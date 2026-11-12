@@ -3,11 +3,15 @@ package ai.openonion.oochat.ui.chat
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.PlanReviewReply
 import ai.openonion.oochat.domain.model.ThinkingStatus
-import ai.openonion.oochat.domain.model.ThoughtGroup
+import ai.openonion.oochat.domain.model.TurnStepGroups
+import ai.openonion.oochat.domain.model.TurnSteps
 import ai.openonion.oochat.domain.model.UserMessageState
-import ai.openonion.oochat.domain.model.groupReasoningByTurn
+import ai.openonion.oochat.domain.model.groupTurnSteps
+import ai.openonion.oochat.domain.model.reusing
+import ai.openonion.oochat.domain.model.isInProgress
 import ai.openonion.oochat.ui.chat.components.ChatItemBubble
 import ai.openonion.oochat.ui.chat.components.DateDivider
+import ai.openonion.oochat.ui.chat.components.TurnStepsBlock
 import ai.openonion.oochat.ui.theme.spacing
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -16,7 +20,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -97,12 +103,15 @@ fun MessageList(
     onOpenWorkRoom: (invocationId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Each turn's thoughts ride on its newest one (see groupReasoningByTurn).
+    // Each turn's thoughts and tool calls ride on one row (see groupTurnSteps).
     // Everything below works on the folded list, so indices, scroll anchors
     // and day labels agree with the rows actually laid out.
-    val reasoning = remember(items) { items.groupReasoningByTurn() }
+    val lastTurnSteps = remember(conversationKey) { arrayOfNulls<TurnStepGroups>(1) }
+    val turnSteps = remember(items) {
+        items.groupTurnSteps().reusing(lastTurnSteps[0]).also { lastTurnSteps[0] = it }
+    }
     @Suppress("NAME_SHADOWING")
-    val items = reasoning.visible
+    val items = turnSteps.visible
     val restoredPosition = scrollPosition.normalised()
     val keyIndex = restoredPosition.firstVisibleItemKey?.let { key ->
         when (key) {
@@ -123,10 +132,11 @@ fun MessageList(
     val hasSavedPosition = restoredPosition.firstVisibleItemKey != null ||
         restoredPosition.firstVisibleItemIndex != 0 ||
         restoredPosition.firstVisibleItemScrollOffset != 0
-    // Turns whose earlier thoughts the reader opened, by ThoughtGroup.key —
-    // held here, not in the bubble, because the bubble is replaced by a new
-    // one each time the agent has another thought.
-    var openThoughtGroups by remember(conversationKey) { mutableStateOf(emptySet<String>()) }
+    // Turn step blocks the reader opened or closed, by TurnSteps.key — held
+    // here, not in the block, because the block's row is rebuilt each time the
+    // turn takes another step, and the choice has to last while the reader
+    // stays in this chat. Absent means the block's own default.
+    var stepBlockChoices by remember(conversationKey) { mutableStateOf(emptyMap<String, Boolean>()) }
     val listState = remember(conversationKey) {
         LazyListState(restoredIndex, restoredOffset)
     }
@@ -266,10 +276,6 @@ fun MessageList(
                 .padding(top = MaterialTheme.spacing.md),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            DateDivider(
-                label = dayDividerLabel(System.currentTimeMillis()),
-                modifier = Modifier.padding(horizontal = MaterialTheme.spacing.md)
-            )
             Column(
                 modifier = Modifier.padding(top = 40.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -307,19 +313,23 @@ fun MessageList(
             // continues a run sits tighter than one that starts a new one.
         ) {
             item(key = BEGINNING_ITEM_KEY) {
-                Text(
-                    // Only the truth once the first row really is on screen —
-                    // with a page still to come this is the middle of the
-                    // conversation, not its beginning.
-                    text = if (hasOlderMessages) "Loading earlier messages…" else "Beginning of conversation",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = MaterialTheme.spacing.md)
-                        .padding(bottom = MaterialTheme.spacing.xs)
-                )
+                // Says something only while a page of older history is still to
+                // come; at the real beginning the transcript just starts. The
+                // row itself stays, as the anchor the scroll bookkeeping counts.
+                if (hasOlderMessages) {
+                    Text(
+                        text = "Loading earlier messages…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = MaterialTheme.spacing.md)
+                            .padding(bottom = MaterialTheme.spacing.xs)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(1.dp))
+                }
             }
             // contentType lets Lazy layout keep a reuse pool per ChatItem subtype.
             // Without it all 18 subtypes share one pool, so scrolling from a run of
@@ -374,11 +384,14 @@ fun MessageList(
                             ?.takeIf { it.state == UserMessageState.FAILED }
                             ?.let { { onResendMessage(it.id) } },
                         hasLiveConnection = hasLiveConnection,
-                        thoughtGroup = reasoning.groups[item.id],
-                        openThoughtGroups = openThoughtGroups,
-                        onToggleThoughts = { key ->
-                            openThoughtGroups = if (key in openThoughtGroups) openThoughtGroups - key else openThoughtGroups + key
-                        },
+                        workingSinceMs = if (item.isInProgress()) {
+                            findPrecedingUserMessage(items, index)?.let { timestamps[it.id] }
+                        } else null,
+                        turnSteps = turnSteps.turns[item.id],
+                        turnFooter = turnSteps.footers[item.id],
+                        followsSteps = items.getOrNull(index - 1)?.id in turnSteps.turns,
+                        stepBlockChoices = stepBlockChoices,
+                        onToggleSteps = { key, expanded -> stepBlockChoices = stepBlockChoices + (key to expanded) },
                         onOpenWorkRoom = onOpenWorkRoom
                     )
                 }
@@ -403,11 +416,38 @@ private fun ChatItemWrapper(
     onRetry: (() -> Unit)? = null,
     onResend: (() -> Unit)? = null,
     hasLiveConnection: Boolean = true,
-    thoughtGroup: ThoughtGroup? = null,
-    openThoughtGroups: Set<String> = emptySet(),
-    onToggleThoughts: (String) -> Unit = {},
+    workingSinceMs: Long? = null,
+    turnSteps: TurnSteps? = null,
+    turnFooter: ChatItem.Thinking? = null,
+    followsSteps: Boolean = false,
+    stepBlockChoices: Map<String, Boolean> = emptyMap(),
+    onToggleSteps: (key: String, expanded: Boolean) -> Unit = { _, _ -> },
     onOpenWorkRoom: (String) -> Unit = {}
 ) {
+    if (turnSteps != null) {
+        // A running turn's choice is about its earlier steps, a finished one's
+        // about the whole list — kept apart, so opening the history mid-run
+        // does not stop the turn collapsing when it is done.
+        val choiceKey = if (turnSteps.running) "live:${turnSteps.key}" else turnSteps.key
+        // Earlier steps of a running turn start folded; a finished turn opens
+        // only when it has no answer to show instead.
+        val expanded = stepBlockChoices[choiceKey] ?: (!turnSteps.running && !turnSteps.collapsedByDefault)
+        val start = turnSteps.startId?.let { timestamps[it] }
+        val end = timestamps[turnSteps.endId]
+        TurnStepsBlock(
+            turn = turnSteps,
+            durationMs = if (start != null && end != null && end >= start) end - start else turnSteps.workMs,
+            startedAtMs = start,
+            expanded = expanded,
+            onToggle = { onToggleSteps(choiceKey, !expanded) },
+            modifier = Modifier.padding(
+                top = MaterialTheme.spacing.lg,
+                start = MaterialTheme.spacing.lg,
+                end = MaterialTheme.spacing.lg
+            )
+        )
+        return
+    }
     // One timestamp per run, on its last message — a time on every bubble in a
     // burst repeats the same minute three times over.
     val timestamp = timestamps[item.id]?.takeIf { endsRun }?.let(::formatMessageTime)
@@ -437,15 +477,19 @@ private fun ChatItemWrapper(
             onRetry = onRetry,
             hasLiveConnection = hasLiveConnection,
             onResend = onResend,
-            earlierThoughts = thoughtGroup?.earlier.orEmpty(),
-            showAllThoughts = thoughtGroup != null && thoughtGroup.key in openThoughtGroups,
-            onToggleThoughts = thoughtGroup?.let { group -> { onToggleThoughts(group.key) } },
+            turnFooter = turnFooter,
+            workingSinceMs = workingSinceMs,
             onOpenWorkRoom = onOpenWorkRoom
         )
     }
     // The run boundary carries the spacing: `lg` between runs, `xs` inside one,
     // so a burst from one sender reads as a block rather than as N messages.
-    val topGap = if (startsRun) MaterialTheme.spacing.lg else MaterialTheme.spacing.xs
+    // An answer sits close under the summary of the steps that led to it.
+    val topGap = when {
+        followsSteps && (item is ChatItem.Turn || item is ChatItem.Agent) -> MaterialTheme.spacing.sm
+        startsRun -> MaterialTheme.spacing.lg
+        else -> MaterialTheme.spacing.xs
+    }
     if (item is ChatItem.User || item is ChatItem.Agent) {
         Box(modifier = Modifier.padding(top = topGap)) { bubble() }
     } else {
@@ -555,9 +599,6 @@ private val DAY_FORMAT = DateTimeFormatter.ofPattern("MMMM d")
 private val DAY_WITH_YEAR_FORMAT = DateTimeFormatter.ofPattern("MMMM d, yyyy")
 
 /** "Today" / "Yesterday" / "March 4" (with the year once it isn't this one). */
-internal fun dayDividerLabel(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String =
-    labelForDate(Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate(), LocalDate.now(zone))
-
 private fun labelForDate(date: LocalDate, today: LocalDate): String = when (date) {
     today -> "Today"
     today.minusDays(1) -> "Yesterday"
@@ -566,7 +607,8 @@ private fun labelForDate(date: LocalDate, today: LocalDate): String = when (date
 
 /**
  * One entry per item: the divider label where the calendar day changes, null
- * elsewhere. Items with no timestamp (tool calls, gates) inherit the day of the
+ * elsewhere. A conversation that all happened on one day gets none — there is
+ * no change of day to mark, and "Today" above every fresh chat is noise. Items with no timestamp (tool calls, gates) inherit the day of the
  * last dated message so they never force a spurious divider, and a run with no
  * timestamps at all simply gets none.
  *
@@ -583,7 +625,8 @@ private fun dayDividerLabels(
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     var previousDate: LocalDate? = null
-    return items.map { item ->
+    var days = 0
+    val labels = items.map { item ->
         val date = timestamps[item.id]
             ?.let { millis ->
                 dayCache.getOrPut(millis) { Instant.ofEpochMilli(millis).atZone(zone).toLocalDate() }
@@ -591,9 +634,11 @@ private fun dayDividerLabels(
             ?: previousDate
         if (date != null && date != previousDate) {
             previousDate = date
+            days++
             labelForDate(date, today)
         } else {
             null
         }
     }
+    return if (days > 1) labels else List(items.size) { null }
 }

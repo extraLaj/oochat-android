@@ -112,22 +112,23 @@ class InputBarDictationComposeTest {
     }
 
     @Test
-    fun `the mic survives a send and a whole agent turn`() {
-        // Web disables its mic only while transcribing. Ours waited out both of
-        // these, which is exactly when the next message wants dictating.
+    fun `a dictation started before a turn can still be finished during it`() {
+        // A running turn gives the trailing slot to Stop (W16AAPPLE-112), but a
+        // dictation already under way keeps its mic until it is done.
         composeRule.setContent {
             ConnectOnionTheme {
                 Column {
                     InputBar(
                         isConnected = true,
                         isAgentWorking = true,
+                        voiceInput = VoiceInputState(phase = VoiceInputPhase.LISTENING),
                         onSend = { _, _, _ -> }
                     )
                 }
             }
         }
 
-        composeRule.onNodeWithContentDescription("Dictate a message").assertIsEnabled()
+        composeRule.onNodeWithContentDescription("Dictate a message").assertExists()
     }
 
     @Test

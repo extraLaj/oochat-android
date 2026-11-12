@@ -63,50 +63,41 @@ import coil.compose.AsyncImage
  * — it used to grey out mid-dictation, back when the mic slot showed a second
  * square glyph.
  */
+/**
+ * Stop, as the composer's own trailing circle while a turn runs: the one thing
+ * a running turn most needs from this bar, where Send sits the rest of the time.
+ */
 @Composable
 internal fun StopButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) 0.9f else 1f, label = "stopButtonScale")
 
-    Row(
-        modifier = Modifier.height(48.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            onClick = onClick,
+    IconButton(onClick = onClick, interactionSource = interactionSource) {
+        Box(
             modifier = Modifier
+                .size(40.dp)
                 .graphicsLayer { scaleX = scale; scaleY = scale }
-                .semantics { role = Role.Button },
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.inverseSurface,
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.inverseSurface),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier
-                    .defaultMinSize(minHeight = 32.dp)
-                    .padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.xs2),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs2)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "Stop",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.Stop,
+                contentDescription = "Stop",
+                tint = MaterialTheme.colorScheme.inverseOnSurface,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
 
 @Composable
 internal fun SendButton(enabled: Boolean, onClick: () -> Unit) {
-    val background = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainer
-    val tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline
+    // Green whether or not there is anything to send yet, as the design draws
+    // it: the circle is where sending happens, and it stays put.
+    val background = MaterialTheme.colorScheme.primary
+    val tint = MaterialTheme.colorScheme.onPrimary
 
     // Scale down slightly on press (matches the Figma design's button press
     // feedback). Reuses the button's own interaction source rather than

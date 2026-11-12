@@ -25,15 +25,15 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.RocketLaunch
+import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
@@ -105,19 +105,23 @@ fun ApprovalModeChip(
     onOpenSheet: () -> Unit,
     pending: Boolean = false,
     turnsLeft: Int? = null,
+    // Whether it reads as switched off. Usually the same as !enabled; the
+    // composer keeps it lit while a turn holds it, since the mode still applies.
+    dimmed: Boolean = !enabled,
     modifier: Modifier = Modifier
 ) {
     val isUnattended = mode.isUnattended
 
     val baseContentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        dimmed -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         isUnattended -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurface
     }
     val contentColor = if (pending) baseContentColor.copy(alpha = baseContentColor.alpha * 0.7f) else baseContentColor
     val containerColor =
         if (isUnattended) MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
-        else MaterialTheme.colorScheme.surfaceContainerHighest
+        // A faint wash of the text colour: a soft grey in light, a lift in dark.
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
 
     Row(
         modifier = modifier.height(48.dp),
@@ -185,7 +189,7 @@ fun ApprovalModeChip(
                 imageVector = Icons.Default.Tune,
                 contentDescription = "Approval mode options",
                 modifier = Modifier.size(20.dp),
-                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (!dimmed) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             )
         }
@@ -576,14 +580,15 @@ private val ApprovalMode.description: String
         ApprovalMode.FULL_ACCESS -> "Fully autonomous for the turns the host allows"
     }
 
+// Outlined, as the design draws the chip: a line icon beside a word.
 private fun ApprovalMode.icon(): ImageVector = when (this) {
-    ApprovalMode.SAFE -> Icons.Default.Shield
-    ApprovalMode.PLAN -> Icons.Default.Assignment
-    ApprovalMode.ACCEPT_EDITS -> Icons.Default.Bolt
-    ApprovalMode.ULW -> Icons.Default.RocketLaunch
-    ApprovalMode.READ_ONLY -> Icons.Default.Visibility
-    ApprovalMode.AUTO -> Icons.Default.Shield
-    ApprovalMode.FULL_ACCESS -> Icons.Default.LockOpen
+    ApprovalMode.SAFE -> Icons.Outlined.Shield
+    ApprovalMode.PLAN -> Icons.Outlined.Assignment
+    ApprovalMode.ACCEPT_EDITS -> Icons.Outlined.Bolt
+    ApprovalMode.ULW -> Icons.Outlined.RocketLaunch
+    ApprovalMode.READ_ONLY -> Icons.Outlined.Visibility
+    ApprovalMode.AUTO -> Icons.Outlined.Shield
+    ApprovalMode.FULL_ACCESS -> Icons.Outlined.LockOpen
 }
 
 @Preview(showBackground = true)

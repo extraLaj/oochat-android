@@ -78,7 +78,8 @@ fun PillTextField(
 ) {
     var focused by remember { mutableStateOf(false) }
     val borderColor = if (focused) MaterialTheme.colorScheme.primary else unfocusedBorderColor
-    val fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default
+    // Null when not monospace, so the field takes the theme's face (Inter) like all other text.
+    val fontFamily = if (monospace) FontFamily.Monospace else null
 
     Row(
         verticalAlignment = Alignment.CenterVertically,

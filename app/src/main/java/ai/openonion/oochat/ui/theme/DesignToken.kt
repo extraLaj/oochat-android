@@ -19,6 +19,9 @@ object MessageBubbleToken {
     val BorderRadius = Radii.large
     val PaddingHorizontal = 14.dp
     val PaddingVertical = 10.dp
+    // The user's bubble is a faint wash of `primary` over the surface — the
+    // pale green-grey of the design in light, the same tint over dark.
+    const val UserFillAlpha = 0.08f
 }
 
 object VoiceBubbleToken {
@@ -43,7 +46,8 @@ object ImageGridToken {
 }
 
 object InputBarToken {
-    val BorderRadius = Radii.large
+    // See Radii.composer. A taller, multi-line field keeps the same corners.
+    val BorderRadius = Radii.composer
     val BorderWidth = 1.5.dp
     val PaddingHorizontal = 14.dp
     val PaddingVertical = 6.dp
