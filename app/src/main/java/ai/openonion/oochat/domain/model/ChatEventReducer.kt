@@ -257,6 +257,8 @@ object ChatEventReducer {
             is ChatEvent.ProviderInputAcked -> ReduceResult(current)
             // A Work Room's Stop, settled by the ViewModel.
             is ChatEvent.ProviderStopAcked -> ReduceResult(current)
+            // A Work Room permission control's request, settled by the ViewModel.
+            is ChatEvent.ProviderPermissionAcked -> ReduceResult(current)
             is ChatEvent.OutboxFlushed -> ReduceResult(current)
 
             is ChatEvent.ConnectionErrorOccurred -> {

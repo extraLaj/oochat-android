@@ -72,6 +72,8 @@ import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
+import ai.openonion.oochat.ui.workroom.WorkRoomPermissionUi
+import ai.openonion.oochat.ui.workroom.WorkRoomPermissions
 import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
 import ai.openonion.oochat.ui.workroom.WorkRoomStopUi
 import ai.openonion.oochat.ui.workroom.WorkRoomStops
@@ -299,6 +301,16 @@ open class ChatViewModel @JvmOverloads constructor(
     /** Each Work Room's Stop, by conversation-and-invocation key. */
     val workRoomStopStates: StateFlow<Map<String, WorkRoomStopUi>> = workRoomStops.rooms
 
+    // Each Work Room's provider permission control (W16AAPPLE-43), owned here
+    // like the drafts, so a request still waiting survives leaving the room.
+    private val workRoomPermissions = WorkRoomPermissions(
+        viewModelScope,
+        send = { connectUseCase.sendProviderPermissionChange(it) }
+    )
+
+    /** Each Work Room's permission control, by conversation-and-invocation key. */
+    val workRoomPermissionControls: StateFlow<Map<String, WorkRoomPermissionUi>> = workRoomPermissions.rooms
+
     // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
 
@@ -360,6 +372,12 @@ open class ChatViewModel @JvmOverloads constructor(
         invocationId: String,
         drafts: Map<String, WorkRoomDraft> = workRoomDrafts.value
     ): WorkRoomDraft = drafts[workRoomKey(invocationId)] ?: WorkRoomDraft()
+
+    /** Return the permission control belonging to the active conversation's Work Room. */
+    fun workRoomPermissionControl(
+        invocationId: String,
+        controls: Map<String, WorkRoomPermissionUi> = workRoomPermissionControls.value
+    ): WorkRoomPermissionUi = controls[workRoomKey(invocationId)] ?: WorkRoomPermissionUi()
 
     /** Return the Stop belonging to the active conversation's Work Room. */
     fun workRoomStop(
@@ -1175,6 +1193,11 @@ open class ChatViewModel @JvmOverloads constructor(
                     // Likewise a Work Room's Stop (W16AAPPLE-37).
                     if (event is ChatEvent.ProviderStopAcked) {
                         workRoomStops.onAck(event.ack)
+                        return@collect
+                    }
+                    // Likewise a Work Room's permission control (W16AAPPLE-43).
+                    if (event is ChatEvent.ProviderPermissionAcked) {
+                        workRoomPermissions.onAck(event.ack)
                         return@collect
                     }
                     // What the outbox still holds is now final (W16AAPPLE-106).
@@ -2199,6 +2222,7 @@ open class ChatViewModel @JvmOverloads constructor(
                 val workRoomKeyPrefix = "${sessionId}\u0000"
                 workRoomInputs.discardMatching { it.startsWith(workRoomKeyPrefix) }
                 workRoomStops.discardMatching { it.startsWith(workRoomKeyPrefix) }
+                workRoomPermissions.discardMatching { it.startsWith(workRoomKeyPrefix) }
                 synchronized(workRoomScrollPositions) {
                     workRoomScrollPositions.keys
                         .filter { it.startsWith(workRoomKeyPrefix) }
@@ -3250,6 +3274,37 @@ open class ChatViewModel @JvmOverloads constructor(
         _uiState.value.chatItems
             .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
 
+    /**
+     * The user picked [optionId] as [invocationId]'s provider permission mode
+     * (W16AAPPLE-43). An elevated choice waits for [confirmWorkRoomPermission];
+     * any other goes out as `PROVIDER_PERMISSION_CHANGE` at the run's revision
+     * as this screen holds it.
+     */
+    fun chooseWorkRoomPermission(invocationId: String, optionId: String) {
+        val run = workRoomRun(invocationId) ?: return
+        workRoomPermissions.choose(run, optionId, workRoomKey(invocationId))
+    }
+
+    /** Confirm the elevated provider permission choice held for [invocationId]. */
+    fun confirmWorkRoomPermission(invocationId: String) {
+        val run = workRoomRun(invocationId) ?: return
+        workRoomPermissions.confirm(run, workRoomKey(invocationId))
+    }
+
+    /** Back out of an elevated provider permission choice. */
+    fun cancelWorkRoomPermission(invocationId: String) {
+        workRoomPermissions.cancel(workRoomKey(invocationId))
+    }
+
+    /** Hide the message under [invocationId]'s permission control. */
+    fun dismissWorkRoomPermissionError(invocationId: String) {
+        workRoomPermissions.dismissError(workRoomKey(invocationId))
+    }
+
+    private fun workRoomRun(invocationId: String): ChatItem.ProviderInvocation? =
+        _uiState.value.chatItems
+            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+
     fun respond(itemId: String, answer: String) {
         val question = _uiState.value.chatItems
             .filterIsInstance<ChatItem.AskUser>()
@@ -3553,6 +3608,7 @@ open class ChatViewModel @JvmOverloads constructor(
             }
             workRoomInputs.discardMatching { it.startsWith(scrollKeyPrefix) }
             workRoomStops.discardMatching { it.startsWith(scrollKeyPrefix) }
+            workRoomPermissions.discardMatching { it.startsWith(scrollKeyPrefix) }
             if (clearedSessionId != null) {
                 _chatComposerDrafts.update { it - clearedSessionId }
                 synchronized(messageListScrollPositions) {

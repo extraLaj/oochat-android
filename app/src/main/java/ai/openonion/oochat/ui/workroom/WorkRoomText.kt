@@ -89,6 +89,47 @@ internal object WorkRoomText {
         else -> "The agent did not take your message."
     }
 
+    // The provider's own permission mode (W16AAPPLE-43). Named after the
+    // provider every time, so it never reads as the Host ceiling, which the
+    // chat's approval chip sets for the whole agent.
+
+    /** The control's heading: "Codex permissions". */
+    fun permissionTitle(run: ChatItem.ProviderInvocation): String = "${providerName(run)} permissions"
+
+    /** Under the heading: how this differs from the chat's approval mode. */
+    fun permissionExplainer(run: ChatItem.ProviderInvocation): String =
+        "How ${providerName(run)} works in this Work Room, inside the agent's approval mode. " +
+            "A change applies from its next turn."
+
+    fun permissionConfirmTitle(run: ChatItem.ProviderInvocation, label: String): String =
+        "Switch ${providerName(run)} to $label?"
+
+    /** Said before an elevated choice goes out. The Host's own description follows it. */
+    fun permissionConfirmBody(run: ChatItem.ProviderInvocation): String =
+        "This lets ${providerName(run)} act without asking you first, for its next turn."
+
+    const val PERMISSION_CHANGING = "Changing…"
+
+    const val PERMISSION_NOT_READY = "This run cannot change its permissions yet."
+
+    const val PERMISSION_NOT_CONNECTED = "Not connected to the agent, so the change was not sent."
+
+    const val PERMISSION_NO_ANSWER = "No answer from the agent. Check the mode shown here before trying again."
+
+    /**
+     * A refusal, by the Host's reason code (connectonion
+     * `network/host/provider_permissions.py`). Never the code itself.
+     */
+    fun permissionRefused(reason: String?): String = when (reason) {
+        "stale_revision", "invalid_revision" -> "The run moved on before the change reached it. Check its mode now, then try again."
+        "ceiling_denied" -> "The agent's approval mode does not allow that. Raise it from the chat first."
+        "confirmation_required" -> "That choice needs confirming first."
+        "not_owner", "operator_required" -> "Only the person who started this session can change its permissions."
+        "not_found" -> "This Work Room is no longer available on the agent."
+        "unsupported_option" -> "That choice is not available for this run."
+        else -> "The agent did not make that change."
+    }
+
     // Scoped Stop (W16AAPPLE-37). Always "this run", so it never reads as the
     // chat's Stop, which ends the agent's whole turn.
 

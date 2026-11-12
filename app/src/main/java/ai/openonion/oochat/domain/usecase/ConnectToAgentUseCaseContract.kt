@@ -13,6 +13,7 @@ import ai.openonion.oochat.domain.model.NO_PLAN
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
@@ -174,6 +175,9 @@ interface ConnectToAgentUseCaseContract {
 
     /** A Work Room's scoped Stop: see ConnectionRepository.sendProviderStop. */
     suspend fun sendProviderStop(stop: ProviderStop): Boolean = false
+
+    /** A Work Room permission change: see ConnectionRepository.sendProviderPermissionChange. */
+    suspend fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean = false
 
     /**
      * Reply to an `ask_user` event; [requestId] is that event's id.

@@ -91,6 +91,13 @@ sealed class ChatEvent {
      */
     data class ProviderStopAcked(val ack: ProviderStopAck) : ChatEvent()
 
+    /**
+     * The Host's answer to a change of a Work Room's provider permission mode
+     * (W16AAPPLE-43). Settles that room's control, which the ViewModel owns;
+     * the run itself is updated by the `provider_invocation` that follows.
+     */
+    data class ProviderPermissionAcked(val ack: ProviderPermissionAck) : ChatEvent()
+
     /** The connection finished flushing the outbox for [conversationId] (W16AAPPLE-106). */
     data class OutboxFlushed(val conversationId: String?) : ChatEvent()
 }

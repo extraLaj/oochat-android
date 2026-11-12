@@ -8,12 +8,16 @@ import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
+import ai.openonion.oochat.domain.model.ProviderPermissionAck
+import ai.openonion.oochat.domain.model.ProviderPermissionOption
+import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
 /**
  * Claude Code and Codex Work Room frames (W16AAPPLE-33): `provider_invocation`
@@ -38,6 +42,7 @@ internal object ProviderFrames {
     private const val ACTIVITY = "provider_activity"
     private const val INPUT_ACK = "PROVIDER_INPUT_ACK"
     private const val STOP_ACK = "PROVIDER_INTERRUPT_ACK"
+    private const val PERMISSION_ACK = "PROVIDER_PERMISSION_ACK"
     private const val MESSAGE = "provider_message"
     private const val ARTIFACT = "provider_artifact"
 
@@ -93,7 +98,28 @@ internal object ProviderFrames {
         val continuationOf: String? = null,
         val artifactId: String? = null,
         val thumbnailDataUrl: String? = null,
-        val alt: String? = null
+        val alt: String? = null,
+        // Kept raw and read on its own: an odd value then costs only the
+        // permission control, never the run's frame (W16AAPPLE-43).
+        val providerPermission: JsonElement? = null
+    )
+
+    @Serializable
+    private data class WirePermission(
+        val provider: String? = null,
+        val activeOptionId: String? = null,
+        val options: List<WireOption> = emptyList(),
+        val effectiveRevision: Long? = null
+    )
+
+    @Serializable
+    private data class WireOption(
+        val id: String? = null,
+        val label: String? = null,
+        val description: String? = null,
+        val risk: String? = null,
+        val selectable: Boolean? = null,
+        val disabledReason: String? = null
     )
 
     /**
@@ -103,7 +129,7 @@ internal object ProviderFrames {
      */
     fun parse(text: String): ParseResult? {
         // Cheap screen first: every other frame type goes straight to the shared decode.
-        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
+        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK, PERMISSION_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
             return null
         }
         val wire = try {
@@ -115,6 +141,7 @@ internal object ProviderFrames {
         }
         if (wire.type == INPUT_ACK) return ParseResult(event = wire.toInputAck())
         if (wire.type == STOP_ACK) return ParseResult(event = wire.toStopAck())
+        if (wire.type == PERMISSION_ACK) return ParseResult(event = wire.toPermissionAck())
         val item = when (wire.type) {
             INVOCATION -> wire.toInvocation()
             ACTIVITY -> wire.toActivityUpdate()
@@ -212,7 +239,66 @@ internal object ProviderFrames {
             resultSummary = resultSummary,
             errorSummary = errorSummary,
             elapsedMs = elapsedMs?.toLong(),
-            stateRevision = stateRevision?.takeIf { it > 0 }
+            stateRevision = stateRevision?.takeIf { it > 0 },
+            providerPermission = providerPermission?.let(::toPermission)
+        )
+    }
+
+    /**
+     * Same rule as [toInputAck]: only `accepted: true` is an acceptance, and
+     * an answer that names no request answers nothing (W16AAPPLE-43).
+     */
+    private fun Wire.toPermissionAck(): ConnectionEvent {
+        val request = requestId?.takeIf { it.isNotBlank() } ?: run {
+            FileLogger.w(LogTags.PROTOCOL, "PROVIDER_PERMISSION_ACK without a requestId, ignoring")
+            return ConnectionEvent.Unknown
+        }
+        return ConnectionEvent.ProviderPermissionAcked(
+            ProviderPermissionAck(
+                requestId = request,
+                invocationId = invocationId?.takeIf { it.isNotBlank() },
+                accepted = accepted == true,
+                stateRevision = stateRevision?.takeIf { it > 0 },
+                reason = reason?.takeIf { it.isNotBlank() }
+            )
+        )
+    }
+
+    /**
+     * A run's `providerPermission` (connectonion `core/provider_permissions.py`
+     * `provider_permission_state`). Fails closed: an option with no id or label
+     * is dropped, one that does not say it is selectable is not, and a state
+     * whose active choice is not among its options is no state at all, so no
+     * control is shown rather than a wrong one.
+     */
+    private fun toPermission(element: JsonElement): ProviderPermissionState? {
+        val wire = try {
+            json.decodeFromJsonElement(WirePermission.serializer(), element)
+        } catch (e: SerializationException) {
+            FileLogger.w(LogTags.PROTOCOL, "Malformed providerPermission, ignoring it")
+            return null
+        } catch (e: IllegalArgumentException) {
+            FileLogger.w(LogTags.PROTOCOL, "Malformed providerPermission, ignoring it")
+            return null
+        }
+        val options = wire.options.mapNotNull { option ->
+            val id = option.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val label = option.label?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            ProviderPermissionOption(
+                id = id,
+                label = label,
+                description = option.description.orEmpty(),
+                elevated = option.risk == "elevated",
+                selectable = option.selectable == true,
+                disabledReason = option.disabledReason?.takeIf { it.isNotBlank() }
+            )
+        }.distinctBy { it.id }
+        val active = wire.activeOptionId?.takeIf { id -> options.any { it.id == id } } ?: return null
+        return ProviderPermissionState(
+            provider = wire.provider.orEmpty(),
+            activeOptionId = active,
+            options = options,
+            effectiveRevision = wire.effectiveRevision?.takeIf { it > 0 }
         )
     }
 

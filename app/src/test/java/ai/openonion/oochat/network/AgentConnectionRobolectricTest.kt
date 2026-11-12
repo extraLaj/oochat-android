@@ -8,6 +8,8 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderInputAck
+import ai.openonion.oochat.domain.model.ProviderPermissionAck
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.domain.model.RemOutcome
@@ -41,6 +43,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -3040,6 +3043,59 @@ class AgentConnectionRobolectricTest {
         assertEquals(
             listOf(ProviderInputAck("req-1", "codex:call-1", accepted = true, stateRevision = 4)),
             events.seen.filterIsInstance<ConnectionEvent.ProviderInputAcked>().map { it.ack }
+        )
+    }
+
+    // Work Room provider permission mode (W16AAPPLE-43)
+
+    @Test
+    fun `a provider permission change goes out as a signed PROVIDER_PERMISSION_CHANGE in the Host's shape`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        val wentOut = connection.sendProviderPermissionChange(
+            ProviderPermissionChange("codex:call-1", 4, "codex:full-access", confirmRisk = true, requestId = "req-1")
+        )
+
+        assertTrue(wentOut)
+        val sent = factory.lastWebSocket!!.sentMessages.single()
+        assertEquals("fake-signature", Json.parseToJsonElement(sent).jsonObject.getValue("signature").jsonPrimitive.content)
+        val command = signedCommand(sent)
+        assertEquals("PROVIDER_PERMISSION_CHANGE", command.getValue("type").jsonPrimitive.content)
+        assertEquals("codex:call-1", command.getValue("invocationId").jsonPrimitive.content)
+        assertEquals(4L, command.getValue("stateRevision").jsonPrimitive.long)
+        assertEquals("codex:full-access", command.getValue("optionId").jsonPrimitive.content)
+        assertEquals(true, command.getValue("confirmRisk").jsonPrimitive.boolean)
+        assertEquals("req-1", command.getValue("requestId").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `no provider permission change goes out before the connection is ready, and none is queued`() = runTest {
+        connection.connect("0xAGENT")
+
+        assertFalse(
+            connection.sendProviderPermissionChange(ProviderPermissionChange("codex:call-1", 4, "codex:read-only", false, "req-1"))
+        )
+        simulateConnected()
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("PROVIDER_PERMISSION_CHANGE") })
+    }
+
+    @Test
+    fun `the Host's answer to a provider permission change is passed on`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"PROVIDER_PERMISSION_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":false,"reason":"stale_revision"}"""
+        )
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+
+        assertEquals(
+            listOf(ProviderPermissionAck("req-1", "codex:call-1", accepted = false, reason = "stale_revision")),
+            events.seen.filterIsInstance<ConnectionEvent.ProviderPermissionAcked>().map { it.ack }
         )
     }
 

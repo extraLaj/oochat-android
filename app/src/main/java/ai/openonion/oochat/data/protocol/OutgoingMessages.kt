@@ -129,6 +129,26 @@ data class ProviderInputMessage(
 }
 
 /**
+ * A change of a Claude Code or Codex run's own permission mode (W16AAPPLE-43):
+ * connectonion `ws_router/session.py`'s `PROVIDER_PERMISSION_CHANGE`, committed
+ * by `network/host/provider_permissions.py`. Answered by a
+ * `PROVIDER_PERMISSION_ACK` with the same [requestId], then the run's updated
+ * `provider_invocation`. camelCase on the wire, like every Work Room frame. The
+ * Host refuses it unless [stateRevision] is the run's current one, the option is
+ * under the Host ceiling, and, for an elevated option, [confirmRisk] is true.
+ * Signed like every other command.
+ */
+@Serializable
+data class ProviderPermissionChangeMessage(
+    val invocationId: String,
+    val stateRevision: Long,
+    val optionId: String,
+    val confirmRisk: Boolean,
+    val requestId: String,
+    val type: String = "PROVIDER_PERMISSION_CHANGE"
+)
+
+/**
  * A Work Room's scoped Stop (W16AAPPLE-37): connectonion `ws_router/session.py`'s
  * `PROVIDER_INTERRUPT`, which stops one live Claude Code or Codex run without
  * ending the agent's turn. Answered by a `PROVIDER_INTERRUPT_ACK` with the same

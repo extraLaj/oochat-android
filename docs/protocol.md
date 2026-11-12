@@ -45,6 +45,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `PROVIDER_PERMISSION_CHANGE` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomPermissionsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomPermissionsTest.kt), [`ProviderPermissionControlTest`](../app/src/test/java/ai/openonion/oochat/domain/model/ProviderPermissionControlTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a Work Room's provider permission mode (W16AAPPLE-43) |
 | `PROVIDER_INTERRUPT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomStopsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomStopsTest.kt), [`WorkRoomStopStateTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomStopStateTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a Work Room's scoped Stop, behind a 15-second confirmation (W16AAPPLE-37) |
 | `PROVIDER_INPUT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a message typed into a Work Room (W16AAPPLE-35) |
 | `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
@@ -70,6 +71,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `provider_message` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_artifact` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-40) | - |
+| `PROVIDER_PERMISSION_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomPermissionsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomPermissionsTest.kt); settles the permission control, and only `accepted: true` is an acceptance |
 | `PROVIDER_INTERRUPT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomStopsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomStopsTest.kt); settles the Stop, and only `accepted: true` is an acceptance; the run's own `cancelled` frame says it stopped |
 | `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
@@ -374,8 +376,8 @@ The Host's checks, in `authenticated_command_payload` in
 | Signature never used before (a shared, persistent ledger) | `unauthorized: signed command already used` |
 
 Signed: `INPUT`, `EXEC`, `ASK_USER_RESPONSE`, `APPROVAL_RESPONSE`, `INTERRUPT`,
-`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change`, `WIKI_READ`, `PROVIDER_INPUT` and
-`PROVIDER_INTERRUPT`. These are the frames
+`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change`, `WIKI_READ`, `PROVIDER_INPUT`,
+`PROVIDER_PERMISSION_CHANGE` and `PROVIDER_INTERRUPT`. These are the frames
 the Host leaves unsigned on purpose (`SignedCommand.EXEMPT_TYPES`, matching
 `exempt` in `ws_router/session.py`):
 
@@ -1461,7 +1463,7 @@ as `plugins/coding_agents.py`, `useful_tools/codex.py` and
 
 | Frame | Fields read | Effect |
 |---|---|---|
-| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
+| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision`, `providerPermission` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
 | `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
 | `provider_message` | `invocationId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
 | `provider_artifact` | `invocationId`, `artifactId`, `kind`, `stateRevision`, `thumbnailDataUrl`, `alt` | The run's latest picture, in its card. `kind` is `screenshot`; the picture is an inline PNG or JPEG. |
@@ -1511,8 +1513,8 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Its approvals, messages, pictures and Stop are below. Permission profiles in the
-room are W16AAPPLE-43, and the local and remote handover states are W16AAPPLE-40.
+Its approvals, messages, pictures, permission mode and Stop are below. The local
+and remote handover states are W16AAPPLE-40.
 
 ### Messages and pictures in a Work Room
 
@@ -1627,6 +1629,86 @@ ViewModel as `ChatEvent.ProviderInputAcked`, which the reducer leaves alone and
 which is handled ahead of the per-conversation routing, since the draft it
 settles belongs to a room, not a chat.
 
+### A Work Room's provider permission mode
+
+Claude Code and Codex each have their own permission modes, and the room lets
+the user pick one for its run (W16AAPPLE-43). It is a separate control from the
+chat's approval mode (the Host ceiling, [Session mode](#session-mode)), with its
+own state machine, and neither sets the other. The ceiling is the most the
+whole agent may do; this is how the provider works inside it. The Host enforces
+that on every choice, and lowering the ceiling narrows the provider's mode on its
+own (connectonion `core/provider_permissions.py`
+`reconcile_provider_permission_events`), which then arrives as a new
+`provider_invocation`.
+
+**Reading it.** A `provider_invocation` from connectonion 1.9.3 carries
+`providerPermission`, built by `provider_permission_state`:
+
+```json
+"providerPermission": {
+  "provider": "codex",
+  "activeOptionId": "codex:workspace-ask",
+  "appliesTo": "subsequent_turn",
+  "effectiveRevision": 4,
+  "options": [
+    {"id": "codex:read-only", "label": "Read Only", "description": "…", "risk": "standard", "selectable": true},
+    {"id": "codex:full-access", "label": "Full Access", "description": "…", "risk": "elevated",
+     "selectable": false, "disabledReason": "Host permission ceiling is Auto."}
+  ]
+}
+```
+
+| Provider | Choices (`id`), lowest to highest | Elevated |
+| --- | --- | --- |
+| Codex | `codex:read-only`, `codex:workspace-ask`, `codex:workspace-auto`, `codex:full-access` | `codex:full-access` |
+| Claude Code | `claude:plan`, `claude:default`, `claude:accept-edits`, `claude:auto`, `claude:bypass-permissions` | `claude:bypass-permissions` |
+
+`ProviderFrames` reads it on its own from the raw JSON, so an odd value costs only
+the control, never the run's frame, and fails closed: an option with no `id` or
+`label` is dropped, one that does not say `selectable: true` is not selectable,
+and a state whose `activeOptionId` is not among its options is no state at all.
+It is kept on `ChatItem.ProviderInvocation.providerPermission`, folded like any
+other field (a frame that leaves it out keeps the one shown), and saved with the
+card. A run without it shows no control: an older Host, or Claude Station
+(`claude_code:station:` Work Rooms), whose mode the Host pins.
+
+**Changing it.** A signed `PROVIDER_PERMISSION_CHANGE`, handled by
+`ws_router/session.py` and committed by `network/host/provider_permissions.py`
+`commit_provider_permission`:
+
+| Field | Value |
+| --- | --- |
+| `invocationId` | The run's id. |
+| `stateRevision` | The run's revision as the screen holds it. The Host refuses a change at any other (`stale_revision`). |
+| `optionId` | The choice. |
+| `confirmRisk` | `true` only once the user has confirmed an elevated choice. The Host refuses an elevated choice without it (`confirmation_required`). |
+| `requestId` | A fresh UUID, which the answer names. |
+
+The Host answers with `PROVIDER_PERMISSION_ACK` (`requestId`, `invocationId`,
+`accepted`, and on acceptance `stateRevision` and `providerPermission`), then
+sends the run's updated `provider_invocation` at the next revision. The card
+changes from that frame only, never from the ACK, so the mode shown is always
+the one the Host committed. A change applies from the provider's next turn
+(`appliesTo: "subsequent_turn"`), and the control says so.
+
+`ProviderPermissionControlState` is the control's state machine:
+
+| State | On |
+| --- | --- |
+| Idle | A choice that is on offer, selectable and not already active: sent, then **Pending**. An elevated one: **Confirming**, nothing sent. Anything else: nothing. |
+| Confirming | Confirm: sent with `confirmRisk: true`, then Pending. Cancel: Idle. Another choice replaces it. |
+| Pending | Nothing else is sent, and it cannot be cancelled, so two changes never race at one revision. The ACK, a send that could not go out, or 15 seconds with no answer: Idle. |
+
+`WorkRoomPermissions` (owned by `ChatViewModel`, like the drafts) runs it per
+room. A refusal is shown under the control by `reason`, never the code itself:
+`stale_revision` and `invalid_revision` say the run moved on, `ceiling_denied`
+says to raise the approval mode from the chat first, `not_owner` and
+`operator_required` that only the session's owner can change it,
+`confirmation_required`, `not_found` and `unsupported_option` have their own
+sentences, and anything else a general one. Never queued, like `PROVIDER_INPUT`.
+The ACK reaches the ViewModel as `ChatEvent.ProviderPermissionAcked`, handled
+ahead of the per-conversation routing.
+
 ### Stopping one Work Room
 
 The room's **Stop run** stops that one run and nothing else (W16AAPPLE-37):
@@ -1669,7 +1751,7 @@ seconds). Nothing else is sent while one waits. `WorkRoomStops` (owned by
 time; the countdown on screen only shows it. Never queued, like
 `PROVIDER_INPUT`. The ACK reaches the ViewModel as `ChatEvent.ProviderStopAcked`,
 handled ahead of the per-conversation routing. Stop is shown only while the run
-is live.
+is live, under the run's header and above its permission mode.
 
 ## Control Center
 

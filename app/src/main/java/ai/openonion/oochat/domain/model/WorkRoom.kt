@@ -315,7 +315,8 @@ object WorkRooms {
         errorSummary = next.errorSummary ?: errorSummary,
         elapsedMs = next.elapsedMs ?: elapsedMs,
         stateRevision = next.stateRevision ?: stateRevision,
-        activities = activities
+        activities = activities,
+        providerPermission = next.providerPermission ?: providerPermission
     )
 }
 

@@ -17,6 +17,7 @@ import ai.openonion.oochat.data.protocol.PlanReviewResponse
 import ai.openonion.oochat.data.protocol.PongMessage
 import ai.openonion.oochat.data.protocol.ProviderInputMessage
 import ai.openonion.oochat.data.protocol.ProviderInterruptMessage
+import ai.openonion.oochat.data.protocol.ProviderPermissionChangeMessage
 import ai.openonion.oochat.data.protocol.RemReadMessage
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.SessionStatusQuery
@@ -27,6 +28,7 @@ import ai.openonion.oochat.di.sharedHttpClient
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.usecase.ServerErrorText
@@ -1072,6 +1074,33 @@ class AgentConnection(
         FileLogger.i(
             LogTags.AGENT_CONN,
             "PROVIDER_INPUT -> request_id=${input.requestId.take(8)} revision=${input.stateRevision} ${input.text.length} chars"
+        )
+        return socket.send(frame)
+    }
+
+    /**
+     * Send a change of a Work Room's provider permission mode (W16AAPPLE-43) as
+     * a signed `PROVIDER_PERMISSION_CHANGE`. True only when the frame went out
+     * on a connection that has finished CONNECT; whether the Host committed it
+     * is the `PROVIDER_PERMISSION_ACK` with the same request id, passed up as
+     * [ConnectionEvent.ProviderPermissionAcked]. Never queued, for the same
+     * reason as [sendProviderInput]: it is bound to the revision on screen.
+     */
+    fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean {
+        val socket = webSocket?.takeIf { isConnectionReady } ?: return false
+        val frame = signedCommand(
+            ProviderPermissionChangeMessage(
+                invocationId = change.invocationId,
+                stateRevision = change.stateRevision,
+                optionId = change.optionId,
+                confirmRisk = change.confirmRisk,
+                requestId = change.requestId
+            )
+        ) ?: return false
+        FileLogger.i(
+            LogTags.AGENT_CONN,
+            "PROVIDER_PERMISSION_CHANGE -> request_id=${change.requestId.take(8)} " +
+                "revision=${change.stateRevision} option=${change.optionId} confirmRisk=${change.confirmRisk}"
         )
         return socket.send(frame)
     }
@@ -2165,6 +2194,15 @@ class AgentConnection(
                     FileLogger.i(
                         LogTags.AGENT_CONN,
                         "PROVIDER_INPUT_ACK <- request_id=${ack.requestId.take(8)} " +
+                            if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
+                    )
+                    _events.tryEmit(event)
+                }
+                is ConnectionEvent.ProviderPermissionAcked -> {
+                    val ack = event.ack
+                    FileLogger.i(
+                        LogTags.AGENT_CONN,
+                        "PROVIDER_PERMISSION_ACK <- request_id=${ack.requestId.take(8)} " +
                             if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
                     )
                     _events.tryEmit(event)

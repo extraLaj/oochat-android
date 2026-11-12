@@ -257,6 +257,14 @@ class ChatViewModelTest {
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
 
+        val providerPermissionChanges = mutableListOf<ai.openonion.oochat.domain.model.ProviderPermissionChange>()
+        override suspend fun sendProviderPermissionChange(
+            change: ai.openonion.oochat.domain.model.ProviderPermissionChange
+        ): Boolean {
+            providerPermissionChanges += change
+            return true
+        }
+
         val providerStops = mutableListOf<ai.openonion.oochat.domain.model.ProviderStop>()
         override suspend fun sendProviderStop(stop: ai.openonion.oochat.domain.model.ProviderStop): Boolean {
             providerStops += stop
@@ -2946,6 +2954,50 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
+    }
+
+    @Test
+    fun `a Work Room permission change goes out at the run's revision, and the Host's answer and new mode land`() = runTest(testDispatcher) {
+        // W16AAPPLE-43.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        val permission = ai.openonion.oochat.domain.model.ProviderPermissionState(
+            provider = "codex",
+            activeOptionId = "codex:workspace-ask",
+            options = listOf(
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:read-only", "Read Only", selectable = true),
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:workspace-ask", "Ask for approval", selectable = true)
+            )
+        )
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", stateRevision = 4, providerPermission = permission)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run))
+        testScheduler.runCurrent()
+
+        vm.chooseWorkRoomPermission("codex:call-1", "codex:read-only")
+        testScheduler.runCurrent()
+
+        val sent = connectUseCase.providerPermissionChanges.single()
+        assertEquals("codex:call-1", sent.invocationId)
+        assertEquals(4L, sent.stateRevision)
+        assertEquals("codex:read-only", sent.optionId)
+        assertEquals(false, sent.confirmRisk)
+
+        connectUseCase.emit(
+            ChatEvent.ProviderPermissionAcked(
+                ai.openonion.oochat.domain.model.ProviderPermissionAck(sent.requestId, "codex:call-1", accepted = true, stateRevision = 5)
+            )
+        )
+        // The Host then sends the run at its new revision, which is what moves the mode shown.
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(run.copy(stateRevision = 5, providerPermission = permission.copy(activeOptionId = "codex:read-only")))
+        )
+        testScheduler.runCurrent()
+
+        assertEquals(ai.openonion.oochat.ui.workroom.WorkRoomPermissionUi(), vm.workRoomPermissionControl("codex:call-1"))
+        val shown = vm.uiState.value.chatItems.single() as ChatItem.ProviderInvocation
+        assertEquals("codex:read-only", shown.providerPermission?.activeOptionId)
     }
 
     @Test
