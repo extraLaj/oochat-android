@@ -21,35 +21,34 @@ internal fun ChatItemBubble(
     onRetry: (() -> Unit)? = null,
     hasLiveConnection: Boolean = true,
     onResend: (() -> Unit)? = null,
-    // The turn's thoughts before this one, when this is its newest — see
-    // groupReasoningByTurn. Only read for a reasoning item.
-    earlierThoughts: List<ChatItem.Thinking> = emptyList(),
-    showAllThoughts: Boolean = false,
-    onToggleThoughts: (() -> Unit)? = null,
+    // The footer a Turn shows in place of its own when it answers a turn
+    // with steps — the whole turn's usage (see groupTurnSteps).
+    turnFooter: ChatItem.Thinking? = null,
+    // When the turn this item belongs to started, for the "Working…" clock.
+    workingSinceMs: Long? = null,
     onOpenWorkRoom: (invocationId: String) -> Unit = {}
 ) {
     when (item) {
         is ChatItem.User -> UserBubble(item, timestamp, renderMarkdown, showSender, onResend)
         is ChatItem.Agent -> AgentBubble(item, timestamp, renderMarkdown, showSender)
         is ChatItem.Thinking -> {
-            // While running with no metadata yet, show the Figma-style
-            // bouncing-dots typing indicator; once done/errored (or a model
-            // is already known), fall back to the richer status bubble.
-            // Reasoning is something the agent thought, not a status, so it
-            // gets its own collapsible bubble.
+            // While running, the same "Working…" line a turn's steps sit
+            // under; once done/errored, the richer status bubble. Reasoning
+            // is something the agent thought, not a status, so it reads as a
+            // thought step.
             if (item.isReasoning) {
-                ReasoningBubble(item, earlierThoughts, showAllThoughts, onToggleThoughts)
-            } else if (item.status == ThinkingStatus.RUNNING && item.model == null && item.content == null) {
-                TypingIndicator()
+                ReasoningBubble(item)
+            } else if (item.status == ThinkingStatus.RUNNING) {
+                WorkingHeader(workingSinceMs)
             } else {
                 ThinkingBubble(item, timestamp, onRetry)
             }
         }
-        is ChatItem.Turn -> TurnBubble(item, onRetry, renderMarkdown)
+        is ChatItem.Turn -> TurnBubble(item, onRetry, renderMarkdown, timestamp, turnFooter, workingSinceMs)
         is ChatItem.ToolCall -> ToolCallDispatch(item)
         is ChatItem.ProviderInvocation -> WorkRoomCard(item, onOpen = { onOpenWorkRoom(item.id) })
         // Folded into its run's card by the reducer; never in the list itself.
-        is ChatItem.ProviderActivityUpdate -> Unit
+        is ChatItem.ProviderActivityUpdate, is ChatItem.ProviderMessageUpdate, is ChatItem.ProviderArtifactUpdate -> Unit
         is ChatItem.AskUser -> AskUserCard(item, onRespond)
         is ChatItem.ApprovalNeeded -> {
             val workRoom = item.workRoom

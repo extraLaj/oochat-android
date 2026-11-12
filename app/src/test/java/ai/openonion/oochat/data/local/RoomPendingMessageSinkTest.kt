@@ -10,6 +10,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -94,33 +95,45 @@ class RoomPendingMessageSinkTest {
     }
 
     @Test
-    fun `the queue is bounded by attachment bytes, not only by row count`() {
+    fun `a message past the attachment byte budget is refused, and what is queued stays`() {
         // Well under MAX_PENDING_MESSAGES rows, well over the byte budget:
-        // capping rows alone let this grow to hundreds of megabytes.
+        // capping rows alone let this grow to hundreds of megabytes. Refused
+        // rather than evicting, so a queued message is never dropped behind
+        // its bubble's back (W16AAPPLE-106).
         val eachBytes = (AgentConnection.MAX_PENDING_ATTACHMENT_BYTES / 2).toInt() + 1
-        sink.enqueue(agent, session, "first", null, listOf(file("a.pdf", eachBytes)))
-        sink.enqueue(agent, session, "second", null, listOf(file("b.pdf", eachBytes)))
+        assertTrue(sink.enqueue(agent, session, "first", null, listOf(file("a.pdf", eachBytes))))
 
-        val drained = sink.drainAll()
+        assertFalse(sink.enqueue(agent, session, "second", null, listOf(file("b.pdf", eachBytes))))
 
-        assertEquals(
-            "two attachments over the budget must not both stay queued",
-            listOf("second"),
-            drained.map { it.prompt }
-        )
+        assertEquals(listOf("first"), sink.drainAll().map { it.prompt })
     }
 
     @Test
-    fun `evicting a row takes its spilled attachment with it`() {
+    fun `a refused message leaves nothing behind, and a full outbox refuses by row count too`() {
         val eachBytes = (AgentConnection.MAX_PENDING_ATTACHMENT_BYTES / 2).toInt() + 1
         sink.enqueue(agent, session, "first", null, listOf(file("a.pdf", eachBytes)))
         sink.enqueue(agent, session, "second", null, listOf(file("b.pdf", eachBytes)))
+        assertEquals("only the queued message's spill: ${spillDir.listFiles()?.map { it.name }}", 1, spillDir.listFiles().orEmpty().size)
 
-        assertEquals(
-            "the evicted message's bytes are still on disk: ${spillDir.listFiles()?.map { it.name }}",
-            1,
-            spillDir.listFiles().orEmpty().size
-        )
+        repeat(AgentConnection.MAX_PENDING_MESSAGES - 1) { i -> assertTrue(sink.enqueue(agent, session, "text-$i", null, null)) }
+        assertFalse("the outbox is full", sink.enqueue(agent, session, "one too many", null, null))
+        assertEquals(AgentConnection.MAX_PENDING_MESSAGES, db.pendingMessageDao().countForAgent(agent))
+    }
+
+    @Test
+    fun `a rejected send is put back even when the outbox filled up meanwhile`() {
+        // The message was already queued; refusing it now would drop it.
+        sink.enqueue(agent, session, "already queued", null, null)
+        var filled = false
+
+        sink.drain(agent, session, null) {
+            repeat(AgentConnection.MAX_PENDING_MESSAGES) { i -> sink.enqueue(agent, session, "later-$i", null, null) }
+            filled = true
+            false
+        }
+
+        assertTrue(filled)
+        assertEquals("already queued", sink.drainAll().first().prompt)
     }
 
     @Test
@@ -233,6 +246,62 @@ class RoomPendingMessageSinkTest {
 
         assertEquals(0, db.pendingMessageDao().countForAgent(agent))
         assertTrue(spillDir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun `clearing a conversation discards only its rows and their spills`() {
+        // Clear chat in one conversation must not drop what another
+        // conversation with the same agent queued offline, nor a message no
+        // conversation is named on (W16AAPPLE-106).
+        sink.enqueue(agent, session, "for this session", null, listOf(file("a.pdf", 1024)))
+        sink.enqueue(agent, "conversation-A", "for this conversation", null, null)
+        sink.enqueue(agent, null, "queued before any session existed", null, null)
+        sink.enqueue(agent, "conversation-B", "for another conversation", null, listOf(file("b.pdf", 1024)))
+
+        sink.clearConversation(agent, session, "conversation-A")
+
+        assertEquals(2, db.pendingMessageDao().countForAgent(agent))
+        assertEquals(1, spillDir.listFiles().orEmpty().size)
+        val left = sink.drainAll(sessionId = "conversation-B")
+        assertEquals(listOf("queued before any session existed", "for another conversation"), left.map { it.prompt })
+        assertEquals("b.pdf", left.last().files?.single()?.name)
+    }
+
+    @Test
+    fun `the count for a conversation is what would go out in it`() {
+        sink.enqueue(agent, session, "on the session", null, null)
+        sink.enqueue(agent, "conversation-A", "on the conversation", null, null)
+        sink.enqueue(agent, "conversation-B", "elsewhere", null, null)
+        sink.enqueue(agent, null, "unnamed", null, null)
+
+        assertEquals(3, sink.countForConversation(agent, session, "conversation-A"))
+        assertEquals(1, sink.countForConversation(agent, null, "conversation-C"))
+    }
+
+    @Test
+    fun `clearing one conversation does not stop another's failed send going back`() {
+        sink.enqueue(agent, "conversation-B", "for B", null, null)
+        sink.enqueue(agent, "conversation-A", "for A", null, null)
+
+        sink.drain(agent, null, "conversation-B") {
+            sink.clearConversation(agent, null, "conversation-A")
+            false
+        }
+
+        assertEquals(listOf("for B"), sink.drainAll(sessionId = "conversation-B").map { it.prompt })
+        assertEquals(0, sink.countForConversation(agent, null, "conversation-A"))
+    }
+
+    @Test
+    fun `clearing the conversation being flushed does drop its failed send`() {
+        sink.enqueue(agent, "conversation-B", "for B", null, null)
+
+        sink.drain(agent, null, "conversation-B") {
+            sink.clearConversation(agent, null, "conversation-B")
+            false
+        }
+
+        assertEquals(0, db.pendingMessageDao().countForAgent(agent))
     }
 
     @Test

@@ -17,6 +17,7 @@ import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
@@ -25,6 +26,7 @@ import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
 import ai.openonion.oochat.network.ConnectionEvent
 import ai.openonion.oochat.network.InMemoryPendingMessageSink
+import ai.openonion.oochat.network.OutboxFullException
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.ProtocolParser
 import ai.openonion.oochat.util.FileLogger
@@ -482,6 +484,12 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.ProviderInputAcked -> {
                         _chatEvents.tryEmit(ChatEvent.ProviderInputAcked(event.ack))
                     }
+                    is ConnectionEvent.ProviderPermissionAcked -> {
+                        _chatEvents.tryEmit(ChatEvent.ProviderPermissionAcked(event.ack))
+                    }
+                    is ConnectionEvent.OutboxFlushed -> {
+                        _chatEvents.tryEmit(ChatEvent.OutboxFlushed(event.conversationId))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
@@ -745,7 +753,11 @@ class ConnectionRepositoryImpl(
                 // fallback; the flush also accepts it alongside a fresh Host
                 // session id when Memory is off.
                 FileLogger.w(LogTags.CONN_REPO, "No connection, queuing message")
-                pendingMessageSink.enqueue(agentAddress, currentConversationId, content, images, wireFiles)
+                // A full outbox refuses it rather than dropping a queued one;
+                // failing the send is what lets its bubble offer Retry (W16AAPPLE-106).
+                if (!pendingMessageSink.enqueue(agentAddress, currentConversationId, content, images, wireFiles)) {
+                    throw OutboxFullException()
+                }
             }
         }
     }
@@ -797,6 +809,9 @@ class ConnectionRepositoryImpl(
 
     override suspend fun sendProviderInput(input: ProviderInput): Boolean =
         withContext(Dispatchers.IO) { connection?.sendProviderInput(input) ?: false }
+
+    override suspend fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean =
+        withContext(Dispatchers.IO) { connection?.sendProviderPermissionChange(change) ?: false }
 
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {
@@ -920,11 +935,36 @@ class ConnectionRepositoryImpl(
         return connection?.isConnected() == true
     }
 
-    override suspend fun reset() {
+    override suspend fun reset(conversationId: String?) {
+        // Under the switch lock, so the conversation the connection is on
+        // cannot change between checking it and clearing it.
         withContext(Dispatchers.IO) {
-            currentConversationId?.let { sessionStore?.deleteSessionByConversation(it) }
-            connection?.reset()
+            connectMutex.withLock {
+                // Clear chat names its conversation; by now another may be
+                // open, and that one's session and queued messages are not
+                // this clear's to drop (W16AAPPLE-106).
+                val cleared = conversationId ?: currentConversationId
+                val savedSessionId = cleared?.let { sessionStore?.getSession(it)?.sessionId }
+                cleared?.let { sessionStore?.deleteSessionByConversation(it) }
+                val live = connection
+                if (live != null && cleared == currentConversationId) {
+                    live.reset()
+                } else {
+                    // After Stop there is no connection, and sendMessage queued
+                    // for the conversation itself; or the connection has moved
+                    // on to another conversation. Either way, only this one's.
+                    currentAgentAddress?.let { pendingMessageSink.clearConversation(it, savedSessionId, cleared) }
+                }
+            }
         }
+    }
+
+    override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = withContext(Dispatchers.IO) {
+        if (agentAddress.isBlank()) return@withContext null
+        val onThisConversation = agentAddress == currentAgentAddress && conversationId == currentConversationId
+        val sessionId = connection?.currentSession?.sessionId?.takeIf { onThisConversation }
+            ?: sessionStore?.getSession(conversationId)?.sessionId
+        pendingMessageSink.countForConversation(agentAddress, sessionId, conversationId)
     }
 
     override suspend fun peekPersistedSessionId(conversationId: String): String? = withContext(Dispatchers.IO) {

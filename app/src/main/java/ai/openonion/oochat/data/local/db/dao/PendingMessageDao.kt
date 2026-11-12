@@ -47,11 +47,34 @@ abstract class PendingMessageDao {
     @Query("SELECT MAX(id) FROM pending_messages WHERE agent_address = :agentAddress")
     abstract fun newestIdForAgent(agentAddress: String): Long?
 
-    @Query("SELECT id FROM pending_messages WHERE agent_address = :agentAddress ORDER BY id ASC LIMIT 1")
-    abstract fun oldestIdForAgent(agentAddress: String): Long?
-
     @Query("DELETE FROM pending_messages WHERE id = :id")
     abstract fun deleteById(id: Long)
+
+    /**
+     * The rows queued on [sessionId] or [conversationId]: what Clear chat
+     * drops. Not the NULL arm [oldestClaimableForAgent] also hands out: such a
+     * row names no conversation, so it may be another's (W16AAPPLE-106).
+     */
+    @Query(
+        "SELECT id FROM pending_messages WHERE agent_address = :agentAddress " +
+            "AND (session_id = :sessionId OR session_id = :conversationId) " +
+            "ORDER BY id ASC"
+    )
+    abstract fun idsForConversation(agentAddress: String, sessionId: String?, conversationId: String?): List<Long>
+
+    /**
+     * How many rows [oldestClaimableForAgent] could hand out for [sessionId]
+     * and [conversationId], the NULL arm included: what is still to go out in
+     * that conversation (W16AAPPLE-106).
+     */
+    @Query(
+        "SELECT COUNT(*) FROM pending_messages WHERE agent_address = :agentAddress " +
+            "AND (session_id IS NULL OR session_id = :sessionId OR session_id = :conversationId)"
+    )
+    abstract fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int
+
+    @Query("DELETE FROM pending_messages WHERE id IN (:ids)")
+    abstract fun deleteByIds(ids: List<Long>)
 
     /**
      * The oldest row for [agentAddress] that belongs on [sessionId] or the
@@ -91,13 +114,5 @@ abstract class PendingMessageDao {
         val row = oldestClaimableForAgent(agentAddress, sessionId, conversationId, maxId) ?: return null
         deleteById(row.id)
         return row
-    }
-
-    /** Drop the oldest row for [agentAddress], returning its id so its spilled attachments go too. */
-    @Transaction
-    open fun evictOldestForAgent(agentAddress: String): Long? {
-        val id = oldestIdForAgent(agentAddress) ?: return null
-        deleteById(id)
-        return id
     }
 }

@@ -7,11 +7,17 @@ import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
+import ai.openonion.oochat.domain.model.ProviderArtifact
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.ProviderMessage
+import ai.openonion.oochat.domain.model.ProviderMessageRole
+import ai.openonion.oochat.domain.model.ProviderPermissionOption
+import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.model.WorkRoomApproval
+import ai.openonion.oochat.domain.model.WorkRooms
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,6 +60,87 @@ class TranscriptItemCodecTest {
             activities = listOf(
                 ProviderActivity("a", 1, "file_change", ProviderActivityStatus.COMPLETED, "Update workspace files", "Changed 2 files", listOf("Login.kt")),
                 ProviderActivity("t", Int.MAX_VALUE, "tool", ProviderActivityStatus.FAILED, "shell", "", legacy = true)
+            )
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room run survives a round trip with its conversation and latest picture`() {
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            status = ProviderInvocationStatus.COMPLETED,
+            stateRevision = 3L,
+            messages = listOf(
+                ProviderMessage("m1", ProviderMessageRole.USER, "Add a login page"),
+                ProviderMessage("m2", ProviderMessageRole.ASSISTANT, "Added it:\n```\nfun login() {}\n```", continuationOf = "m1")
+            ),
+            artifact = ProviderArtifact("shot-1", "data:image/png;base64,AAAA", "Latest provider browser view", 3L)
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `the biggest run the app keeps is a row Android can still read back`() {
+        // Room reads a row through a 2 MB window. A full conversation of 3-byte characters and
+        // the largest picture the Host sends must leave room to spare.
+        val sentence = "\u4f60".repeat(16_000)
+        val messages = (1..WorkRooms.MAX_CONVERSATION_CHARS / 16_000).map {
+            ProviderMessage("m$it", ProviderMessageRole.ASSISTANT, sentence)
+        }
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            messages = messages,
+            artifact = ProviderArtifact("shot-1", "data:image/png;base64," + "A".repeat(262_144 - 22), "Latest provider browser view", 3L)
+        )
+
+        val row = TranscriptItemCodec.encode(TranscriptItemCodec.toPayload(item)!!)
+
+        assertTrue("${row.toByteArray().size} bytes", row.toByteArray().size < 1_500_000)
+    }
+
+    @Test
+    fun `a Work Room row from before messages existed decodes with none`() {
+        val raw = """{"kind":"provider_invocation","id":"codex:call-1","status":"COMPLETED","stateRevision":2}"""
+
+        val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ProviderInvocation
+
+        assertEquals(emptyList<ProviderMessage>(), decoded.messages)
+        assertNull(decoded.artifact)
+    }
+
+    @Test
+    fun `a message whose role this build does not know is left out, not shown as someone else's`() {
+        val raw = """{"kind":"provider_invocation","id":"codex:call-1","status":"COMPLETED","messages":[
+            {"id":"m1","role":"USER","text":"hi"},{"id":"m2","role":"SYSTEM","text":"secret"},
+            {"id":"m3","role":"ASSISTANT","text":"hello"}]}"""
+
+        val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ProviderInvocation
+
+        assertEquals(listOf("m1", "m3"), decoded.messages.map { it.id })
+    }
+
+    @Test
+    fun `a Work Room run keeps its provider permission mode across a round trip (W16AAPPLE-43)`() {
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            stateRevision = 5L,
+            providerPermission = ProviderPermissionState(
+                provider = "codex",
+                activeOptionId = "codex:workspace-ask",
+                options = listOf(
+                    ProviderPermissionOption("codex:workspace-ask", "Ask for approval", "Asks before protected actions.", selectable = true),
+                    ProviderPermissionOption(
+                        "codex:full-access",
+                        "Full Access",
+                        "Can act outside the workspace.",
+                        elevated = true,
+                        disabledReason = "Host permission ceiling is Auto."
+                    )
+                ),
+                effectiveRevision = 5L
             )
         )
         assertEquals(item, roundTrip(item))

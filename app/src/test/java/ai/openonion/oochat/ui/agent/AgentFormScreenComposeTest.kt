@@ -86,6 +86,22 @@ class AgentFormScreenComposeTest {
         composeRule.onNodeWithText("Saved Bot").assertIsDisplayed()
     }
 
+    @Test
+    fun `Add agent form does not show the removed API key field`() {
+        setScreen(existingAgent = null)
+
+        composeRule.onNodeWithText("API Key").assertDoesNotExist()
+        composeRule.onNodeWithText("Advanced Settings").assertDoesNotExist()
+    }
+
+    @Test
+    fun `Edit agent form does not show the removed API key field`() {
+        setScreen(existingAgent = saved.copy(apiKey = "legacy-key"))
+
+        composeRule.onNodeWithText("API Key").assertDoesNotExist()
+        composeRule.onNodeWithText("Advanced Settings").assertDoesNotExist()
+    }
+
     // -- what Save hands over ------------------------------------------
 
     private val address = "0x" + "f5a1".repeat(16)
@@ -106,7 +122,7 @@ class AgentFormScreenComposeTest {
         assertEquals(defaultAgentName(address), agent.name)
         assertEquals("https://oo.openonion.ai", agent.serverUrl)
         assertEquals("relay", agent.connectionMode)
-        assertNull("a blank API key is none, not an empty string", agent.apiKey)
+        assertNull("the removed API key is not added to a new agent", agent.apiKey)
     }
 
     @Test

@@ -154,10 +154,40 @@ object ControlCenterChatItems {
                         }
                     }
                 )
+                if (item.messages.isNotEmpty()) {
+                    put(
+                        "messages",
+                        buildJsonArray {
+                            item.messages.forEach { message ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", message.id)
+                                        put("role", message.role.name.lowercase())
+                                        put("text", message.text)
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+                // Only a picture of the run as it stands, as ui.py nests it.
+                item.artifact?.takeIf { it.stateRevision == item.stateRevision }?.let { artifact ->
+                    put(
+                        "artifact",
+                        buildJsonObject {
+                            put("id", artifact.id)
+                            put("kind", "screenshot")
+                            put("stateRevision", artifact.stateRevision)
+                            put("thumbnailDataUrl", artifact.dataUrl)
+                            put("alt", artifact.alt)
+                        }
+                    )
+                }
             }
         )
         is ChatItem.OnboardingFailed, is ChatItem.PlanReviewItem, is ChatItem.UlwTurnsReachedItem,
-        is ChatItem.DiffPreviewItem, is ChatItem.ModeChangedItem, is ChatItem.ProviderActivityUpdate -> emptyList()
+        is ChatItem.DiffPreviewItem, is ChatItem.ModeChangedItem, is ChatItem.ProviderActivityUpdate,
+        is ChatItem.ProviderMessageUpdate, is ChatItem.ProviderArtifactUpdate -> emptyList()
     }
 
     /** A `provider_activity` step as ui.py `_nested_provider_activity` nests it. */

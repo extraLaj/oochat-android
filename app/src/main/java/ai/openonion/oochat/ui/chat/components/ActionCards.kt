@@ -141,6 +141,21 @@ private fun ApprovalDecision.toOutcome(): ApprovalOutcome = when {
     else -> ApprovalOutcome.SKIPPED // reject_soft, reject_explain
 }
 
+/**
+ * An answered approval as one line in its turn's steps (see groupTurnSteps):
+ * what was decided, and on what.
+ */
+internal fun approvalStepLabel(item: ChatItem.ApprovalNeeded): String {
+    val subject = summarizeToolCall(item.tool, item.arguments) ?: item.tool
+    return when (item.decision?.toOutcome()) {
+        ApprovalOutcome.APPROVED_SESSION -> "Allowed for this session: $subject"
+        ApprovalOutcome.APPROVED -> "Allowed: $subject"
+        ApprovalOutcome.SKIPPED -> "Rejected: $subject"
+        ApprovalOutcome.STOPPED -> "Stopped: $subject"
+        ApprovalOutcome.NOT_APPLIED, null -> "$NO_LONGER_WAITING: $subject"
+    }
+}
+
 @Composable
 internal fun ApprovalCard(
     item: ChatItem.ApprovalNeeded,

@@ -75,6 +75,8 @@ import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
+import ai.openonion.oochat.ui.workroom.WorkRoomPermissionUi
+import ai.openonion.oochat.ui.workroom.WorkRoomPermissions
 import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
 import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.FileLogger
@@ -295,6 +297,16 @@ open class ChatViewModel @JvmOverloads constructor(
     /** Each Work Room's draft and send state, by conversation-and-invocation key. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
 
+    // Each Work Room's provider permission control (W16AAPPLE-43), owned here
+    // like the drafts, so a request still waiting survives leaving the room.
+    private val workRoomPermissions = WorkRoomPermissions(
+        viewModelScope,
+        send = { connectUseCase.sendProviderPermissionChange(it) }
+    )
+
+    /** Each Work Room's permission control, by conversation-and-invocation key. */
+    val workRoomPermissionControls: StateFlow<Map<String, WorkRoomPermissionUi>> = workRoomPermissions.rooms
+
     // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
 
@@ -356,6 +368,12 @@ open class ChatViewModel @JvmOverloads constructor(
         invocationId: String,
         drafts: Map<String, WorkRoomDraft> = workRoomDrafts.value
     ): WorkRoomDraft = drafts[workRoomKey(invocationId)] ?: WorkRoomDraft()
+
+    /** Return the permission control belonging to the active conversation's Work Room. */
+    fun workRoomPermissionControl(
+        invocationId: String,
+        controls: Map<String, WorkRoomPermissionUi> = workRoomPermissionControls.value
+    ): WorkRoomPermissionUi = controls[workRoomKey(invocationId)] ?: WorkRoomPermissionUi()
 
     private fun workRoomKey(invocationId: String): String =
         "${activeSessionId.value.orEmpty()}\u0000$invocationId"
@@ -970,7 +988,8 @@ open class ChatViewModel @JvmOverloads constructor(
     /**
      * The messages handed to the connection while the socket was down. The connection parks them in
      * its outbox and flushes it the moment CONNECTED lands, so their bubbles say "Waiting to send…"
-     * until the next Connected, which is when they go out. Touched only on the main dispatcher.
+     * until the next Connected, which is when they go out. Also the ones a reload brings back still
+     * in the outbox (see [trackRestoredOutbox]). Touched only on the main dispatcher.
      *
      * Declared above [init] for the same reason as [serverTurnActive].
      */
@@ -1008,12 +1027,15 @@ open class ChatViewModel @JvmOverloads constructor(
      * Declared above [init] for the same reason as [serverTurnActive]: the
      * consumer is started there.
      */
-    private val failedToSendWrites = Channel<Pair<String, Boolean>>(Channel.UNLIMITED)
+    private val failedToSendWrites = Channel<SavedDelivery>(Channel.UNLIMITED)
+
+    /** What a user message comes back as after a restart: failed, still in the outbox, or sent. */
+    private data class SavedDelivery(val messageId: String, val failedToSend: Boolean, val inOutbox: Boolean)
 
     init {
         viewModelScope.launch {
-            for ((messageId, failedToSend) in failedToSendWrites) {
-                conversationHistory.saveFailedToSend(messageId, failedToSend)
+            for (write in failedToSendWrites) {
+                conversationHistory.saveFailedToSend(write.messageId, write.failedToSend, write.inOutbox)
             }
         }
 
@@ -1173,6 +1195,16 @@ open class ChatViewModel @JvmOverloads constructor(
                     // waiting on it is whichever one sent it, so no conversation routing.
                     if (event is ChatEvent.ProviderInputAcked) {
                         workRoomInputs.onAck(event.ack)
+                        return@collect
+                    }
+                    // Likewise a Work Room's permission control (W16AAPPLE-43).
+                    if (event is ChatEvent.ProviderPermissionAcked) {
+                        workRoomPermissions.onAck(event.ack)
+                        return@collect
+                    }
+                    // What the outbox still holds is now final (W16AAPPLE-106).
+                    if (event is ChatEvent.OutboxFlushed) {
+                        if (event.conversationId == null || event.conversationId == activeSessionId.value) settleOutboxedMessages()
                         return@collect
                     }
                     // Every conversation has its own server session, so a
@@ -1749,6 +1781,8 @@ open class ChatViewModel @JvmOverloads constructor(
                     (resume.items + _uiState.value.chatItems).dedupeUI()
                 )
                 _uiState.update { it.copy(chatItems = merged) }
+                // After the update: settling reads the bubbles on screen.
+                trackRestoredOutbox(resume.items)
             }
         }
         if (conversationHistory.activeSessionId.value != previousSessionId) {
@@ -1786,6 +1820,7 @@ open class ChatViewModel @JvmOverloads constructor(
             val older = conversationHistory.loadOlderItems()
             if (older.isEmpty()) return@launchScoped
             _uiState.update { it.copy(chatItems = (older + it.chatItems).dedupeUI()) }
+            trackRestoredOutbox(older)
         }
     }
 
@@ -2197,6 +2232,7 @@ open class ChatViewModel @JvmOverloads constructor(
             _uiState.update { current ->
                 current.copy(chatItems = items)
             }
+            trackRestoredOutbox(items)
             // Rendered from Room first, then the connection moves: the
             // transcript is on screen before the re-CONNECT round trip, and a
             // message sent during it queues rather than being refused.
@@ -2217,6 +2253,7 @@ open class ChatViewModel @JvmOverloads constructor(
             if (conversationHistory.deleteSession(sessionId)) {
                 val workRoomKeyPrefix = "${sessionId}\u0000"
                 workRoomInputs.discardMatching { it.startsWith(workRoomKeyPrefix) }
+                workRoomPermissions.discardMatching { it.startsWith(workRoomKeyPrefix) }
                 synchronized(workRoomScrollPositions) {
                     workRoomScrollPositions.keys
                         .filter { it.startsWith(workRoomKeyPrefix) }
@@ -2257,28 +2294,55 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * The connection is back, and it flushed its outbox on the way: the messages typed while it was
-     * down are on the wire now. Their bubbles stop saying they are waiting, which is also what
-     * unpins them from the bottom of the list, so the reply to one lands below it instead of above.
-     *
-     * Only the bubbles that went to the outbox: one held behind a running turn is waiting for that
-     * turn, not for the socket, and stays queued.
+     * The connection is back, or has finished flushing its outbox: settle the "Waiting to send..."
+     * bubbles by what the outbox still holds (see [settleOutbox]). Asked on Connected and again on
+     * [ChatEvent.OutboxFlushed], since Connected arrives before the flush has run.
      */
     private fun settleOutboxedMessages() {
         if (outboxedMessageIds.isEmpty()) return
-        val flushed = outboxedMessageIds.toSet()
-        outboxedMessageIds.clear()
-        _uiState.update { state ->
-            state.copy(
-                chatItems = state.chatItems.map { item ->
-                    if (item is ChatItem.User && item.id in flushed && item.state == UserMessageState.QUEUED) {
-                        item.copy(state = UserMessageState.SENT)
-                    } else {
-                        item
-                    }
-                }
-            )
-        }
+        launchScoped { settleOutbox() }
+    }
+
+    /**
+     * Messages a reload brings back still in the outbox (saved as such by [setUserMessageState]):
+     * their bubbles say "Waiting to send...", so the next Connected settles them like any other
+     * outboxed message (W16AAPPLE-106). Only history: a bubble held in memory behind a running turn
+     * is never saved as queued.
+     */
+    private fun trackRestoredOutbox(items: List<ChatItem>) {
+        val restored = items.filter { it is ChatItem.User && it.state == UserMessageState.QUEUED }.map { it.id }
+        if (restored.isEmpty()) return
+        outboxedMessageIds += restored
+        // Already connected, the outbox may have gone out before this screen
+        // could see it: on relaunch, Loading connects first, and the one
+        // Connected this screen gets comes before its conversation loads. So
+        // ask the outbox rather than wait for a Connected that already came.
+        if (connectUseCase.isConnected()) launchScoped { settleOutbox() }
+    }
+
+    /**
+     * Settle this conversation's "Waiting to send..." bubbles by what the outbox still holds for
+     * it. The outbox sends oldest first and never drops one (it refuses a new message instead), so
+     * all but the newest that many have gone: they stop saying they are waiting, which also unpins
+     * them from the bottom of the list, and are saved as gone so a restart agrees. A send that
+     * bounced went back into the outbox, so it and those behind it keep waiting.
+     *
+     * Only the bubbles that went to the outbox: one held behind a running turn is waiting for that
+     * turn, not for the socket. Only this conversation's: another's flush when it is the one
+     * connected. Asked about this chat's own agent, not whichever the connection is on. Unknown
+     * leaves them waiting for the next chance (W16AAPPLE-106).
+     */
+    private suspend fun settleOutbox() {
+        val conversation = activeSessionId.value ?: return
+        val agent = _targetAgentAddress.takeIf { it.isNotBlank() } ?: return
+        val stillQueued = connectUseCase.queuedMessageCount(agent, conversation) ?: return
+        if (activeSessionId.value != conversation) return
+        val waiting = _uiState.value.chatItems
+            .filter { it is ChatItem.User && it.id in outboxedMessageIds && it.state == UserMessageState.QUEUED }
+            .map { it.id }
+        val gone = waiting.dropLast(stillQueued)
+        outboxedMessageIds -= gone.toSet()
+        gone.forEach { setUserMessageState(it, UserMessageState.SENT) }
     }
 
     /**
@@ -2290,7 +2354,8 @@ open class ChatViewModel @JvmOverloads constructor(
      * the process dies there, it never went or nobody knows whether it did, so
      * it is saved as failed — the same call a dropped connection makes. Only
      * the outbox is the exception: it survives a restart and will still send
-     * what it holds, so a message in it is not failed.
+     * what it holds, so a message in it is saved as still waiting, not failed
+     * and not sent (W16AAPPLE-106).
      */
     private fun setUserMessageState(messageId: String, next: UserMessageState) {
         _uiState.update { state ->
@@ -2300,12 +2365,13 @@ open class ChatViewModel @JvmOverloads constructor(
                 }
             )
         }
+        val inOutbox = next == UserMessageState.QUEUED && messageId in outboxedMessageIds
         val failedAfterRestart = when (next) {
             UserMessageState.SENT -> false
-            UserMessageState.QUEUED -> messageId !in outboxedMessageIds
+            UserMessageState.QUEUED -> !inOutbox
             UserMessageState.AWAITING_ACK, UserMessageState.FAILED -> true
         }
-        failedToSendWrites.trySend(messageId to failedAfterRestart)
+        failedToSendWrites.trySend(SavedDelivery(messageId, failedAfterRestart, inOutbox))
     }
 
     /**
@@ -3218,6 +3284,37 @@ open class ChatViewModel @JvmOverloads constructor(
         workRoomInputs.send(run, workRoomKey(invocationId))
     }
 
+    /**
+     * The user picked [optionId] as [invocationId]'s provider permission mode
+     * (W16AAPPLE-43). An elevated choice waits for [confirmWorkRoomPermission];
+     * any other goes out as `PROVIDER_PERMISSION_CHANGE` at the run's revision
+     * as this screen holds it.
+     */
+    fun chooseWorkRoomPermission(invocationId: String, optionId: String) {
+        val run = workRoomRun(invocationId) ?: return
+        workRoomPermissions.choose(run, optionId, workRoomKey(invocationId))
+    }
+
+    /** Confirm the elevated provider permission choice held for [invocationId]. */
+    fun confirmWorkRoomPermission(invocationId: String) {
+        val run = workRoomRun(invocationId) ?: return
+        workRoomPermissions.confirm(run, workRoomKey(invocationId))
+    }
+
+    /** Back out of an elevated provider permission choice. */
+    fun cancelWorkRoomPermission(invocationId: String) {
+        workRoomPermissions.cancel(workRoomKey(invocationId))
+    }
+
+    /** Hide the message under [invocationId]'s permission control. */
+    fun dismissWorkRoomPermissionError(invocationId: String) {
+        workRoomPermissions.dismissError(workRoomKey(invocationId))
+    }
+
+    private fun workRoomRun(invocationId: String): ChatItem.ProviderInvocation? =
+        _uiState.value.chatItems
+            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+
     fun respond(itemId: String, answer: String) {
         val question = _uiState.value.chatItems
             .filterIsInstance<ChatItem.AskUser>()
@@ -3478,61 +3575,56 @@ open class ChatViewModel @JvmOverloads constructor(
         launchScoped { connectUseCase.setMode(mode, turns) }
     }
 
+    /**
+     * The banner's Stop. The outbox is kept, as Reconnect and the connect
+     * timeout keep it, so every "Waiting to send..." bubble, in this
+     * conversation or another, or from before a restart, still goes out on
+     * the next connect (W16AAPPLE-106).
+     */
     fun disconnect() {
         launchScoped {
-            connectUseCase.disconnect()
-            failOutboxedMessages()
+            connectUseCase.disconnect(keepOutbox = true)
         }
     }
 
-    /**
-     * The user stopped the connection, and the outbox went with it (see
-     * ConnectionRepository.disconnect). Its messages will not go out on the
-     * next connect, so their bubbles stop saying "Waiting to send" and fail
-     * instead, which offers Retry (W16AAPPLE-102). The counterpart of
-     * [settleOutboxedMessages].
-     */
-    private fun failOutboxedMessages() {
-        if (outboxedMessageIds.isEmpty()) return
-        val dropped = outboxedMessageIds.toSet()
-        outboxedMessageIds.clear()
-        val stillWaiting = _uiState.value.chatItems
-            .filter { it is ChatItem.User && it.id in dropped && it.state == UserMessageState.QUEUED }
-            .map { it.id }
-        stillWaiting.forEach { setUserMessageState(it, UserMessageState.FAILED) }
-    }
-
     fun clearChat() {
+        // What is being cleared is read now, before the first suspension. The
+        // steps below wait on storage, and a conversation opened meanwhile must
+        // not be the one wiped, hidden or blanked (W16AAPPLE-106).
+        val clearedSessionId = activeSessionId.value
+        val clearedAgentAddress = _targetAgentAddress
+        val clearedItems = _uiState.value.chatItems
+        // With the outer tool call of each run: its result can still be on its way, and
+        // must not come back as a card of its own.
+        val snapshot = clearedItems.map { it.id } + WorkRooms.parentToolCallIds(clearedItems)
         launchScoped {
-            connectUseCase.reset()
-            val clearedSessionId = activeSessionId.value
+            connectUseCase.reset(clearedSessionId)
             val scrollKeyPrefix = "${clearedSessionId.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the
             // UI. Awaiting (rather than fire-and-forget) means a
             // process kill between clearChat and the next launch
             // can't leave the persistence half-done.
-            // With the outer tool call of each run: its result can still be on its way, and
-            // must not come back as a card of its own.
-            val snapshot = _uiState.value.chatItems.map { it.id } + WorkRooms.parentToolCallIds(_uiState.value.chatItems)
-            ignoredIdsManager.ignoreAll(_targetAgentAddress, snapshot)
-            // Wipe the active session's persisted log too, so the drawer's
+            ignoredIdsManager.ignoreAll(clearedAgentAddress, snapshot)
+            // Wipe the cleared session's persisted log too, so the drawer's
             // preview/count for this conversation reflects the clear.
-            conversationHistory.clearActiveSession()
-            clearExecItems()
+            conversationHistory.clearSession(clearedSessionId)
+            val stillOpen = activeSessionId.value == clearedSessionId
+            if (stillOpen) clearExecItems()
             synchronized(workRoomScrollPositions) {
                 workRoomScrollPositions.keys
                     .filter { it.startsWith(scrollKeyPrefix) }
                     .forEach(workRoomScrollPositions::remove)
             }
             workRoomInputs.discardMatching { it.startsWith(scrollKeyPrefix) }
+            workRoomPermissions.discardMatching { it.startsWith(scrollKeyPrefix) }
             if (clearedSessionId != null) {
                 _chatComposerDrafts.update { it - clearedSessionId }
                 synchronized(messageListScrollPositions) {
                     messageListScrollPositions.remove(clearedSessionId)
                 }
             }
-            _uiState.update { it.copy(chatItems = emptyList()) }
+            if (stillOpen) _uiState.update { it.copy(chatItems = emptyList()) }
         }
     }
 

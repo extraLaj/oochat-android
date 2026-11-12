@@ -315,7 +315,7 @@ class FakeConnectToAgentUseCase : ConnectToAgentUseCaseContract {
         MutableStateFlow(ai.openonion.oochat.domain.model.ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
     override suspend fun setMode(mode: ai.openonion.oochat.domain.model.ApprovalMode, turns: Int?) {}
-    override suspend fun reset() {}
+    override suspend fun reset(conversationId: String?) {}
 }
 
 /**

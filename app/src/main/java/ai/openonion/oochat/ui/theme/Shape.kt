@@ -17,6 +17,11 @@ object Radii {
     val medium = 6.dp
     val large = 8.dp
     val extraLarge = 12.dp
+
+    // The one radius off the scale: the chat composer's, measured off the chat
+    // design (W16AAPPLE-112) at about three-eighths of the box's height —
+    // generously round without being a pill.
+    val composer = 22.dp
 }
 
 /**

@@ -1024,6 +1024,27 @@ class ConversationHistoryUseCaseTest {
         assertTrue(messageRepo.deleteCallsForSession.isEmpty())
     }
 
+    @Test
+    fun `clearSession deletes the conversation it names, even once another is active`() = runTest(testDispatcher) {
+        // Clear chat names its conversation up front, so one opened while the
+        // clear is still running is not the one deleted (W16AAPPLE-106).
+        agentRepo.agents += testAgent()
+        useCase.ensureActiveSession("0xabc", scope = backgroundScope)
+        advanceUntilIdle()
+        useCase.persistMessage(ChatItem.User(id = "u1", content = "hi"))
+        val cleared = useCase.activeSessionId.value!!
+        useCase.startNewSession()
+        useCase.persistMessage(ChatItem.User(id = "u2", content = "in the newer conversation"))
+        val opened = useCase.activeSessionId.value!!
+
+        useCase.clearSession(cleared)
+
+        assertEquals(listOf(cleared), messageRepo.deleteCallsForSession)
+        assertTrue(messageRepo.messages.none { it.sessionId == cleared })
+        assertTrue("the one opened is kept", messageRepo.messages.any { it.sessionId == opened })
+        assertEquals(opened, useCase.activeSessionId.value)
+    }
+
     // ── conversation paging ──────────────────────────────────────────
     //
     // The window is bookkeeping with no failure mode of its own: get the

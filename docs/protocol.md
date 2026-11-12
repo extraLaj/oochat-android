@@ -45,6 +45,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `PROVIDER_PERMISSION_CHANGE` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomPermissionsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomPermissionsTest.kt), [`ProviderPermissionControlTest`](../app/src/test/java/ai/openonion/oochat/domain/model/ProviderPermissionControlTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a Work Room's provider permission mode (W16AAPPLE-43) |
 | `PROVIDER_INPUT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a message typed into a Work Room (W16AAPPLE-35) |
 | `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
@@ -66,7 +67,10 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `tool_result` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `provider_invocation` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_activity` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
-| `provider_message`, `provider_artifact`, `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-34, -40) | - |
+| `provider_message` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_artifact` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-40) | - |
+| `PROVIDER_PERMISSION_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomPermissionsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomPermissionsTest.kt); settles the permission control, and only `accepted: true` is an acceptance |
 | `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -370,7 +374,8 @@ The Host's checks, in `authenticated_command_payload` in
 | Signature never used before (a shared, persistent ledger) | `unauthorized: signed command already used` |
 
 Signed: `INPUT`, `EXEC`, `ASK_USER_RESPONSE`, `APPROVAL_RESPONSE`, `INTERRUPT`,
-`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change` and `WIKI_READ`. These are the frames
+`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change`, `WIKI_READ`, `PROVIDER_INPUT` and
+`PROVIDER_PERMISSION_CHANGE`. These are the frames
 the Host leaves unsigned on purpose (`SignedCommand.EXEMPT_TYPES`, matching
 `exempt` in `ws_router/session.py`):
 
@@ -887,14 +892,31 @@ turn and gets no such reply.
 | Any other `ERROR` frame | No change. It says nothing about whether the host took this message; the host's own refusal arrives as its own event. |
 | Disconnect / reconnect | `FAILED`. No reply can arrive on a dead socket and whether the host queued it is unknown. |
 
-**After a restart.** Only `FAILED` is saved (`chat_messages.delivery_state`,
-added in database v14). `SENT` and outbox messages come back `SENT`. A message
+**After a restart.** `FAILED` is saved (`chat_messages.delivery_state`, added
+in database v14), and so is a message still in the outbox, as `QUEUED` in the
+same column (W16AAPPLE-106). `SENT` comes back `SENT`. One still in the outbox
+comes back `QUEUED` ("Waiting to send..."), since the outbox survives the restart
+and will still send it. A message
 that was awaiting an answer, or held in memory (behind a running turn, for a
 resend, or after a retryable refusal), comes back `FAILED`, since its delivery
 is unknown or the hold was lost. A new message held behind a running turn is
 saved at the tap for this reason, already `FAILED`, and its row is moved to the
 end of the conversation when it is sent, so it still reloads below the reply it
 waited behind. One gap remains; see the last item under Known gaps below.
+
+**Settling a waiting message.** The screen settles "Waiting to send..." bubbles
+by what the outbox still holds for the conversation
+(`PendingMessageSink.countForConversation`, for the chat's own agent, which may
+not be the one the connection is on yet). The outbox sends oldest first and never
+drops a message, so all but the newest that many have gone: they become `SENT`
+and are saved so. It asks on `Connected`, again when the connection reports the
+flush finished (`OutboxFlushed`, since `Connected` arrives before the flush runs),
+and when a conversation loads while already connected (on relaunch the Loading
+screen connects first, and the outbox goes out then). A send the socket refused
+mid-flush goes back into the outbox, so it and those behind it keep waiting. The
+count includes messages queued before any conversation was named, which would go
+out in whichever conversation connects next: a bubble waits a little longer
+rather than being called sent too soon.
 
 **When this happens at all.** `ChatViewModel.sendWhenTheAgentIsIdle` still holds
 ordinary messages until the running turn ends (see `architecture.md`), so a
@@ -1213,13 +1235,25 @@ the turn, not for the socket.
 The composer stays usable while disconnected, so the outbox is reachable
 (W16AAPPLE-102). With no connection object at all (before the first connect, or
 after one gave up) `ConnectionRepositoryImpl.sendMessage` queues the message for
-the conversation itself. Only a user disconnect (the banner's Stop) empties the
-outbox: replacing the connection (Reconnect) and `ConnectToAgentUseCase`'s
-first-connect timeout (and cancelling the Loading screen) keep it. When Stop
-does empty it, the bubbles this screen queued in this process turn failed rather
-than staying "Waiting to send". The outbox is per agent, though, so Stop also
-drops what other conversations with that agent, or a previous run, queued, and
-those bubbles do not change.
+the conversation itself. Stopping the connection keeps the outbox: the banner's
+Stop, replacing the connection (Reconnect), `ConnectToAgentUseCase`'s
+first-connect timeout and cancelling the Loading screen all leave it alone, so a
+"Waiting to send..." bubble always goes out on the next connect to its
+conversation (W16AAPPLE-106, reversing W16AAPPLE-96's drop on Stop). The outbox
+is per agent but flushes per conversation, so another conversation's queued
+messages wait until it is the one connected. Their rows are saved as queued, so
+they still say "Waiting to send..." when that conversation is opened again, or
+after a restart. Clear chat drops only the cleared conversation's queued
+messages (`PendingMessageSink.clearConversation`), with or without a
+connection, and even if another conversation is open by the time it runs: it
+names the conversation it clears (`reset(conversationId)`). A message queued
+before any conversation was named is left alone, since it may be another's.
+
+The outbox is bounded (`MAX_PENDING_MESSAGES` per agent, and
+`MAX_PENDING_ATTACHMENT_BYTES` of attachments). When it is full a new message is
+refused, not queued, and its send fails, so the bubble offers Retry; nothing
+already queued is dropped to make room. That is what lets a message that is no
+longer in the outbox be taken as sent.
 
 **Known gaps.**
 
@@ -1427,8 +1461,10 @@ as `plugins/coding_agents.py`, `useful_tools/codex.py` and
 
 | Frame | Fields read | Effect |
 |---|---|---|
-| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
+| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision`, `providerPermission` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
 | `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
+| `provider_message` | `invocationId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
+| `provider_artifact` | `invocationId`, `artifactId`, `kind`, `stateRevision`, `thumbnailDataUrl`, `alt` | The run's latest picture, in its card. `kind` is `screenshot`; the picture is an inline PNG or JPEG. |
 | `tool_call` / `tool_result` carrying `invocationId` | `tool_id`, `status` | A step from a Host that sends no `provider_activity` for it, after the native steps, under the Host's generic title "Use a provider tool". Its `name` is not shown: for Codex it is the raw command or file path. |
 
 They are folded (`WorkRooms`, through `ChatEventReducer`) the way the Host
@@ -1475,9 +1511,54 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Its approvals are below. Provider messages and artifacts, Stop and permission
-profiles in the room are W16AAPPLE-34, -37 and -43, and the local and remote
-handover states are W16AAPPLE-40.
+Its approvals, messages, pictures and permission mode are below. Stop in the
+room is W16AAPPLE-37, and the local and remote handover states are W16AAPPLE-40.
+
+### Messages and pictures in a Work Room
+
+`provider_message` and `provider_artifact` (W16AAPPLE-34) are decoded by
+`ProviderFrames` and folded into the run's card (`ChatItem.ProviderInvocation`),
+which keeps `messages` and the latest `artifact`. They are read as strictly as
+`core/provider_events.py` writes them, and a frame that is not that shape is
+dropped, its trace `id` still moving the replay cursor:
+
+- **A message** needs a `messageId` of letters, digits and `._:-`, a `role` of
+  `user` or `assistant`, and text that is not empty once trimmed. A NUL is
+  removed and text over 16,000 characters is cut with an ellipsis, as the Host
+  cuts it. A `continuationOf` that is not an id is ignored, not the message.
+- **A picture** needs `kind: "screenshot"`, a positive `stateRevision`, an
+  `artifactId` of the same shape and a `thumbnailDataUrl` that is an inline PNG
+  or JPEG (`data:image/png|jpeg;base64,`) of at most 262,144 characters. Nothing
+  is ever fetched, and SVG, HTML and links are refused. The `alt` is one of the
+  Host's two approved descriptions; any other is replaced by the first.
+
+They fold like a step does. A message is updated in place by `messageId`, so one
+sent live and again when the turn commits, or replayed after a reconnect, is
+shown once where it first arrived. The picture is the run's latest: one with a
+lower `stateRevision` than the one shown changes nothing, and an equal or higher
+one replaces it. Either may arrive before its run, and then starts the card. A
+later `provider_invocation` keeps both, as a frame names only what changed.
+
+The conversation is kept to the newest messages that fit in 200,000 characters
+(`WorkRooms.MAX_CONVERSATION_CHARS`), oldest first out, and always the newest
+message. A run is saved as one row, which Android cannot read back past about
+2 MB, and a long session can say far more; the cap, a full conversation of
+three-byte characters and the largest picture fit with room to spare
+(`TranscriptItemCodecTest`). Both are saved with the card
+(`TranscriptItemPayload.ProviderInvocation`); a row from before they existed
+reads as having none, and a saved message whose role this build does not know is
+left out rather than shown as someone else's.
+
+The room shows the picture under the task (**Latest view**, at its own
+proportions, described to TalkBack by the approved `alt`) and the conversation
+above the steps. Each message is one item for TalkBack, the speaker then the
+words. The text is drawn as Markdown so a reply's code blocks are monospace,
+with links left inert. It goes through `SensitiveText.messageText` on its way to
+the screen: secrets and home paths are masked, and a message that is itself a raw
+provider payload (it begins with a JSON object or array, a stack trace or an
+error page) is replaced by the standard "details are in the agent's logs" line,
+while a snippet quoted inside a reply is kept, since code is what the user came
+to read. The Control Center app receives neither.
 
 ### Approvals in a Work Room
 
@@ -1545,6 +1626,86 @@ and Claude Code takes a message once its run has ended. The ACK reaches the
 ViewModel as `ChatEvent.ProviderInputAcked`, which the reducer leaves alone and
 which is handled ahead of the per-conversation routing, since the draft it
 settles belongs to a room, not a chat.
+
+### A Work Room's provider permission mode
+
+Claude Code and Codex each have their own permission modes, and the room lets
+the user pick one for its run (W16AAPPLE-43). It is a separate control from the
+chat's approval mode (the Host ceiling, [Session mode](#session-mode)), with its
+own state machine, and neither sets the other. The ceiling is the most the
+whole agent may do; this is how the provider works inside it. The Host enforces
+that on every choice, and lowering the ceiling narrows the provider's mode on its
+own (connectonion `core/provider_permissions.py`
+`reconcile_provider_permission_events`), which then arrives as a new
+`provider_invocation`.
+
+**Reading it.** A `provider_invocation` from connectonion 1.9.3 carries
+`providerPermission`, built by `provider_permission_state`:
+
+```json
+"providerPermission": {
+  "provider": "codex",
+  "activeOptionId": "codex:workspace-ask",
+  "appliesTo": "subsequent_turn",
+  "effectiveRevision": 4,
+  "options": [
+    {"id": "codex:read-only", "label": "Read Only", "description": "…", "risk": "standard", "selectable": true},
+    {"id": "codex:full-access", "label": "Full Access", "description": "…", "risk": "elevated",
+     "selectable": false, "disabledReason": "Host permission ceiling is Auto."}
+  ]
+}
+```
+
+| Provider | Choices (`id`), lowest to highest | Elevated |
+| --- | --- | --- |
+| Codex | `codex:read-only`, `codex:workspace-ask`, `codex:workspace-auto`, `codex:full-access` | `codex:full-access` |
+| Claude Code | `claude:plan`, `claude:default`, `claude:accept-edits`, `claude:auto`, `claude:bypass-permissions` | `claude:bypass-permissions` |
+
+`ProviderFrames` reads it on its own from the raw JSON, so an odd value costs only
+the control, never the run's frame, and fails closed: an option with no `id` or
+`label` is dropped, one that does not say `selectable: true` is not selectable,
+and a state whose `activeOptionId` is not among its options is no state at all.
+It is kept on `ChatItem.ProviderInvocation.providerPermission`, folded like any
+other field (a frame that leaves it out keeps the one shown), and saved with the
+card. A run without it shows no control: an older Host, or Claude Station
+(`claude_code:station:` Work Rooms), whose mode the Host pins.
+
+**Changing it.** A signed `PROVIDER_PERMISSION_CHANGE`, handled by
+`ws_router/session.py` and committed by `network/host/provider_permissions.py`
+`commit_provider_permission`:
+
+| Field | Value |
+| --- | --- |
+| `invocationId` | The run's id. |
+| `stateRevision` | The run's revision as the screen holds it. The Host refuses a change at any other (`stale_revision`). |
+| `optionId` | The choice. |
+| `confirmRisk` | `true` only once the user has confirmed an elevated choice. The Host refuses an elevated choice without it (`confirmation_required`). |
+| `requestId` | A fresh UUID, which the answer names. |
+
+The Host answers with `PROVIDER_PERMISSION_ACK` (`requestId`, `invocationId`,
+`accepted`, and on acceptance `stateRevision` and `providerPermission`), then
+sends the run's updated `provider_invocation` at the next revision. The card
+changes from that frame only, never from the ACK, so the mode shown is always
+the one the Host committed. A change applies from the provider's next turn
+(`appliesTo: "subsequent_turn"`), and the control says so.
+
+`ProviderPermissionControlState` is the control's state machine:
+
+| State | On |
+| --- | --- |
+| Idle | A choice that is on offer, selectable and not already active: sent, then **Pending**. An elevated one: **Confirming**, nothing sent. Anything else: nothing. |
+| Confirming | Confirm: sent with `confirmRisk: true`, then Pending. Cancel: Idle. Another choice replaces it. |
+| Pending | Nothing else is sent, and it cannot be cancelled, so two changes never race at one revision. The ACK, a send that could not go out, or 15 seconds with no answer: Idle. |
+
+`WorkRoomPermissions` (owned by `ChatViewModel`, like the drafts) runs it per
+room. A refusal is shown under the control by `reason`, never the code itself:
+`stale_revision` and `invalid_revision` say the run moved on, `ceiling_denied`
+says to raise the approval mode from the chat first, `not_owner` and
+`operator_required` that only the session's owner can change it,
+`confirmation_required`, `not_found` and `unsupported_option` have their own
+sentences, and anything else a general one. Never queued, like `PROVIDER_INPUT`.
+The ACK reaches the ViewModel as `ChatEvent.ProviderPermissionAcked`, handled
+ahead of the per-conversation routing.
 
 ## Control Center
 

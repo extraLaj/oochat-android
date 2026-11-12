@@ -16,6 +16,7 @@ import ai.openonion.oochat.data.protocol.OnboardSubmitPayload
 import ai.openonion.oochat.data.protocol.PlanReviewResponse
 import ai.openonion.oochat.data.protocol.PongMessage
 import ai.openonion.oochat.data.protocol.ProviderInputMessage
+import ai.openonion.oochat.data.protocol.ProviderPermissionChangeMessage
 import ai.openonion.oochat.data.protocol.RemReadMessage
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.SessionStatusQuery
@@ -26,6 +27,7 @@ import ai.openonion.oochat.di.sharedHttpClient
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
@@ -929,18 +931,13 @@ class AgentConnection(
     fun sendMessage(prompt: String, agentAddress: String, images: List<String>? = null, files: List<FileAttachment>? = null) {
         if (!isConnectionReady || webSocket == null) {
             // The sink bounds its own size (see MAX_PENDING_MESSAGES), so a
-            // stuck reconnect loop plus repeated sends can't queue forever —
-            // newest kept, oldest dropped. files_json (PendingMessageEntity,
-            // MIGRATION_8_9) carries files through the same way images_json
-            // already does, so nothing is dropped on this path.
+            // stuck reconnect loop plus repeated sends can't queue forever.
+            // A full outbox refuses the new message rather than dropping a
+            // queued one, and the send fails so its bubble offers Retry
+            // (W16AAPPLE-106). files_json (PendingMessageEntity, MIGRATION_8_9)
+            // carries files through the same way images_json already does.
             FileLogger.w(LogTags.AGENT_CONN, "Connection not ready, queuing message${if (!files.isNullOrEmpty()) " (${files.size} file(s))" else ""}")
-            pendingMessageSink.enqueue(
-                agentAddress,
-                pendingMessageRouteId(),
-                prompt,
-                images,
-                files
-            )
+            queueOrFail(agentAddress, prompt, images, files)
             return
         }
 
@@ -950,13 +947,14 @@ class AgentConnection(
         // CONNECTED like any other queued one.
         if (!sendMessageInternal(prompt, agentAddress, images, files)) {
             FileLogger.w(LogTags.AGENT_CONN, "Socket refused the write, queuing instead")
-            pendingMessageSink.enqueue(
-                agentAddress,
-                pendingMessageRouteId(),
-                prompt,
-                images,
-                files
-            )
+            queueOrFail(agentAddress, prompt, images, files)
+        }
+    }
+
+    /** Queue for the next CONNECTED, or throw [OutboxFullException] when the outbox has no room. */
+    private fun queueOrFail(agentAddress: String, prompt: String, images: List<String>?, files: List<FileAttachment>?) {
+        if (!pendingMessageSink.enqueue(agentAddress, pendingMessageRouteId(), prompt, images, files)) {
+            throw OutboxFullException()
         }
     }
 
@@ -1040,6 +1038,10 @@ class AgentConnection(
             }
         }
         if (flushed > 0) FileLogger.i(LogTags.AGENT_CONN, "Flushed $flushed pending messages")
+        // Reported whether or not anything went: the chat settles by what is left.
+        if (flush.generation == socketGeneration.get()) {
+            _events.tryEmit(ConnectionEvent.OutboxFlushed(flush.conversationId ?: flush.sessionId))
+        }
     }
 
     fun respond(answer: String, requestId: String? = null) {
@@ -1070,6 +1072,33 @@ class AgentConnection(
         FileLogger.i(
             LogTags.AGENT_CONN,
             "PROVIDER_INPUT -> request_id=${input.requestId.take(8)} revision=${input.stateRevision} ${input.text.length} chars"
+        )
+        return socket.send(frame)
+    }
+
+    /**
+     * Send a change of a Work Room's provider permission mode (W16AAPPLE-43) as
+     * a signed `PROVIDER_PERMISSION_CHANGE`. True only when the frame went out
+     * on a connection that has finished CONNECT; whether the Host committed it
+     * is the `PROVIDER_PERMISSION_ACK` with the same request id, passed up as
+     * [ConnectionEvent.ProviderPermissionAcked]. Never queued, for the same
+     * reason as [sendProviderInput]: it is bound to the revision on screen.
+     */
+    fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean {
+        val socket = webSocket?.takeIf { isConnectionReady } ?: return false
+        val frame = signedCommand(
+            ProviderPermissionChangeMessage(
+                invocationId = change.invocationId,
+                stateRevision = change.stateRevision,
+                optionId = change.optionId,
+                confirmRisk = change.confirmRisk,
+                requestId = change.requestId
+            )
+        ) ?: return false
+        FileLogger.i(
+            LogTags.AGENT_CONN,
+            "PROVIDER_PERMISSION_CHANGE -> request_id=${change.requestId.take(8)} " +
+                "revision=${change.stateRevision} option=${change.optionId} confirmRisk=${change.confirmRisk}"
         )
         return socket.send(frame)
     }
@@ -1252,12 +1281,19 @@ class AgentConnection(
         }
     }
 
+    /**
+     * Clear chat: forget this conversation's session and drop what it queued.
+     * Only this conversation's: the outbox is per agent, and another
+     * conversation's queued messages still say "Waiting to send..."
+     * (W16AAPPLE-106).
+     */
     fun reset() {
+        val clearedSessionId = _currentSession?.sessionId
         _currentSession = null
         replayCursor = null
         synchronized(seenFrames) { seenFrames.clear() }
         clearOutstandingInputs()
-        pendingMessageSink.clear(agentAddress)
+        pendingMessageSink.clearConversation(agentAddress, clearedSessionId, currentConversationId)
     }
 
     /**
@@ -2132,6 +2168,15 @@ class AgentConnection(
                     FileLogger.i(
                         LogTags.AGENT_CONN,
                         "PROVIDER_INPUT_ACK <- request_id=${ack.requestId.take(8)} " +
+                            if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
+                    )
+                    _events.tryEmit(event)
+                }
+                is ConnectionEvent.ProviderPermissionAcked -> {
+                    val ack = event.ack
+                    FileLogger.i(
+                        LogTags.AGENT_CONN,
+                        "PROVIDER_PERMISSION_ACK <- request_id=${ack.requestId.take(8)} " +
                             if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
                     )
                     _events.tryEmit(event)

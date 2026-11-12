@@ -82,9 +82,8 @@ class OnboardingViewModelTest {
 
     private fun validForm(
         serverUrl: String = "https://relay.example.com",
-        agentAddress: String = address,
-        apiKey: String = ""
-    ) = AgentFormState(serverUrl = serverUrl, agentAddress = agentAddress, apiKey = apiKey)
+        agentAddress: String = address
+    ) = AgentFormState(serverUrl = serverUrl, agentAddress = agentAddress)
 
     // ── Prefill from a previously-saved config ─────────────────────────
 
@@ -138,8 +137,7 @@ class OnboardingViewModelTest {
         var savedCalled = false
         val form = AgentFormState(
             serverUrl = "  https://relay.example.com/  ",
-            agentAddress = "  ${address.uppercase().replace("0X", "0x")}  ",
-            apiKey = "  my-key  "
+            agentAddress = "  ${address.uppercase().replace("0X", "0x")}  "
         )
 
         vm.connect(form, onSaved = { savedCalled = true })
@@ -152,7 +150,7 @@ class OnboardingViewModelTest {
         assertEquals("https://relay.example.com", saved!!.serverUrl)
         // Trimmed and lower-cased, as Add Agent saves it (W16AAPPLE-57).
         assertEquals(address, saved.agentAddress)
-        assertEquals("my-key", saved.apiKey)
+        assertNull("the removed per-agent API key is not saved", saved.apiKey)
         assertNull(vm.errorMessage.value)
     }
 
@@ -192,10 +190,10 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `connect with a blank optional apiKey saves it as null`() = runTest(testDispatcher) {
+    fun `connect does not restore a legacy per-agent apiKey`() = runTest(testDispatcher) {
         val vm = createVm()
 
-        vm.connect(validForm(apiKey = "   "), onSaved = {})
+        vm.connect(validForm(), onSaved = {})
         testScheduler.runCurrent()
 
         assertNull(configRepository.savedConfig?.apiKey)
@@ -336,7 +334,7 @@ class OnboardingViewModelTest {
 
         val form = vm.connectScanned(
             ScannedAgent(serverUrl = Constants.DEFAULT_SERVER_URL, agentAddress = address),
-            AgentFormState(apiKey = "key-1"),
+            AgentFormState(),
             onSaved = { saved = true }
         )
         testScheduler.runCurrent()
@@ -346,7 +344,6 @@ class OnboardingViewModelTest {
         assertEquals(Constants.DEFAULT_SERVER_URL, config.serverUrl)
         assertEquals(address, config.agentAddress)
         assertEquals("relay", config.connectionMode)
-        assertEquals("the API key already typed is kept", "key-1", config.apiKey)
         assertEquals(address, form.agentAddress)
     }
 

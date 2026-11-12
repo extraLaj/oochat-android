@@ -1,16 +1,67 @@
 package ai.openonion.oochat.ui.theme
 
+import ai.openonion.oochat.R
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// The type is the system's own face, and monospace where the text is code or
-// ticks (W16AAPPLE-49): nothing is bundled, so text matches the device it is on.
-// Start from Material 3 defaults, which are the system font, keeping the tuned
-// M3 sizes and line-heights and adjusting only the tracking below.
-private val baseline = Typography()
+/**
+ * Inter, the chat design's face (W16AAPPLE-112), bundled as its two variable
+ * fonts (res/font; licence in assets/licenses/inter_OFL.txt) with one entry per
+ * weight the app uses, so each is drawn at its true weight rather than
+ * synthesised. Monospace stays the system's, where the text is code or ticks.
+ */
+@OptIn(ExperimentalTextApi::class)
+val Inter: FontFamily = FontFamily(
+    listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold, FontWeight.ExtraBold)
+        .flatMap { weight ->
+            listOf(
+                Font(
+                    R.font.inter,
+                    weight = weight,
+                    style = FontStyle.Normal,
+                    variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
+                ),
+                Font(
+                    R.font.inter_italic,
+                    weight = weight,
+                    style = FontStyle.Italic,
+                    variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
+                )
+            )
+        }
+)
+
+// Material 3's tuned sizes and line-heights, set in Inter. Body text drops
+// M3's positive tracking, which was tuned for Roboto and spaces Inter out
+// further than the design draws it; the tweaks below are kept as they were.
+private val m3 = Typography()
+private fun TextStyle.inter(tracking: Boolean = true) =
+    copy(fontFamily = Inter).let { if (tracking) it else it.copy(letterSpacing = 0.sp) }
+
+private val baseline = Typography(
+    displayLarge = m3.displayLarge.inter(),
+    displayMedium = m3.displayMedium.inter(),
+    displaySmall = m3.displaySmall.inter(),
+    headlineLarge = m3.headlineLarge.inter(),
+    headlineMedium = m3.headlineMedium.inter(),
+    headlineSmall = m3.headlineSmall.inter(),
+    titleLarge = m3.titleLarge.inter(),
+    titleMedium = m3.titleMedium.inter(tracking = false),
+    titleSmall = m3.titleSmall.inter(tracking = false),
+    bodyLarge = m3.bodyLarge.inter(tracking = false),
+    bodyMedium = m3.bodyMedium.inter(tracking = false),
+    bodySmall = m3.bodySmall.inter(tracking = false),
+    labelLarge = m3.labelLarge.inter(),
+    labelMedium = m3.labelMedium.inter(tracking = false),
+    labelSmall = m3.labelSmall.inter()
+)
 
 val AppTypography = baseline.copy(
     headlineLarge = baseline.headlineLarge.copy(letterSpacing = (-0.4).sp), // Tighter for large headings
@@ -52,6 +103,27 @@ val Typography.sectionOverline: TextStyle
 val Typography.sectionLabel: TextStyle
     get() = labelSmall.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.6.sp)
 
+/**
+ * The question over an empty chat's composer — the one line on that screen
+ * meant to be read before anything else. 26sp on a phone; one step down to
+ * 22sp with the keyboard up, where it has to fit on a line above the card;
+ * 34sp on a tablet, where the card beneath it is twice as wide.
+ */
+fun Typography.emptyChatHeadline(compact: Boolean, wide: Boolean): TextStyle = headlineMedium.copy(
+    fontSize = when {
+        compact -> 22.sp
+        wide -> 34.sp
+        else -> 26.sp
+    },
+    lineHeight = when {
+        compact -> 28.sp
+        wide -> 42.sp
+        else -> 32.sp
+    },
+    fontWeight = FontWeight.Bold,
+    letterSpacing = (-0.4).sp
+)
+
 /*
  * ── The app's type ladder ────────────────────────────────────────────────
  *
@@ -80,6 +152,7 @@ val Typography.sectionLabel: TextStyle
  *   sectionOverline 11 ALL-CAPS badges — SOON, RELAY/DIRECT (see above)
  *   sectionLabel   11  ALL-CAPS group headings (see above)
  *   chatBody       15  Chat message text (see above)
+ *   emptyChatHeadline 26  The empty chat's question (22 / 34, see above)
  */
 
 /**

@@ -71,6 +71,7 @@ fun WorkRoomScreenWrapper(
     )
     val state by viewModel.uiState.collectAsState()
     val drafts by viewModel.workRoomDrafts.collectAsState()
+    val permissionControls by viewModel.workRoomPermissionControls.collectAsState()
     val run = state.chatItems.firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId }
         as ChatItem.ProviderInvocation?
     WorkRoomScreen(
@@ -85,7 +86,11 @@ fun WorkRoomScreenWrapper(
         onApprovalDecision = { itemId, approved, scope ->
             viewModel.markGateResolved(itemId)
             viewModel.respondToApproval(itemId, approved, scope, if (approved) null else WORK_ROOM_DENY_MODE)
-        }
+        },
+        permissionUi = viewModel.workRoomPermissionControl(invocationId, permissionControls),
+        onChoosePermission = { viewModel.chooseWorkRoomPermission(invocationId, it) },
+        onConfirmPermission = { viewModel.confirmWorkRoomPermission(invocationId) },
+        onCancelPermission = { viewModel.cancelWorkRoomPermission(invocationId) }
     )
 }
 
@@ -94,9 +99,11 @@ internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatIt
 
 /**
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
- * a phone: the task and where it stands, then each step the provider took, as
- * the Host describes it, and a field to steer it (W16AAPPLE-35). Stop comes
- * with W16AAPPLE-37. [run] is null once the chat no longer holds it.
+ * a phone: the task and where it stands, the provider's own permission mode when
+ * the Host offers one (W16AAPPLE-43), the latest picture of its workspace, what
+ * was said to and by the provider (W16AAPPLE-34), then each step it took, as the Host
+ * describes it, and a field to steer it (W16AAPPLE-35). Stop comes with W16AAPPLE-37.
+ * [run] is null once the chat no longer holds it.
  */
 @Composable
 fun WorkRoomScreen(
@@ -108,7 +115,11 @@ fun WorkRoomScreen(
     scrollPosition: WorkRoomScrollPosition = WorkRoomScrollPosition(),
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit = {},
     approvals: List<ChatItem.ApprovalNeeded> = emptyList(),
-    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> }
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> },
+    permissionUi: WorkRoomPermissionUi = WorkRoomPermissionUi(),
+    onChoosePermission: (optionId: String) -> Unit = {},
+    onConfirmPermission: () -> Unit = {},
+    onCancelPermission: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -131,7 +142,25 @@ fun WorkRoomScreen(
                 )
                 return@Box
             }
-            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged, approvals, onApprovalDecision)
+            WorkRoomTranscript(
+                run,
+                scrollPosition,
+                onScrollPositionChanged,
+                approvals,
+                onApprovalDecision,
+                permission = {
+                    run.providerPermission?.let { permission ->
+                        WorkRoomPermissionControl(
+                            run = run,
+                            permission = permission,
+                            ui = permissionUi,
+                            onChoose = onChoosePermission,
+                            onConfirm = onConfirmPermission,
+                            onCancel = onCancelPermission
+                        )
+                    }
+                }
+            )
         }
     }
 }
@@ -143,13 +172,22 @@ private fun WorkRoomTranscript(
     scrollPosition: WorkRoomScrollPosition,
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit,
     approvals: List<ChatItem.ApprovalNeeded>,
-    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit,
+    permission: @Composable () -> Unit = {}
 ) {
     val pendingApprovals = approvals.filter { it.decision == null }
     val resolvedApprovals = approvals.filter { it.decision != null }
+    // Only a picture of the run as it stands, as the Host's replay keeps: an older one would look current.
+    val currentArtifact = run.artifact?.takeIf { it.stateRevision == run.stateRevision }
     val itemKeys = buildList {
         add("header")
+        if (run.providerPermission != null) add("permission")
+        currentArtifact?.let { add("artifact") }
         pendingApprovals.forEach { add("approval:${it.id}") }
+        if (run.messages.isNotEmpty()) {
+            add("conversation-heading")
+            run.messages.forEach { add("message:${it.id}") }
+        }
         add("steps-heading")
         run.activities.forEach { add("step:${it.id}") }
         resolvedApprovals.forEach { add("approval:${it.id}") }
@@ -193,9 +231,23 @@ private fun WorkRoomTranscript(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
     ) {
         item(key = "header") { RunHeader(run) }
+        if (run.providerPermission != null) item(key = "permission") { permission() }
+        currentArtifact?.let { artifact -> item(key = "artifact") { LatestView(artifact) } }
         items(pendingApprovals, key = { "approval:${it.id}" }) { approval ->
             WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { approved, scope ->
                 onApprovalDecision(approval.id, approved, scope)
+            }
+        }
+        if (run.messages.isNotEmpty()) {
+            item(key = "conversation-heading") {
+                Text(
+                    text = "Conversation",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.semantics { heading() }
+                )
+            }
+            items(run.messages, key = { "message:${it.id}" }) { message ->
+                ConversationMessage(message, WorkRoomText.providerName(run))
             }
         }
         item(key = "steps-heading") {

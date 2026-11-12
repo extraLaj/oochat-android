@@ -15,6 +15,7 @@ import ai.openonion.oochat.domain.model.ExecRequest
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -285,6 +286,9 @@ class ConnectToAgentUseCase(
     override suspend fun sendProviderInput(input: ProviderInput): Boolean =
         getOrCreateRepository().sendProviderInput(input)
 
+    override suspend fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean =
+        getOrCreateRepository().sendProviderPermissionChange(change)
+
     override fun observeEvents(): Flow<ChatEvent> {
         return getOrCreateRepository().observeEvents()
     }
@@ -346,9 +350,12 @@ class ConnectToAgentUseCase(
         return repository?.isConnected() == true
     }
 
-    override suspend fun reset() {
-        repository?.reset()
+    override suspend fun reset(conversationId: String?) {
+        repository?.reset(conversationId)
     }
+
+    override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? =
+        repository?.queuedMessageCount(agentAddress, conversationId)
 
     @Synchronized
     private fun getOrCreateRepository(): ConnectionRepository {

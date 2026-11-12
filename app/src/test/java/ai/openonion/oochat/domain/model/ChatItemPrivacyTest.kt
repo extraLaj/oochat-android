@@ -140,6 +140,29 @@ class ChatItemPrivacyTest {
     }
 
     @Test
+    fun `a Work Room's messages are redacted, a raw payload in one is replaced, and code is kept`() {
+        val run = ChatItem.ProviderInvocation(
+            id = "inv-3",
+            messages = listOf(
+                ProviderMessage("m1", ProviderMessageRole.USER, "Use key $key in $home/app"),
+                ProviderMessage("m2", ProviderMessageRole.ASSISTANT, """{"type": "result", "session_id": "abc"}"""),
+                ProviderMessage("m3", ProviderMessageRole.ASSISTANT, "Run:\n```\nText(text = \"hi\")\n```")
+            )
+        )
+
+        val shown = (ChatItemPrivacy.redact(run) as ChatItem.ProviderInvocation).messages
+
+        assertEquals("Use key $REDACTED in ~/app", shown[0].text)
+        assertEquals(SensitiveText.UNREADABLE_SUMMARY, shown[1].text)
+        assertEquals("Run:\n```\nText(text = \"hi\")\n```", shown[2].text)
+        assertEquals(listOf("m1", "m2", "m3"), shown.map { it.id })
+        assertEquals(
+            listOf(ProviderMessageRole.USER, ProviderMessageRole.ASSISTANT, ProviderMessageRole.ASSISTANT),
+            shown.map { it.role }
+        )
+    }
+
+    @Test
     fun `the user's own attachments keep their local paths`() {
         val item = ChatItem.User(
             id = "u",

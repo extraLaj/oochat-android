@@ -88,6 +88,36 @@ data class ProviderActivity(
     val legacy: Boolean = false
 )
 
+/** Who a [ProviderMessage] is from. The Host sends these two roles and no others. */
+enum class ProviderMessageRole { USER, ASSISTANT }
+
+/**
+ * One line of the conversation with Claude Code or Codex inside a run
+ * (W16AAPPLE-34): plain text the Host bounded, from the user or the provider.
+ * The Host never puts command output, local paths or HTML in one
+ * (core/provider_events.py `provider_message_event`), so [text] is drawn as text.
+ * [continuationOf] is the message this one carries on, when a reply was split.
+ */
+data class ProviderMessage(
+    val id: String,
+    val role: ProviderMessageRole,
+    val text: String,
+    val continuationOf: String? = null
+)
+
+/**
+ * The latest picture of a run's workspace or browser (W16AAPPLE-34): an inline
+ * PNG or JPEG the Host captured itself, never a link to fetch. [dataUrl] has
+ * already been checked as one; [alt] is one of the Host's approved descriptions.
+ * A newer [stateRevision] replaces an older picture of the same run.
+ */
+data class ProviderArtifact(
+    val id: String,
+    val dataUrl: String,
+    val alt: String,
+    val stateRevision: Long
+)
+
 /**
  * Folds Work Room frames into the chat list, as the Host's own
  * `_nest_provider_invocations` (network/host/session/ui.py) builds them for
@@ -97,6 +127,14 @@ data class ProviderActivity(
  * is replaced by it, and dropped when it arrives later.
  */
 object WorkRooms {
+
+    /**
+     * How much of a run's conversation is kept: the newest messages that fit in this many
+     * characters. A run is saved as one database row, which Android cannot read back past
+     * about 2 MB, and a long session can say far more than that. At 200,000 characters
+     * (3 bytes each at worst) the row stays well under it, with the picture and the steps.
+     */
+    const val MAX_CONVERSATION_CHARS = 200_000
 
     /** Fold a `provider_invocation`. Returns null when the frame changes nothing. */
     fun foldInvocation(
@@ -129,19 +167,46 @@ object WorkRooms {
         current: List<ChatItem>,
         update: ChatItem.ProviderActivityUpdate,
         append: (List<ChatItem>, ChatItem) -> List<ChatItem>
+    ): ReduceResult? = foldIntoCard(current, update.invocationId, update.parentToolCallId, update.provider, append) { card ->
+        card.copy(activities = upsert(card.activities, update.activity))
+    }
+
+    /** Fold a `provider_message` into its run's conversation, starting the card if this arrived first. */
+    fun foldMessage(
+        current: List<ChatItem>,
+        update: ChatItem.ProviderMessageUpdate,
+        append: (List<ChatItem>, ChatItem) -> List<ChatItem>
+    ): ReduceResult? = foldIntoCard(current, update.invocationId, update.parentToolCallId, update.provider, append) { card ->
+        card.copy(messages = upsert(card.messages, update.message))
+    }
+
+    /** Fold a `provider_artifact` into its run's card as the latest picture, unless it is older than the one shown. */
+    fun foldArtifact(
+        current: List<ChatItem>,
+        update: ChatItem.ProviderArtifactUpdate,
+        append: (List<ChatItem>, ChatItem) -> List<ChatItem>
+    ): ReduceResult? = foldIntoCard(current, update.invocationId, update.parentToolCallId, update.provider, append) { card ->
+        card.copy(artifact = newer(card.artifact, update.artifact))
+    }
+
+    /** [change] applied to the run's card, which a frame that arrives before its run starts. Null when nothing changed. */
+    private fun foldIntoCard(
+        current: List<ChatItem>,
+        invocationId: String,
+        parentToolCallId: String?,
+        provider: String,
+        append: (List<ChatItem>, ChatItem) -> List<ChatItem>,
+        change: (ChatItem.ProviderInvocation) -> ChatItem.ProviderInvocation
     ): ReduceResult? {
-        val index = current.indexOfFirst { it is ChatItem.ProviderInvocation && it.id == update.invocationId }
+        val index = current.indexOfFirst { it is ChatItem.ProviderInvocation && it.id == invocationId }
         if (index < 0) {
-            val started = ChatItem.ProviderInvocation(
-                id = update.invocationId,
-                parentToolCallId = update.parentToolCallId,
-                provider = update.provider,
-                activities = listOf(update.activity)
+            val started = change(
+                ChatItem.ProviderInvocation(id = invocationId, parentToolCallId = parentToolCallId, provider = provider)
             )
             return foldInvocation(current, started, append)
         }
         val card = current[index] as ChatItem.ProviderInvocation
-        val updated = card.copy(activities = upsert(card.activities, update.activity))
+        val updated = change(card)
         if (updated == card) return null
         return ReduceResult(current.toMutableList().also { it[index] = updated }, updated)
     }
@@ -153,7 +218,11 @@ object WorkRooms {
      */
     fun mergeStored(stored: ChatItem.ProviderInvocation, incoming: ChatItem.ProviderInvocation): ChatItem.ProviderInvocation {
         val base = if (isStale(stored, incoming)) stored else stored.mergedWith(incoming)
-        return base.copy(activities = incoming.activities.fold(stored.activities, ::upsert))
+        return base.copy(
+            activities = incoming.activities.fold(stored.activities, ::upsert),
+            messages = incoming.messages.fold(stored.messages, ::upsert),
+            artifact = newer(stored.artifact, incoming.artifact)
+        )
     }
 
     /**
@@ -166,6 +235,35 @@ object WorkRooms {
         if (at < 0) return (steps + step).sortedBy { it.sequence }
         if (step.legacy && !steps[at].legacy) return steps
         return steps.toMutableList().also { it[at] = step }.sortedBy { it.sequence }
+    }
+
+    /**
+     * A message updated in place by id, so one the Host sends twice (live, then again when the turn
+     * commits) or replays after a reconnect is shown once, where it first arrived.
+     */
+    private fun upsert(messages: List<ProviderMessage>, message: ProviderMessage): List<ProviderMessage> {
+        val at = messages.indexOfFirst { it.id == message.id }
+        val all = if (at < 0) messages + message else messages.toMutableList().also { it[at] = message }
+        return withinBudget(all)
+    }
+
+    /** [messages] without the oldest ones that do not fit [MAX_CONVERSATION_CHARS]; the newest is always kept. */
+    private fun withinBudget(messages: List<ProviderMessage>): List<ProviderMessage> {
+        var size = 0
+        var firstKept = messages.size
+        while (firstKept > 0 && size + messages[firstKept - 1].text.length <= MAX_CONVERSATION_CHARS) {
+            firstKept--
+            size += messages[firstKept].text.length
+        }
+        return if (firstKept == messages.size) messages.takeLast(1) else messages.drop(firstKept)
+    }
+
+    /** The picture of the two that is the later view: an older one never replaces a newer. */
+    private fun newer(shown: ProviderArtifact?, incoming: ProviderArtifact?): ProviderArtifact? = when {
+        incoming == null -> shown
+        shown == null -> incoming
+        incoming.stateRevision < shown.stateRevision -> shown
+        else -> incoming
     }
 
     /** Every frame is sent twice and a reconnect replays some: an older revision is never newer news. */
@@ -217,7 +315,8 @@ object WorkRooms {
         errorSummary = next.errorSummary ?: errorSummary,
         elapsedMs = next.elapsedMs ?: elapsedMs,
         stateRevision = next.stateRevision ?: stateRevision,
-        activities = activities
+        activities = activities,
+        providerPermission = next.providerPermission ?: providerPermission
     )
 }
 

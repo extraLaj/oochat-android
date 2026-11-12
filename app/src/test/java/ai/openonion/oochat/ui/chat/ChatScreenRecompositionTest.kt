@@ -286,6 +286,12 @@ class ChatScreenRecompositionTest {
     @Test
     fun `opening the drawer does not add it to what an agent turn recomposes`() {
         setChatScreen()
+        // A full screen of history first, so both measured turns redraw the
+        // same number of rows. With a turn's tool calls folded into one block
+        // (W16AAPPLE-112) the replies are short, and from an empty list the
+        // first turn alone does not fill the viewport — the second would then
+        // pay for rows the first never had, and read as the drawer's cost.
+        driveAgentTurn(tag = "warm")
 
         recorder.reset()
         driveAgentTurn(tag = "closed")
@@ -299,7 +305,8 @@ class ChatScreenRecompositionTest {
         val open = recorder.scopeExecutions
 
         // Measured here: 1112 scopes with the drawer closed, 1152 with it
-        // open — the panel costs ~3 scopes a frame, not a rebuild. Reverting
+        // open — the panel costs ~3 scopes a frame, not a rebuild. (After the
+        // warm-up above, W16AAPPLE-112: 1746 closed, 1728 open.) Reverting
         // the narrowed drawerAgents model takes the open figure to 2370 on
         // the same fixture, so the bound sits between the two by a wide gap.
         assertTrue(
@@ -375,7 +382,7 @@ internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     override fun retryNow() = Unit
     override suspend fun querySessionStatus() = Unit
     override suspend fun disconnect(keepOutbox: Boolean) { connected = false }
-    override suspend fun reset() = Unit
+    override suspend fun reset(conversationId: String?) = Unit
 
     fun emit(event: ChatEvent) { events.tryEmit(event) }
     fun markConnected(address: String) {

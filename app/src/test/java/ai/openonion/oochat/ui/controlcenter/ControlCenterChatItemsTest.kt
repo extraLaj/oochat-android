@@ -9,7 +9,10 @@ import ai.openonion.oochat.domain.model.EvalStatus
 import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderArtifact
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.ProviderMessage
+import ai.openonion.oochat.domain.model.ProviderMessageRole
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -117,6 +120,47 @@ class ControlCenterChatItemsTest {
             ),
             one(run)
         )
+    }
+
+    @Test
+    fun `a run goes out with its conversation and a picture of where it stands, as the Host nests them`() {
+        val run = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            status = ProviderInvocationStatus.RUNNING,
+            stateRevision = 3,
+            messages = listOf(
+                ProviderMessage("m1", ProviderMessageRole.USER, "Add a login page"),
+                ProviderMessage("m2", ProviderMessageRole.ASSISTANT, "Done.")
+            ),
+            artifact = ProviderArtifact("shot-1", "data:image/png;base64,AAAA", "Browser view", 3)
+        )
+
+        val sent = one(run)
+
+        assertEquals(
+            Json.parseToJsonElement("""[{"id":"m1","role":"user","text":"Add a login page"},{"id":"m2","role":"assistant","text":"Done."}]"""),
+            sent["messages"]
+        )
+        assertEquals(
+            json("""{"id":"shot-1","kind":"screenshot","stateRevision":3,"thumbnailDataUrl":"data:image/png;base64,AAAA","alt":"Browser view"}"""),
+            sent["artifact"]
+        )
+    }
+
+    @Test
+    fun `a picture of an earlier state of the run is left out, as the Host's replay leaves it`() {
+        val run = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            stateRevision = 5,
+            artifact = ProviderArtifact("shot-1", "data:image/png;base64,AAAA", "Browser view", 3)
+        )
+
+        val sent = one(run)
+
+        assertEquals(null, sent["artifact"])
+        assertEquals(null, sent["messages"])
     }
 
     @Test

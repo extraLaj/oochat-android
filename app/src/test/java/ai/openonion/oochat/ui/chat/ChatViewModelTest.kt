@@ -258,6 +258,14 @@ class ChatViewModelTest {
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
 
+        val providerPermissionChanges = mutableListOf<ai.openonion.oochat.domain.model.ProviderPermissionChange>()
+        override suspend fun sendProviderPermissionChange(
+            change: ai.openonion.oochat.domain.model.ProviderPermissionChange
+        ): Boolean {
+            providerPermissionChanges += change
+            return true
+        }
+
         val providerInputs = mutableListOf<ai.openonion.oochat.domain.model.ProviderInput>()
         override suspend fun sendProviderInput(input: ai.openonion.oochat.domain.model.ProviderInput): Boolean {
             providerInputs += input
@@ -320,7 +328,26 @@ class ChatViewModelTest {
         }
 
         var resetCount = 0
-        override suspend fun reset() { resetCount++ }
+        /** When set, reset() waits on it: lets a test act while Clear chat is still under way. */
+        var resetGate: CompletableDeferred<Unit>? = null
+        /** The conversation each Clear chat named. */
+        val resetConversations = mutableListOf<String?>()
+        override suspend fun reset(conversationId: String?) {
+            resetCount++
+            resetConversations += conversationId
+            resetGate?.await()
+        }
+
+        /** What the outbox still holds per conversation; absent means empty. */
+        val queuedCounts = mutableMapOf<String, Int>()
+        /** When set, the outbox cannot be asked. */
+        var queuedCountUnknown = false
+        /** The agent each count was asked for. */
+        val queuedCountAgents = mutableListOf<String>()
+        override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? {
+            queuedCountAgents += agentAddress
+            return if (queuedCountUnknown) null else queuedCounts[conversationId] ?: 0
+        }
 
 
         // When true, the NEXT collected event throws CancellationException
@@ -676,8 +703,8 @@ class ChatViewModelTest {
         override suspend fun updateTimestamp(id: String, timestamp: Long) {
             all.value = all.value.map { if (it.id == id) it.copy(timestamp = timestamp) else it }
         }
-        override suspend fun updateFailedToSend(id: String, failedToSend: Boolean) {
-            all.value = all.value.map { if (it.id == id) it.copy(failedToSend = failedToSend) else it }
+        override suspend fun updateFailedToSend(id: String, failedToSend: Boolean, inOutbox: Boolean) {
+            all.value = all.value.map { if (it.id == id) it.copy(failedToSend = failedToSend, inOutbox = inOutbox) else it }
         }
         override suspend fun getOwningSessionId(id: String) =
             all.value.firstOrNull { it.id == id }?.sessionId
@@ -2483,6 +2510,12 @@ class ChatViewModelTest {
         return messageRepo.snapshot().single { it.role == Role.USER && it.content == text }.failedToSend
     }
 
+    /** Whether [text]'s saved row says it is still in the outbox, to come back "Waiting to send..." after a restart. */
+    private fun kotlinx.coroutines.test.TestScope.savedInOutbox(text: String): Boolean {
+        testScheduler.runCurrent()
+        return messageRepo.snapshot().single { it.role == Role.USER && it.content == text }.inOutbox
+    }
+
     @Test
     fun `a message waiting for the Host's answer is saved as failed until the answer says it got through`() =
         runTest(testDispatcher) {
@@ -2796,6 +2829,61 @@ class ChatViewModelTest {
         )
     }
 
+    @Test
+    fun `opening another conversation while Clear chat is still running leaves that conversation alone`() =
+        runTest(testDispatcher) {
+            // Clear chat waits on storage between its steps. A conversation
+            // opened in the meantime used to be the one deleted, hidden and
+            // blanked, because each step read the active conversation afresh.
+            val address = validHexAddress()
+            val kept = seedPreviousConversation(address)
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.startNewSession()
+            testScheduler.runCurrent()
+            // Its first message is what saves a new conversation.
+            vm.sendMessage("to be cleared")
+            testScheduler.runCurrent()
+            val cleared = vm.activeSessionId.value
+            assertTrue("test setup: a second conversation is open", cleared != null && cleared != kept.id)
+            assertTrue("test setup: it has a saved message", messageRepo.snapshot().any { it.sessionId == cleared })
+            val gate = CompletableDeferred<Unit>()
+            connectUseCase.resetGate = gate
+
+            vm.clearChat()
+            testScheduler.runCurrent()
+            vm.switchToSession(kept.id)
+            testScheduler.runCurrent()
+            gate.complete(Unit)
+            testScheduler.runCurrent()
+
+            assertEquals(kept.id, vm.activeSessionId.value)
+            assertEquals(
+                "the conversation opened is still on screen",
+                listOf("hi", "hello"),
+                vm.uiState.value.chatItems.map {
+                    when (it) {
+                        is ChatItem.User -> it.content
+                        is ChatItem.Turn -> it.agent?.content.orEmpty()
+                        else -> ""
+                    }
+                }
+            )
+            assertEquals(
+                "and still saved",
+                listOf("m1", "m2"),
+                messageRepo.snapshot().filter { it.sessionId == kept.id }.map { it.id }
+            )
+            assertTrue(
+                "the cleared one is what was deleted",
+                messageRepo.snapshot().none { it.sessionId == cleared }
+            )
+            assertFalse(
+                "and only its ids are ignored, not the opened conversation's",
+                storage.loadAll()[address].orEmpty().contains("m1")
+            )
+        }
+
     // ── ignoredIds semantics ───────────────────────────────────────────
 
     @Test
@@ -2878,6 +2966,50 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
+    }
+
+    @Test
+    fun `a Work Room permission change goes out at the run's revision, and the Host's answer and new mode land`() = runTest(testDispatcher) {
+        // W16AAPPLE-43.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        val permission = ai.openonion.oochat.domain.model.ProviderPermissionState(
+            provider = "codex",
+            activeOptionId = "codex:workspace-ask",
+            options = listOf(
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:read-only", "Read Only", selectable = true),
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:workspace-ask", "Ask for approval", selectable = true)
+            )
+        )
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", stateRevision = 4, providerPermission = permission)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run))
+        testScheduler.runCurrent()
+
+        vm.chooseWorkRoomPermission("codex:call-1", "codex:read-only")
+        testScheduler.runCurrent()
+
+        val sent = connectUseCase.providerPermissionChanges.single()
+        assertEquals("codex:call-1", sent.invocationId)
+        assertEquals(4L, sent.stateRevision)
+        assertEquals("codex:read-only", sent.optionId)
+        assertEquals(false, sent.confirmRisk)
+
+        connectUseCase.emit(
+            ChatEvent.ProviderPermissionAcked(
+                ai.openonion.oochat.domain.model.ProviderPermissionAck(sent.requestId, "codex:call-1", accepted = true, stateRevision = 5)
+            )
+        )
+        // The Host then sends the run at its new revision, which is what moves the mode shown.
+        connectUseCase.emit(
+            ChatEvent.ChatItemUpdated(run.copy(stateRevision = 5, providerPermission = permission.copy(activeOptionId = "codex:read-only")))
+        )
+        testScheduler.runCurrent()
+
+        assertEquals(ai.openonion.oochat.ui.workroom.WorkRoomPermissionUi(), vm.workRoomPermissionControl("codex:call-1"))
+        val shown = vm.uiState.value.chatItems.single() as ChatItem.ProviderInvocation
+        assertEquals("codex:read-only", shown.providerPermission?.activeOptionId)
     }
 
     @Test
@@ -6329,10 +6461,11 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `stopping the connection fails the messages it was holding instead of leaving them waiting`() =
+    fun `stopping the connection keeps the messages it was holding waiting to send`() =
         runTest(testDispatcher) {
-            // W16AAPPLE-102: a user disconnect drops the outbox, so "Waiting to
-            // send" would be a promise nothing keeps. Failed offers Retry.
+            // W16AAPPLE-106: Stop keeps the outbox, as Reconnect and the
+            // connect timeout do, so "Waiting to send" stays true: the message
+            // goes out on the next connect.
             val address = validHexAddress()
             vm.connectToAgent(address)
             testScheduler.runCurrent()
@@ -6344,9 +6477,192 @@ class ChatViewModelTest {
             testScheduler.runCurrent()
 
             assertEquals(1, connectUseCase.disconnectCount)
-            assertEquals(UserMessageState.FAILED, userMessage("typed offline").state)
-            assertTrue("and saved as failed, so a restart agrees", savedAsFailed("typed offline"))
+            assertEquals("Stop must keep the outbox", listOf(true), connectUseCase.disconnectKeptOutbox)
+            assertEquals(UserMessageState.QUEUED, userMessage("typed offline").state)
+            assertFalse("not failed, so no Retry for a message that will still go", savedAsFailed("typed offline"))
+            assertTrue("saved as waiting, so a restart agrees", savedInOutbox("typed offline"))
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            assertEquals("the next connect flushes it", UserMessageState.SENT, userMessage("typed offline").state)
+            assertFalse("and it is saved as gone", savedInOutbox("typed offline"))
         }
+
+    @Test
+    fun `a message saved as waiting comes back waiting, and stops once the connection is back`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-106: still in the outbox after a restart, so not sent yet.
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(
+                    id = "m3", sessionId = session.id, role = Role.USER, content = "typed before the restart",
+                    timestamp = 300L, inOutbox = true
+                )
+            )
+
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.QUEUED, userMessage("typed before the restart").state)
+            assertFalse("not failed: the outbox will still send it", savedAsFailed("typed before the restart"))
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("typed before the restart").state)
+            assertFalse("and saved as gone", savedInOutbox("typed before the restart"))
+        }
+
+    @Test
+    fun `a waiting message the connection already sent before the chat opened stops waiting`() =
+        runTest(testDispatcher) {
+            // W16AAPPLE-106: on relaunch the Loading screen connects first and the
+            // outbox goes out then, before this screen loads the conversation. It
+            // sees Connected once, too early, so it has to ask the outbox instead.
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(
+                    id = "m3", sessionId = session.id, role = Role.USER, content = "sent by the Loading screen",
+                    timestamp = 300L, inOutbox = true
+                )
+            )
+            connectUseCase.markConnected(address)
+            connectUseCase.queuedCounts[session.id] = 0
+            testScheduler.runCurrent()
+
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("sent by the Loading screen").state)
+            assertFalse("and saved as gone, so the next restart agrees", savedInOutbox("sent by the Loading screen"))
+        }
+
+    @Test
+    fun `of the waiting messages restored, only as many as the outbox still holds keep waiting`() =
+        runTest(testDispatcher) {
+            // The outbox sends oldest first, so the ones still in it are the newest.
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "older", timestamp = 300L, inOutbox = true),
+                ChatMessage(id = "m4", sessionId = session.id, role = Role.USER, content = "newer", timestamp = 400L, inOutbox = true)
+            )
+            connectUseCase.markConnected(address)
+            connectUseCase.queuedCounts[session.id] = 1
+            testScheduler.runCurrent()
+
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("older").state)
+            assertEquals(UserMessageState.QUEUED, userMessage("newer").state)
+            assertTrue("the newer one is still saved as waiting", savedInOutbox("newer"))
+        }
+
+    @Test
+    fun `a restored waiting message stays waiting when the outbox cannot be asked`() =
+        runTest(testDispatcher) {
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "unknown", timestamp = 300L, inOutbox = true)
+            )
+            connectUseCase.markConnected(address)
+            connectUseCase.queuedCountUnknown = true
+            testScheduler.runCurrent()
+
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.QUEUED, userMessage("unknown").state)
+        }
+
+    @Test
+    fun `a waiting message settles when the flush has finished, not when Connected arrives`() =
+        runTest(testDispatcher) {
+            // The connection reports Connected before it flushes the outbox.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("typed offline")
+            testScheduler.runCurrent()
+            val conversation = vm.activeSessionId.value ?: error("test setup: no conversation")
+            connectUseCase.queuedCounts[conversation] = 1
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+            assertEquals("still in the outbox", UserMessageState.QUEUED, userMessage("typed offline").state)
+
+            connectUseCase.queuedCounts[conversation] = 0
+            connectUseCase.emit(ChatEvent.OutboxFlushed(conversation))
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("typed offline").state)
+            assertFalse("and saved as gone", savedInOutbox("typed offline"))
+        }
+
+    @Test
+    fun `a send that bounced during the flush keeps waiting, and is saved as waiting`() =
+        runTest(testDispatcher) {
+            // The flush stops at a send the socket refused, and that message
+            // and those behind it stay queued: they have not gone (W16AAPPLE-106).
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "went out", timestamp = 300L, inOutbox = true),
+                ChatMessage(id = "m4", sessionId = session.id, role = Role.USER, content = "bounced", timestamp = 400L, inOutbox = true)
+            )
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            assertEquals("test setup", UserMessageState.QUEUED, userMessage("went out").state)
+            connectUseCase.queuedCounts[session.id] = 1
+
+            connectUseCase.markConnected(address)
+            connectUseCase.emit(ChatEvent.OutboxFlushed(session.id))
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("went out").state)
+            assertEquals(UserMessageState.QUEUED, userMessage("bounced").state)
+            assertTrue("saved as waiting, so a restart agrees", savedInOutbox("bounced"))
+            assertFalse(savedInOutbox("went out"))
+        }
+
+    @Test
+    fun `the outbox is asked about the chat's own agent`() = runTest(testDispatcher) {
+        // Not whichever agent the connection is on: the chat can load another
+        // agent's conversation before the connection moves to it.
+        val address = validHexAddress()
+        val session = seedPreviousConversation(address)
+        messageRepo.seed(
+            ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "waiting", timestamp = 300L, inOutbox = true)
+        )
+        connectUseCase.markConnected("0x" + "ee".repeat(32))
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertTrue("asked about ${connectUseCase.queuedCountAgents}", connectUseCase.queuedCountAgents.isNotEmpty())
+        assertTrue(connectUseCase.queuedCountAgents.all { it == address })
+    }
+
+    @Test
+    fun `Clear chat names the conversation it clears`() = runTest(testDispatcher) {
+        // So the connection side clears that one, even if another is open by
+        // the time it runs (W16AAPPLE-106).
+        val address = validHexAddress()
+        val session = seedPreviousConversation(address)
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        vm.clearChat()
+        testScheduler.runCurrent()
+
+        assertEquals(listOf<String?>(session.id), connectUseCase.resetConversations)
+    }
 
     @Test
     fun `stopping the connection leaves a message that already went out alone`() =

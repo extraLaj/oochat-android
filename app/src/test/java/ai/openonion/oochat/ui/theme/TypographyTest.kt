@@ -3,15 +3,13 @@ package ai.openonion.oochat.ui.theme
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 /**
- * The type is the system's own face, with monospace where the text is code or ticks
- * (W16AAPPLE-49). Nothing is bundled, so text matches the device and the app does not ship a
- * font of its own.
+ * The type is Inter, the chat design's face (W16AAPPLE-112), bundled so every device draws the
+ * same letters; monospace stays the system's, where the text is code or ticks (W16AAPPLE-49).
  */
 class TypographyTest {
 
@@ -27,19 +25,19 @@ class TypographyTest {
         )
     }
 
-    // Default and SansSerif are both the platform's own sans face; a family built from font files is not.
-    private val systemFaces = setOf<FontFamily?>(null, FontFamily.Default, FontFamily.SansSerif)
-
     @Test
-    fun `every text style is the system font`() {
+    fun `every text style is Inter`() {
         styles.forEach { (name, style) ->
-            assertTrue("$name is ${style.fontFamily}, not the system font", style.fontFamily in systemFaces)
+            assertEquals("$name is ${style.fontFamily}, not Inter", Inter, style.fontFamily)
         }
     }
 
     @Test
-    fun `the app bundles no font files`() {
-        assertFalse("res/font should not exist", File(module, "src/main/res/font").exists())
+    fun `the only bundled fonts are Inter's two, with its licence`() {
+        val fonts = File(module, "src/main/res/font").listFiles().orEmpty().map { it.name }.sorted()
+        assertEquals(listOf("inter.ttf", "inter_italic.ttf"), fonts)
+        // The OFL lets the font be shipped only alongside its licence.
+        assertTrue(File(module, "src/main/assets/licenses/inter_OFL.txt").isFile)
     }
 
     @Test
