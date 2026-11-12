@@ -104,10 +104,12 @@ class MessageListTailAnchorComposeTest {
     fun `a reply folded in above the tool cards still leaves the list at the bottom`() {
         val update = show(listOf(ChatItem.User("u1", "run the tests"), pendingTurn, toolCall))
 
-        // Same size, same last item — only the middle row grew.
+        // Same size, same last item — only the middle row grew. Once finished
+        // the tool card folds into the summary above the reply, so the reply's
+        // end is the list's tail (W16AAPPLE-112).
         update(listOf(ChatItem.User("u1", "run the tests"), repliedTurn(30), toolCall))
 
-        assertTailInsideViewport()
+        assertTailInsideViewport("reply line 30")
     }
 
     @Test

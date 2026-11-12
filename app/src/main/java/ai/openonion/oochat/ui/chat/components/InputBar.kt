@@ -512,18 +512,25 @@ fun InputBar(
             onGalleryClick = { launchImagePicker() },
             onFileClick = { filePicker.launch(arrayOf("*/*")) },
             trailingContent = {
-                // Mic and Send both, always: dictation appends to whatever is
-                // already in the field, so the two stopped being alternatives.
+                // Idle: mic and Send. Running: Stop takes the circle, with Send
+                // beside it once there is a follow-up to queue. The mic stays
+                // through a dictation started before the turn, so it can finish.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MicButton(enabled = micEnabled, onClick = requestMicPermission)
-                    SendButton(enabled = canSend, onClick = ::submit)
+                    if (!isAgentWorking || voiceInput.isBusy) {
+                        MicButton(enabled = micEnabled, onClick = requestMicPermission)
+                    }
+                    if (!isAgentWorking || canSend) {
+                        SendButton(enabled = canSend, onClick = ::submit)
+                    }
+                    if (isAgentWorking) {
+                        StopButton(onClick = onStop)
+                    }
                 }
             }
         )
 
-        // The composer's secondary shelf. Stop lives here rather than in the
-        // send slot: sending is a real option mid-run now, so Stop needed a
-        // home of its own, and a fourth button would not fit inside the pill.
+        // The composer's secondary shelf: approval mode, and what the session
+        // has cost so far.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -537,20 +544,15 @@ fun InputBar(
                 // mode also refuses a change mid-turn ("Session is busy"), so
                 // there the chip waits for the turn instead of inviting one.
                 enabled = isConnected && !(sessionModes.hostManaged && isAgentWorking),
+                // Only offline reads as switched off; held for a running turn,
+                // it still shows the mode in force.
+                dimmed = !isConnected,
                 pending = modePending,
                 turnsLeft = sessionModes.turnsLeft,
                 onCycle = onCycleApprovalMode,
                 onOpenSheet = { showModeSheet = true }
             )
             Spacer(modifier = Modifier.weight(1f))
-            if (isAgentWorking) {
-                // Live throughout a dictation now: the mic slot no longer turns
-                // into a second square glyph, so there is nothing to confuse it
-                // with, and interrupting a runaway agent should not need to wait
-                // for the sentence you are dictating at it to finish.
-                StopButton(onClick = onStop)
-                Spacer(modifier = Modifier.padding(horizontal = MaterialTheme.spacing.xxs))
-            }
             SessionUsageSummary(usage)
         }
     }

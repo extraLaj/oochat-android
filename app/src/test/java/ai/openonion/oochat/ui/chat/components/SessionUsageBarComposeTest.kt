@@ -65,7 +65,7 @@ class SessionUsageBarComposeTest {
         // zeros reached the device.
         setTotals(SessionUsageTotals(totalTokens = 52, totalCostUsd = 0.0000127, latestContextPercent = null))
 
-        composeRule.onNodeWithText("52 tokens").assertExists()
+        composeRule.onNodeWithText("Session · 52 tokens").assertExists()
         composeRule.onNodeWithText("$", substring = true).assertDoesNotExist()
     }
 
@@ -129,7 +129,7 @@ class SessionUsageBarComposeTest {
         // would read as an empty circle for the whole session.
         setUsage(contextPercent = 0.0041)
 
-        composeRule.onNodeWithText("500 tokens").assertExists()
+        composeRule.onNodeWithText("Session · 500 tokens").assertExists()
         composeRule.onNodeWithContentDescription("Context: ", substring = true).assertDoesNotExist()
     }
 
