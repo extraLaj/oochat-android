@@ -103,6 +103,27 @@ val Typography.sectionOverline: TextStyle
 val Typography.sectionLabel: TextStyle
     get() = labelSmall.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.6.sp)
 
+/**
+ * The question over an empty chat's composer — the one line on that screen
+ * meant to be read before anything else. 26sp on a phone; one step down to
+ * 22sp with the keyboard up, where it has to fit on a line above the card;
+ * 34sp on a tablet, where the card beneath it is twice as wide.
+ */
+fun Typography.emptyChatHeadline(compact: Boolean, wide: Boolean): TextStyle = headlineMedium.copy(
+    fontSize = when {
+        compact -> 22.sp
+        wide -> 34.sp
+        else -> 26.sp
+    },
+    lineHeight = when {
+        compact -> 28.sp
+        wide -> 42.sp
+        else -> 32.sp
+    },
+    fontWeight = FontWeight.Bold,
+    letterSpacing = (-0.4).sp
+)
+
 /*
  * ── The app's type ladder ────────────────────────────────────────────────
  *
@@ -131,6 +152,7 @@ val Typography.sectionLabel: TextStyle
  *   sectionOverline 11 ALL-CAPS badges — SOON, RELAY/DIRECT (see above)
  *   sectionLabel   11  ALL-CAPS group headings (see above)
  *   chatBody       15  Chat message text (see above)
+ *   emptyChatHeadline 26  The empty chat's question (22 / 34, see above)
  */
 
 /**
