@@ -26,8 +26,8 @@ private const val OLD_AGENT_REPLY_CHANNEL_ID = "agent_replies"
 
 /**
  * Approvals the agent is waiting on (W16AAPPLE-44). A channel of its own, so
- * it can interrupt where a reply only waits in the shade, and so the user can
- * silence replies in the system settings and keep these, or the other way round.
+ * the user can silence replies in the system settings and keep these, or the
+ * other way round.
  */
 const val APPROVAL_CHANNEL_ID = "approval_requests"
 
@@ -174,8 +174,7 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
 
     private fun ensureApprovalChannel() {
         if (approvalChannelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        // High: the agent is stopped until this is answered, so it is worth a
-        // heads-up, where a reply can wait in the shade.
+        // High: the agent is stopped until this is answered, so it is worth a heads-up.
         val channel = NotificationChannel(APPROVAL_CHANNEL_ID, "Approval requests", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "When an agent or a Work Room is waiting for you to allow or deny something"
         }

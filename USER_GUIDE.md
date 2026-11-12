@@ -314,7 +314,12 @@ rather than saved.
 while you are in another app posts a notification; tapping it opens that
 conversation. A Claude Code or Codex run that finishes, fails or is stopped
 while you are away posts one too, with its task and result, and tapping it
-opens its Work Room. Both go away once you come back to the app.
+opens its Work Room. Both pop up over whatever you are doing, and go away once
+you come back to the app.
+
+<img src="screenshots/notification-run-finished.png" alt="A notification dropping down over the home screen: Claude Code finished, with the task it was given" width="420">
+
+<img src="screenshots/notification-opens-work-room.png" alt="The Claude Code Work Room that tapping the notification opens: the task, Completed, how long it took and its steps" width="300">
 
 An approval the agent is waiting on posts one too, so the agent is not left
 stopped while you are away. It says which agent and what it wants to do, and
@@ -322,9 +327,9 @@ tapping it opens that conversation, or the Work Room when a Claude Code or
 Codex run is the one asking. On a locked phone it only says that an approval is
 waiting. Each approval has its own notification, and it goes away once you
 answer it, the turn ends (another device may have answered), or you open that
-chat. Approvals have their own channel, **Approval requests**, which interrupts
-where a reply only waits in the shade; Android's settings for the app can
-silence either one alone.
+chat. Approvals have their own channel, **Approval requests**, apart from
+**Agent replies**, so Android's settings for the app can silence either one
+alone.
 
 The first time an approval is on screen while notifications are off, the chat
 offers to turn them on, and asks for Android's permission only then. It offers
@@ -336,6 +341,8 @@ app, or locking the phone), a quiet **"*agent* is working"** notification keeps
 the connection open, so the notifications above still arrive. It goes away when
 the work ends, when you come back, or after an hour (an approval nobody
 answers, say). Nothing runs while the agent is idle.
+
+<img src="screenshots/notification-working.png" alt="The quiet notification in the Silent section of the shade: wr-test is working, You'll be notified when it's done" width="420">
 
 Swiping the app away from Recents closes it as before: nothing more comes until
 you open it again, and it then catches up on what it missed. Some phones
