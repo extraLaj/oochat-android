@@ -66,10 +66,13 @@ object ChatItemPrivacy {
             errorSummary = item.errorSummary?.let(SensitiveText::errorText),
             activities = item.activities.map {
                 it.copy(title = r(it.title), summary = r(it.summary), files = it.files.map(::r))
-            }
+            },
+            messages = item.messages.map { it.copy(text = SensitiveText.messageText(it.text)) }
         )
         // Folded into its run by ChatEventReducer, never drawn itself.
         is ChatItem.ProviderActivityUpdate,
+        is ChatItem.ProviderMessageUpdate,
+        is ChatItem.ProviderArtifactUpdate,
         is ChatItem.OnboardRequired,
         is ChatItem.UlwTurnsReachedItem,
         is ChatItem.ModeChangedItem -> item

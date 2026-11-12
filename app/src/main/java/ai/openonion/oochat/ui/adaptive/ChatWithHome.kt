@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -24,6 +26,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 
 /** The two tabs of a phone's chat: the conversation, and the agent's Home. */
@@ -92,7 +95,7 @@ private val OutOfSight: Modifier = Modifier
     }
 
 @Composable
-private fun HomeTabs(tab: HomeTab, homeLabel: String, onTabChange: (HomeTab) -> Unit) {
+internal fun HomeTabs(tab: HomeTab, homeLabel: String, onTabChange: (HomeTab) -> Unit) {
     // A chat shrunk to nothing keeps the focus, and with it the keyboard, unless it is let go.
     val focusManager = LocalFocusManager.current
     val choose = { chosen: HomeTab ->
@@ -100,9 +103,26 @@ private fun HomeTabs(tab: HomeTab, homeLabel: String, onTabChange: (HomeTab) -> 
         onTabChange(chosen)
     }
     // The tabs take the status bar's inset, which the chat's own top bar below would take otherwise.
-    PrimaryTabRow(selectedTabIndex = tab.ordinal, modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)) {
-        Tab(selected = tab == HomeTab.CHAT, onClick = { choose(HomeTab.CHAT) }, text = { Text("Chat") })
-        Tab(selected = tab == HomeTab.HOME, onClick = { choose(HomeTab.HOME) }, text = { Text(homeLabel) })
+    // The tab not shown is grey and the rule under the row a hairline, so the
+    // green of the chosen tab is the only accent up here.
+    val unselected = MaterialTheme.colorScheme.onSurfaceVariant
+    PrimaryTabRow(
+        selectedTabIndex = tab.ordinal,
+        modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)) }
+    ) {
+        Tab(
+            selected = tab == HomeTab.CHAT,
+            onClick = { choose(HomeTab.CHAT) },
+            text = { Text("Chat", fontWeight = FontWeight.SemiBold) },
+            unselectedContentColor = unselected
+        )
+        Tab(
+            selected = tab == HomeTab.HOME,
+            onClick = { choose(HomeTab.HOME) },
+            text = { Text(homeLabel, fontWeight = FontWeight.SemiBold) },
+            unselectedContentColor = unselected
+        )
     }
 }
 

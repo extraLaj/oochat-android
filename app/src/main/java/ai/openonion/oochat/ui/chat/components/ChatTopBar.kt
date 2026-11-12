@@ -7,6 +7,7 @@ import ai.openonion.oochat.ui.components.ConnectionStatusDot
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.theme.Elevation
 import ai.openonion.oochat.ui.theme.hairline
+import ai.openonion.oochat.ui.theme.statusColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,7 +99,10 @@ fun ChatTopBar(
         )
     }
 
-    Row(
+    val running = sessionActivity == SessionActivity.RUNNING
+    // Green while the agent works, as the design draws it; otherwise quiet.
+    val statusColor = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    Column(
         modifier = modifier
             .testTag("chat_top_bar")
             .fillMaxWidth()
@@ -104,26 +110,31 @@ fun ChatTopBar(
             // TopAppBar applied this for us; a plain Row does not, and without
             // it the bar sits under the clock and the battery icon.
             .windowInsetsPadding(WindowInsets.statusBars)
-            .height(64.dp)
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
-            Icon(imageVector = Icons.Default.Menu, contentDescription = "Open menu")
-        }
-
-        Column(
+        val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .padding(start = 2.dp)
+                .fillMaxWidth()
+                .height(64.dp)
+                // A hairline under the header, setting it off from the
+                // transcript — drawn inside the bar, so it stays 64dp.
+                .drawBehind {
+                    val y = size.height - 0.5.dp.toPx()
+                    drawLine(hairline, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                }
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Row 1: dot + title, same baseline — the dot carries "connected",
-            // there is no "Connected" word any more.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
+                Icon(imageVector = Icons.Default.Menu, contentDescription = "Open menu")
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 2.dp)
             ) {
-                ConnectionStatusDot(connectionState = connectionState, awaitingOnboardCode = awaitingOnboardCode)
+                // Row 1: the title alone.
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
@@ -131,87 +142,96 @@ fun ChatTopBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                // Row 2: dot, then session status and model — the dot carries the
+                // connection, and once connected, whether the agent is working.
+                // One line: the status leads, so a long model name is what the
+                // ellipsis eats.
+                val subtitle = listOfNotNull(sessionActivity?.label, modelName).joinToString(" · ")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ConnectionStatusDot(
+                        connectionState = connectionState,
+                        awaitingOnboardCode = awaitingOnboardCode,
+                        connectedColor = if (sessionActivity == null) MaterialTheme.statusColors.successDot else statusColor
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (running) FontWeight.Medium else null,
+                            color = statusColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("chat_top_bar_subtitle")
+                        )
+                    }
+                }
             }
-            // Row 2: session status, then model, quiet and small — indented to
-            // align with the title text (dot 6dp + row gap 6dp = 12dp), not with
-            // the dot. One line: the status leads, so a long model name is what
-            // the ellipsis eats.
-            val subtitle = listOfNotNull(sessionActivity?.label, modelName).joinToString(" · ")
-            if (subtitle.isNotEmpty()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .testTag("chat_top_bar_subtitle")
-                )
-            }
-        }
 
-        if (hasDashboard) {
-            IconButton(onClick = onOpenDashboard, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    imageVector = Icons.Outlined.Dashboard,
-                    contentDescription = "Open agent home"
-                )
+            if (hasDashboard) {
+                IconButton(onClick = onOpenDashboard, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.Dashboard,
+                        contentDescription = "Open agent home"
+                    )
+                }
             }
-        }
 
-        Box {
-            IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More options"
-                )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                // A flat surface set apart by a hairline, not a shadow or a tint.
-                containerColor = MaterialTheme.colorScheme.surface,
-                shadowElevation = Elevation.hairline,
-                border = MaterialTheme.hairline
-            ) {
-                if (isConnected) {
+            Box {
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options"
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    // A flat surface set apart by a hairline, not a shadow or a tint.
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    shadowElevation = Elevation.hairline,
+                    border = MaterialTheme.hairline
+                ) {
+                    if (isConnected) {
+                        DropdownMenuItem(
+                            text = { Text("Rem") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenRem()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
-                        text = { Text("Rem") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+                        text = { Text("View logs") },
+                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
-                            onOpenRem()
+                            onNavigateToLogs()
+                        }
+                    )
+                    // Gap, then the rule. A hairline alone still leaves the
+                    // destructive item one thumb-width from the safe one; the
+                    // space is what stops a reach-through.
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            showClearChatSheet = true
                         }
                     )
                 }
-                DropdownMenuItem(
-                    text = { Text("View logs") },
-                    leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
-                    onClick = {
-                        menuExpanded = false
-                        onNavigateToLogs()
-                    }
-                )
-                // Gap, then the rule. A hairline alone still leaves the
-                // destructive item one thumb-width from the safe one; the
-                // space is what stops a reach-through.
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.DeleteSweep,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    onClick = {
-                        menuExpanded = false
-                        showClearChatSheet = true
-                    }
-                )
             }
         }
     }

@@ -351,7 +351,6 @@ class AgentViewModelTest {
                 name = "Research",
                 address = address,
                 serverUrl = "https://agent.example.com",
-                apiKey = "key-1",
                 connectionMode = "direct"
             )
         )
@@ -360,7 +359,7 @@ class AgentViewModelTest {
         assertEquals(address, saved.address)
         assertEquals("Research", saved.name)
         assertEquals("https://agent.example.com", saved.serverUrl)
-        assertEquals("key-1", saved.apiKey)
+        assertNull("the removed per-agent API key is not saved", saved.apiKey)
         assertEquals("direct", saved.connectionMode)
         assertTrue(saved.isActive)
         assertEquals("the first agent becomes the default", saved.id, viewModel.uiState.value.defaultAgentId)
@@ -473,7 +472,7 @@ class AgentViewModelTest {
 
     @Test
     fun `connectToDiscoveredAgent persists a new agent, sets it default when first, and saves config`() = runTest {
-        val discovered = testAgent(id = "0xnew", address = "0xnew")
+        val discovered = testAgent(id = "0xnew", address = "0xnew").copy(apiKey = "legacy-key")
         var onSavedCalled = false
 
         viewModel.connectToDiscoveredAgent(discovered, onSaved = { onSavedCalled = true })
@@ -483,6 +482,8 @@ class AgentViewModelTest {
         assertEquals("0xnew", defaultAgentRepository.defaultAgentId)
         assertEquals(discovered.serverUrl, configRepository.config?.serverUrl)
         assertEquals(discovered.address, configRepository.config?.agentAddress)
+        assertNull(agentRepository.agents.value.single().apiKey)
+        assertNull(configRepository.config?.apiKey)
         assertTrue(onSavedCalled)
     }
 

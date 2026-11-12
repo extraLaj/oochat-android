@@ -63,7 +63,7 @@ class ChatTopBarComposeTest {
     }
 
     @Test
-    fun `the dot and title sit on the same baseline`() {
+    fun `the dot leads the status line under the title`() {
         composeRule.setContent {
             ConnectOnionTheme {
                 ChatTopBar(
@@ -77,14 +77,16 @@ class ChatTopBarComposeTest {
             }
         }
 
+        // W16AAPPLE-112: the title stands alone; the dot opens the line below it.
         val dot = composeRule.onNodeWithContentDescription("Connected").fetchSemanticsNode()
         val title = composeRule.onNodeWithText("research-assistant").fetchSemanticsNode()
-        val delta = kotlin.math.abs(dot.boundsInRoot.center.y - title.boundsInRoot.center.y)
-        assertTrue("dot and title are $delta px apart vertically, not on one row", delta < 8f)
+        assertTrue("the dot is not below the title", dot.boundsInRoot.center.y > title.boundsInRoot.bottom)
+        val delta = kotlin.math.abs(dot.boundsInRoot.left - title.boundsInRoot.left)
+        assertTrue("the dot is $delta px off the title's left edge, not under it", delta < 1f)
     }
 
     @Test
-    fun `the model line indents to the title, not the dot`() {
+    fun `the model sits on the dot's line, after it`() {
         composeRule.setContent {
             ConnectOnionTheme {
                 ChatTopBar(
@@ -99,10 +101,11 @@ class ChatTopBarComposeTest {
             }
         }
 
-        val title = composeRule.onNodeWithText("research-assistant").fetchSemanticsNode()
+        val dot = composeRule.onNodeWithContentDescription("Connected").fetchSemanticsNode()
         val model = composeRule.onNodeWithText("gemini-2.5-flash").fetchSemanticsNode()
-        val delta = kotlin.math.abs(title.boundsInRoot.left - model.boundsInRoot.left)
-        assertTrue("model line is $delta px off the title's left edge, not aligned to it", delta < 1f)
+        val delta = kotlin.math.abs(dot.boundsInRoot.center.y - model.boundsInRoot.center.y)
+        assertTrue("dot and model are $delta px apart vertically, not on one line", delta < 8f)
+        assertTrue("the model is not after the dot", model.boundsInRoot.left > dot.boundsInRoot.right)
     }
 
     @Test

@@ -86,7 +86,8 @@ fun TextInputField(
         // Typing is allowed offline; say where the message will wait. With
         // attachments staged, the missing text is the more useful thing to say.
         !isConnected && !hasAttachments -> "Message (sends once reconnected)"
-        isAgentWorking -> "Agent is working…"
+        // Typing mid-run is an interjection the agent picks up when it can.
+        isAgentWorking -> "Queue a follow-up…"
         // Send is disabled until there's text — see InputBar's canSend. Say so
         // here rather than leaving a greyed button with no explanation.
         hasAttachments -> "Add a message to send with your attachment"
@@ -110,14 +111,15 @@ fun TextInputField(
                 .fillMaxWidth()
                 .padding(MaterialTheme.spacing.xs)
                 .clip(RoundedCornerShape(InputBarToken.BorderRadius))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .background(MaterialTheme.colorScheme.surface)
                 // Quieter at rest, full weight only once focused: an empty text
                 // field held at 1.5dp competed with the messages above it.
                 .border(
                     if (isFocused) {
                         BorderStroke(InputBarToken.BorderWidth, MaterialTheme.colorScheme.primary)
                     } else {
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        // A light rule, as drawn: the pill is set off, not boxed in.
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     },
                     RoundedCornerShape(InputBarToken.BorderRadius)
                 )

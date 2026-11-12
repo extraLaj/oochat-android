@@ -230,4 +230,34 @@ class SensitiveTextTest {
         assertEquals("password: $REDACTED", SensitiveText.redact("password: correct.horse.battery"))
         assertEquals("TOKEN=\$(cat ~/.token)", SensitiveText.redact("TOKEN=\$(cat /home/priya/.token)"))
     }
+
+    // ── a Work Room's conversation (W16AAPPLE-34) ─────────────────────
+
+    @Test
+    fun `a message that is a raw payload is replaced whole`() {
+        listOf(
+            """{"type": "result", "subtype": "success", "session_id": "abc"}""",
+            """  {'error': 'overloaded'}""",
+            """{status: ok, files: 3}""",
+            """[{"id": 1}, {"id": 2}]""",
+            "Traceback (most recent call last):\n  File \"x.py\", line 1",
+            "<!DOCTYPE html><html><body>502</body></html>"
+        ).forEach { raw -> assertEquals(raw, SensitiveText.UNREADABLE_SUMMARY, SensitiveText.messageText(raw)) }
+    }
+
+    @Test
+    fun `a message that holds code keeps it, since the snippet is what the user came to read`() {
+        val reply = "Call it like this:\n```kotlin\nText(text = \"hi\")\nval x = mapOf(\"a\" to 1)\n```\n" +
+            "and it returns {\"type\": \"ok\"} on success."
+
+        assertEquals(reply, SensitiveText.messageText(reply))
+    }
+
+    @Test
+    fun `a message is still redacted`() {
+        assertEquals(
+            "Set TOKEN=${SensitiveText.REDACTED} in ~/app",
+            SensitiveText.messageText("Set TOKEN=abcdef in /Users/priya/app")
+        )
+    }
 }
