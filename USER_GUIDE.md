@@ -233,6 +233,26 @@ drops is still there when it comes back.
 
 <img src="screenshots/work-room-approval-room.png" alt="A Claude Code Work Room waiting for a decision: a request to make workspace file changes to hello.txt, scoped to this Work Room only, with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
 
+### Choosing how the coding agent works
+
+Below the task, the room shows the coding agent's own permission mode, for
+example **Codex permissions: Ask for approval**. Tap **Change** to pick another:
+
+- **Codex:** Read Only, Ask for approval, Approve for me, or Full Access.
+- **Claude Code:** Plan, Default, Accept edits, Auto, or Bypass permissions.
+
+Each choice says what it lets the coding agent do. The change applies from its
+next turn, not to the step it is on, and the room shows the new mode once the
+agent's Host has made the change.
+
+This is not the same as the approval mode chip in the chat (section 6). That
+chip is the most the whole agent may do on its computer; this one is how the
+coding agent works inside that limit. A choice above the chip's level is greyed
+out and says why: raise the chip first. Lowering the chip can lower this mode
+too. **Full Access** and **Bypass permissions** let the coding agent act without
+asking you, so they ask you to confirm first. A run whose agent does not offer
+this has no permissions section.
+
 ---
 
 ## 6. Deciding what the agent may do

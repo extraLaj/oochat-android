@@ -301,7 +301,9 @@ sealed class ChatItem {
         val elapsedMs: Long? = null,
         /** Orders frames for the same run; an older one never overwrites a newer. */
         val stateRevision: Long? = null,
-        val activities: List<ProviderActivity> = emptyList()
+        val activities: List<ProviderActivity> = emptyList(),
+        /** The run's own permission mode and choices (W16AAPPLE-43); null when the Host offers none. */
+        val providerPermission: ProviderPermissionState? = null
     ) : ChatItem()
 
     /**

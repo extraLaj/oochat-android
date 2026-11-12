@@ -199,4 +199,28 @@ class WorkRoomsTest {
 
         assertEquals(listOf(user), result.chatItems)
     }
+
+
+    @Test
+    fun `a run's permission is kept by frames that leave it out, and replaced by one that names it (W16AAPPLE-43)`() {
+        val ask = ProviderPermissionState(
+            provider = "codex",
+            activeOptionId = "codex:workspace-ask",
+            options = listOf(
+                ProviderPermissionOption("codex:workspace-ask", "Ask for approval", selectable = true),
+                ProviderPermissionOption("codex:read-only", "Read Only", selectable = true)
+            )
+        )
+        val onScreen = reduce(listOf(user), run(revision = 1).copy(providerPermission = ask)).chatItems
+
+        val stepOnly = reduce(onScreen, run(revision = 2, title = null)).chatItems
+        val readOnly = ask.copy(activeOptionId = "codex:read-only")
+        val changed = reduce(stepOnly, run(revision = 3, title = null).copy(providerPermission = readOnly))
+
+        assertEquals(ask, (stepOnly.single { it is ChatItem.ProviderInvocation } as ChatItem.ProviderInvocation).providerPermission)
+        assertEquals(
+            "codex:read-only",
+            (changed.chatItems.single { it is ChatItem.ProviderInvocation } as ChatItem.ProviderInvocation).providerPermission?.activeOptionId
+        )
+    }
 }

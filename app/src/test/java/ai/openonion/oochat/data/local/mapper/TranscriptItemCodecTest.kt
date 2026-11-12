@@ -8,6 +8,8 @@ import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.ProviderPermissionOption
+import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -54,6 +56,31 @@ class TranscriptItemCodecTest {
             activities = listOf(
                 ProviderActivity("a", 1, "file_change", ProviderActivityStatus.COMPLETED, "Update workspace files", "Changed 2 files", listOf("Login.kt")),
                 ProviderActivity("t", Int.MAX_VALUE, "tool", ProviderActivityStatus.FAILED, "shell", "", legacy = true)
+            )
+        )
+        assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room run keeps its provider permission mode across a round trip (W16AAPPLE-43)`() {
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            stateRevision = 5L,
+            providerPermission = ProviderPermissionState(
+                provider = "codex",
+                activeOptionId = "codex:workspace-ask",
+                options = listOf(
+                    ProviderPermissionOption("codex:workspace-ask", "Ask for approval", "Asks before protected actions.", selectable = true),
+                    ProviderPermissionOption(
+                        "codex:full-access",
+                        "Full Access",
+                        "Can act outside the workspace.",
+                        elevated = true,
+                        disabledReason = "Host permission ceiling is Auto."
+                    )
+                ),
+                effectiveRevision = 5L
             )
         )
         assertEquals(item, roundTrip(item))
