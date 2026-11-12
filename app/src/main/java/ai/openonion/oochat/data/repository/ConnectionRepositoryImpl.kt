@@ -17,6 +17,7 @@ import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
+import ai.openonion.oochat.domain.model.ProviderPermissionChange
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ServerTranscriptEntry
@@ -483,6 +484,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.ProviderInputAcked -> {
                         _chatEvents.tryEmit(ChatEvent.ProviderInputAcked(event.ack))
                     }
+                    is ConnectionEvent.ProviderPermissionAcked -> {
+                        _chatEvents.tryEmit(ChatEvent.ProviderPermissionAcked(event.ack))
+                    }
                     is ConnectionEvent.OutboxFlushed -> {
                         _chatEvents.tryEmit(ChatEvent.OutboxFlushed(event.conversationId))
                     }
@@ -805,6 +809,9 @@ class ConnectionRepositoryImpl(
 
     override suspend fun sendProviderInput(input: ProviderInput): Boolean =
         withContext(Dispatchers.IO) { connection?.sendProviderInput(input) ?: false }
+
+    override suspend fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean =
+        withContext(Dispatchers.IO) { connection?.sendProviderPermissionChange(change) ?: false }
 
     override suspend fun interrupt() {
         withContext(Dispatchers.IO) {

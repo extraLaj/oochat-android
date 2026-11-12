@@ -13,6 +13,8 @@ import ai.openonion.oochat.domain.model.ProviderArtifact
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
+import ai.openonion.oochat.domain.model.ProviderPermissionOption
+import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -213,8 +215,28 @@ sealed class TranscriptItemPayload {
         val stateRevision: Long? = null,
         val activities: List<Step> = emptyList(),
         val messages: List<Message> = emptyList(),
-        val artifact: Artifact? = null
+        val artifact: Artifact? = null,
+        val providerPermission: Permission? = null
     ) : TranscriptItemPayload() {
+        /** The run's provider permission mode as last confirmed by the Host (W16AAPPLE-43). */
+        @Serializable
+        data class Permission(
+            val provider: String = "",
+            val activeOptionId: String,
+            val options: List<Option> = emptyList(),
+            val effectiveRevision: Long? = null
+        )
+
+        @Serializable
+        data class Option(
+            val id: String,
+            val label: String,
+            val description: String = "",
+            val elevated: Boolean = false,
+            val selectable: Boolean = false,
+            val disabledReason: String? = null
+        )
+
         @Serializable
         data class Step(
             val id: String,
@@ -405,6 +427,23 @@ object TranscriptItemCodec {
             errorSummary = item.errorSummary,
             elapsedMs = item.elapsedMs,
             stateRevision = item.stateRevision,
+            providerPermission = item.providerPermission?.let { permission ->
+                TranscriptItemPayload.ProviderInvocation.Permission(
+                    provider = permission.provider,
+                    activeOptionId = permission.activeOptionId,
+                    options = permission.options.map {
+                        TranscriptItemPayload.ProviderInvocation.Option(
+                            id = it.id,
+                            label = it.label,
+                            description = it.description,
+                            elevated = it.elevated,
+                            selectable = it.selectable,
+                            disabledReason = it.disabledReason
+                        )
+                    },
+                    effectiveRevision = permission.effectiveRevision
+                )
+            },
             activities = item.activities.map {
                 TranscriptItemPayload.ProviderInvocation.Step(
                     id = it.id,
@@ -554,6 +593,23 @@ object TranscriptItemCodec {
             errorSummary = payload.errorSummary,
             elapsedMs = payload.elapsedMs,
             stateRevision = payload.stateRevision,
+            providerPermission = payload.providerPermission?.let { permission ->
+                ProviderPermissionState(
+                    provider = permission.provider,
+                    activeOptionId = permission.activeOptionId,
+                    options = permission.options.map {
+                        ProviderPermissionOption(
+                            id = it.id,
+                            label = it.label,
+                            description = it.description,
+                            elevated = it.elevated,
+                            selectable = it.selectable,
+                            disabledReason = it.disabledReason
+                        )
+                    },
+                    effectiveRevision = permission.effectiveRevision
+                )
+            },
             activities = payload.activities.map {
                 ProviderActivity(
                     id = it.id,

@@ -18,6 +18,7 @@ import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanPriority
 import ai.openonion.oochat.domain.model.PlanStatus
 import ai.openonion.oochat.domain.model.ProviderInputAck
+import ai.openonion.oochat.domain.model.ProviderPermissionAck
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ThinkingStatus
@@ -1197,6 +1198,12 @@ sealed class ConnectionEvent {
      * screen owns and is not a chat item.
      */
     data class ProviderInputAcked(val ack: ProviderInputAck) : ConnectionEvent()
+
+    /**
+     * `PROVIDER_PERMISSION_ACK`: the Host's answer to a change of a Work Room's
+     * provider permission mode (W16AAPPLE-43). Settles the control, not a chat item.
+     */
+    data class ProviderPermissionAcked(val ack: ProviderPermissionAck) : ConnectionEvent()
 
     /**
      * Not a frame: the connection has finished flushing its outbox after a

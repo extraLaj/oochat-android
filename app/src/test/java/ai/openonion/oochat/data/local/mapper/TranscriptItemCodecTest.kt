@@ -11,6 +11,8 @@ import ai.openonion.oochat.domain.model.ProviderArtifact
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
+import ai.openonion.oochat.domain.model.ProviderPermissionOption
+import ai.openonion.oochat.domain.model.ProviderPermissionState
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ThinkingStatus
 import ai.openonion.oochat.domain.model.ToolStatus
@@ -117,6 +119,31 @@ class TranscriptItemCodecTest {
         val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ProviderInvocation
 
         assertEquals(listOf("m1", "m3"), decoded.messages.map { it.id })
+    }
+
+    @Test
+    fun `a Work Room run keeps its provider permission mode across a round trip (W16AAPPLE-43)`() {
+        val item = ChatItem.ProviderInvocation(
+            id = "codex:call-1",
+            provider = "codex",
+            stateRevision = 5L,
+            providerPermission = ProviderPermissionState(
+                provider = "codex",
+                activeOptionId = "codex:workspace-ask",
+                options = listOf(
+                    ProviderPermissionOption("codex:workspace-ask", "Ask for approval", "Asks before protected actions.", selectable = true),
+                    ProviderPermissionOption(
+                        "codex:full-access",
+                        "Full Access",
+                        "Can act outside the workspace.",
+                        elevated = true,
+                        disabledReason = "Host permission ceiling is Auto."
+                    )
+                ),
+                effectiveRevision = 5L
+            )
+        )
+        assertEquals(item, roundTrip(item))
     }
 
     @Test

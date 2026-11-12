@@ -305,7 +305,9 @@ sealed class ChatItem {
         /** The conversation with the provider, in the order it arrived (W16AAPPLE-34). */
         val messages: List<ProviderMessage> = emptyList(),
         /** The latest picture of the run's workspace or browser, once the Host has sent one. */
-        val artifact: ProviderArtifact? = null
+        val artifact: ProviderArtifact? = null,
+        /** The run's own permission mode and choices (W16AAPPLE-43); null when the Host offers none. */
+        val providerPermission: ProviderPermissionState? = null
     ) : ChatItem()
 
     /**
