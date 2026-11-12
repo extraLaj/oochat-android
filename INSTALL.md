@@ -169,9 +169,8 @@ have your own key. See §4.
 ## 4. Configuration and secrets
 
 **Nothing to configure before building.** No secret is compiled into the APK
-and there is no file to fill in. What is configurable — the relay, the agent,
-an optional per-agent API key — the user sets inside the running app, and it
-is kept in encrypted storage on the device.
+and there is no file to fill in. The relay and agent settings are entered inside
+the running app and kept in encrypted storage on the device.
 
 | Item | Status |
 |---|---|
@@ -192,15 +191,13 @@ Everything configurable is set **inside the app**:
 |---|---|---|
 | Relay / server URL | Onboarding, or the agent form | `https://oo.openonion.ai` |
 | Direct connection | Mode toggle on the same panel | off (relay) |
-| API key (optional) | Agent form | empty — stored in `EncryptedSharedPreferences` and excluded from cloud backup and device transfer. **Not used yet**: see below |
 
-**The per-agent API key is not used yet.** The app stores it and shows it in
-the Add, Edit and Setup forms, but sends it nowhere. Connecting is
-authenticated by the device's Ed25519 signature on CONNECT, and an
-invite-gated agent by an invite code or payment (`docs/protocol.md`); the
-ConnectOnion host's WebSocket code reads no API key either. The field is kept
-for a use the client may define later. The account API key that voice
-transcription sends is a different key (`docs/protocol.md`, voice input).
+The former per-agent API key field has been removed. Legacy stored values remain
+only for compatibility and are ignored by connection logic. Connection
+authentication uses the device's Ed25519 signature on CONNECT, and an
+invite-gated agent uses an invite code or payment (`docs/protocol.md`). The
+account API key used by voice transcription is a separate credential
+(`docs/protocol.md`, voice input).
 
 ---
 

@@ -51,7 +51,6 @@ fun AgentEditScreenWrapper(
                         address = savedAgent.address,
                         serverUrl = savedAgent.serverUrl,
                         description = savedAgent.description,
-                        apiKey = savedAgent.apiKey,
                         connectionMode = savedAgent.connectionMode
                     )
                 } else {

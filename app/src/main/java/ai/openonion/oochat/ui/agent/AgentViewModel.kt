@@ -175,7 +175,9 @@ class AgentViewModel @JvmOverloads constructor(
         if (agentRepository.getAgentByAddress(address) != null) return
         // Before the insert, for the same reason as in createAgent.
         val wasFirstAgent = _uiState.value.agents.isEmpty()
-        agentRepository.createAgent(agent.copy(address = address))
+        // Discovery does not supply a user-entered key; discard any legacy
+        // value on the model before saving the new contact.
+        agentRepository.createAgent(agent.copy(address = address, apiKey = null))
         if (wasFirstAgent) {
             defaultAgentRepository.setDefaultAgent(agent.id)
             _uiState.update { it.copy(defaultAgentId = agent.id) }
@@ -193,7 +195,6 @@ class AgentViewModel @JvmOverloads constructor(
         address: String,
         serverUrl: String,
         description: String? = null,
-        apiKey: String? = null,
         connectionMode: String = "relay"
     ): Boolean {
         val validationError = validateAgentInput(name, address, serverUrl)
@@ -215,7 +216,6 @@ class AgentViewModel @JvmOverloads constructor(
             name = name,
             description = description,
             serverUrl = serverUrl,
-            apiKey = apiKey,
             avatarUrl = null,
             createdAt = System.currentTimeMillis(),
             connectionMode = connectionMode,
@@ -378,7 +378,6 @@ class AgentViewModel @JvmOverloads constructor(
                 ConnectionConfig(
                     serverUrl = agent.serverUrl,
                     agentAddress = canonicalAgentAddress(agent.address),
-                    apiKey = agent.apiKey,
                     connectionMode = agent.connectionMode
                 )
             )
