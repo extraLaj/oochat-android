@@ -1,5 +1,6 @@
 package ai.openonion.oochat.ui.chat.components
 
+import ai.openonion.oochat.ui.theme.Elevation
 import ai.openonion.oochat.ui.theme.InputBarToken
 import ai.openonion.oochat.ui.theme.chatBody
 import ai.openonion.oochat.ui.theme.spacing
@@ -33,7 +34,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
@@ -238,7 +238,9 @@ internal fun CentredTextInputField(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(elevation = 12.dp, shape = shape, ambientColor = Color.Black.copy(alpha = 0.06f), spotColor = Color.Black.copy(alpha = 0.10f))
+            // The app's hairline, not the design's soft drop shadow: nothing here
+            // casts more than 1dp (W16AAPPLE-49, held by ElevationTest).
+            .shadow(elevation = Elevation.hairline, shape = shape)
             .clip(shape)
             .background(container)
             .border(
