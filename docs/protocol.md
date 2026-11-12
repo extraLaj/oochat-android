@@ -892,7 +892,11 @@ in database v14), and so is a message still in the outbox, as `QUEUED` in the
 same column (W16AAPPLE-106). `SENT` comes back `SENT`. One still in the outbox
 comes back `QUEUED` ("Waiting to send..."), since the outbox survives the restart
 and will still send it, and the next `Connected` on its conversation settles it
-to `SENT` and saves it so. A message
+to `SENT` and saves it so. If the connection is already up when the conversation
+loads (on relaunch the Loading screen connects first, and the outbox goes out
+then), the screen asks the outbox how many of the conversation's messages it
+still holds (`PendingMessageSink.countForConversation`) and settles all but that
+many of the newest. A message
 that was awaiting an answer, or held in memory (behind a running turn, for a
 resend, or after a retryable refusal), comes back `FAILED`, since its delivery
 is unknown or the hold was lost. A new message held behind a running turn is
@@ -1226,8 +1230,16 @@ is per agent but flushes per conversation, so another conversation's queued
 messages wait until it is the one connected. Their rows are saved as queued, so
 they still say "Waiting to send..." when that conversation is opened again, or
 after a restart. Clear chat drops only the cleared conversation's queued
-messages (`PendingMessageSink.clearConversation`, which matches what a drain
-into that conversation would send), with or without a connection.
+messages (`PendingMessageSink.clearConversation`), with or without a
+connection, and even if another conversation is open by the time it runs: it
+names the conversation it clears (`reset(conversationId)`). A message queued
+before any conversation was named is left alone, since it may be another's.
+
+The outbox is bounded (`MAX_PENDING_MESSAGES` per agent, and
+`MAX_PENDING_ATTACHMENT_BYTES` of attachments). When it is full a new message is
+refused, not queued, and its send fails, so the bubble offers Retry; nothing
+already queued is dropped to make room. That is what lets a message that is no
+longer in the outbox be taken as sent.
 
 **Known gaps.**
 

@@ -49,10 +49,13 @@ class RoomPendingMessageSink(
     private val lock = Any()
     private val clearGenerations = mutableMapOf<String, Long>()
 
-    override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?) {
+    override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?): Boolean {
         val payload = attachmentPayload(images, files)
         synchronized(lock) {
-            evictUntilRoomFor(agentAddress, payload?.length?.toLong() ?: 0L)
+            if (!hasRoomFor(agentAddress, payload?.length?.toLong() ?: 0L)) {
+                FileLogger.w(LogTags.PENDING_OUTBOX, "Outbox full for ${agentAddress.take(16)}; refusing the new message")
+                return false
+            }
             val id = dao.insert(
                 PendingMessageEntity(
                     agentAddress = agentAddress,
@@ -64,6 +67,7 @@ class RoomPendingMessageSink(
                 )
             )
             writeSpill(id, payload)
+            return true
         }
     }
 
@@ -115,6 +119,9 @@ class RoomPendingMessageSink(
         }
     }
 
+    override fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int =
+        synchronized(lock) { dao.countForConversation(agentAddress, sessionId, conversationId) }
+
     override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
         synchronized(lock) {
             // Bumped as clear() does; see InMemoryPendingMessageSink.clearConversation.
@@ -126,20 +133,14 @@ class RoomPendingMessageSink(
         }
     }
 
-    /** Caller holds [lock]. Drops oldest-first until [incomingBytes] fits under both caps. */
-    private fun evictUntilRoomFor(agentAddress: String, incomingBytes: Long) {
-        while (
-            dao.countForAgent(agentAddress) >= AgentConnection.MAX_PENDING_MESSAGES ||
-            (incomingBytes > 0 && spilledBytes(agentAddress) + incomingBytes > AgentConnection.MAX_PENDING_ATTACHMENT_BYTES)
-        ) {
-            // Empty queue and it still doesn't fit: keep it anyway. A message
-            // over the whole budget by itself is one the user just sent, and
-            // dropping that is worse than exceeding the bound once.
-            val evicted = dao.evictOldestForAgent(agentAddress) ?: return
-            spillFile(evicted).delete()
-            FileLogger.w(LogTags.PENDING_OUTBOX, "Outbox full for ${agentAddress.take(16)} — dropped queued message $evicted")
-        }
-    }
+    /**
+     * Caller holds [lock]. Whether a new message of [incomingBytes] fits under
+     * both caps. Nothing is evicted to make room: a queued message says it is
+     * waiting, so the new one is refused instead (W16AAPPLE-106).
+     */
+    private fun hasRoomFor(agentAddress: String, incomingBytes: Long): Boolean =
+        dao.countForAgent(agentAddress) < AgentConnection.MAX_PENDING_MESSAGES &&
+            (incomingBytes == 0L || spilledBytes(agentAddress) + incomingBytes <= AgentConnection.MAX_PENDING_ATTACHMENT_BYTES)
 
     private fun spilledBytes(agentAddress: String): Long =
         dao.idsForAgent(agentAddress).sumOf { spillFile(it).length() }
@@ -151,8 +152,8 @@ class RoomPendingMessageSink(
     private fun restore(row: PendingMessageEntity, message: QueuedMessage) {
         val payload = attachmentPayload(message.images, message.files)
         // A newer enqueue may have filled the slot while send() was outside
-        // the lock; keep the outbox within its bounds before restoring it.
-        evictUntilRoomFor(row.agentAddress, payload?.length?.toLong() ?: 0L)
+        // the lock. This one was queued first, so it goes back regardless:
+        // over the bound by one beats dropping it (W16AAPPLE-106).
         dao.insert(row.copy(imagesJson = null, filesJson = null))
         writeSpill(row.id, payload)
     }

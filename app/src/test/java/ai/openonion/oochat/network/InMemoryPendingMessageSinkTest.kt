@@ -2,6 +2,7 @@ package ai.openonion.oochat.network
 
 import ai.openonion.oochat.data.protocol.FileAttachment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -95,30 +96,43 @@ class InMemoryPendingMessageSinkTest {
     }
 
     @Test
-    fun `clearing a conversation also discards what was queued before any session existed`() {
-        // Those drain into whichever conversation connects next, so they go
-        // with the conversation being cleared rather than out into it later.
+    fun `clearing a conversation keeps what was queued before any session existed`() {
+        // Nothing says which conversation such a message was written in, so
+        // Clear chat in one of them must not be what drops it (W16AAPPLE-106).
         sink.enqueue("0xagent", "queued offline", sessionId = null)
 
         sink.clearConversation("0xagent", null, "conversation-A")
 
-        assertTrue(sink.drainAll("0xagent", "conversation-A").isEmpty())
+        assertEquals(listOf("queued offline"), sink.drainAll("0xagent", "conversation-B").map { it.prompt })
     }
 
     @Test
-    fun `enqueue beyond MAX_PENDING_MESSAGES evicts the oldest entry for that address`() {
-        // A stuck reconnect loop combined with repeated sends must not grow
-        // this queue unboundedly — see AgentConnection.MAX_PENDING_MESSAGES.
-        repeat(AgentConnection.MAX_PENDING_MESSAGES) { i ->
-            sink.enqueue("0xagent", "message-$i")
-        }
-        sink.enqueue("0xagent", "message-overflow")
+    fun `the count for a conversation is what is still waiting to go out in it`() {
+        // What the chat settles a restored "Waiting to send..." bubble by (W16AAPPLE-106).
+        sink.enqueue("0xagent", "on the session", sessionId = SESSION)
+        sink.enqueue("0xagent", "on the conversation", sessionId = "conversation-A")
+        sink.enqueue("0xagent", "elsewhere", sessionId = "conversation-B")
+        sink.enqueue("0xagent", "unnamed", sessionId = null)
+        sink.enqueue("0xagentB", "another agent", sessionId = "conversation-A")
 
-        val dequeued = sink.drainAll("0xagent", SESSION)
+        assertEquals(2, sink.countForConversation("0xagent", SESSION, "conversation-A"))
+        assertEquals(1, sink.countForConversation("0xagent", null, "conversation-B"))
+        assertEquals(0, sink.countForConversation("0xagent", null, "conversation-C"))
+    }
 
-        assertEquals(AgentConnection.MAX_PENDING_MESSAGES, dequeued.size)
-        assertEquals("message-1", dequeued.first().prompt)
-        assertEquals("message-overflow", dequeued.last().prompt)
+    @Test
+    fun `a full outbox refuses a new message rather than dropping an older one`() {
+        // An older one may already say "Waiting to send..." or, after a
+        // restart, be about to be marked sent: dropping it silently would make
+        // that a lie. The new one is refused instead, and its bubble offers
+        // Retry (W16AAPPLE-106).
+        repeat(AgentConnection.MAX_PENDING_MESSAGES) { i -> assertTrue(sink.enqueue("0xagent", "msg-$i")) }
+
+        assertFalse("the outbox is full", sink.enqueue("0xagent", "one too many"))
+        assertTrue("another agent's outbox has room of its own", sink.enqueue("0xagentB", "for B"))
+
+        val drained = sink.drainAll("0xagent", SESSION).map { it.prompt }
+        assertEquals((0 until AgentConnection.MAX_PENDING_MESSAGES).map { "msg-$it" }, drained)
     }
 
     @Test
@@ -145,7 +159,7 @@ class InMemoryPendingMessageSinkTest {
         agentAddress: String,
         prompt: String,
         sessionId: String? = SESSION
-    ) = enqueue(agentAddress, sessionId, prompt, images = null)
+    ): Boolean = enqueue(agentAddress, sessionId, prompt, images = null)
 
     /**
      * [PendingMessageSink.drain] as a list, for assertions. The production
@@ -161,31 +175,27 @@ class InMemoryPendingMessageSinkTest {
     }
 
     @Test
-    fun `enqueue past the attachment byte budget evicts the oldest, not just past the row cap`() {
+    fun `a message past the attachment byte budget is refused, and what is queued stays`() {
         // 50 rows says nothing about size: each one can carry a base64
         // attachment, so a handful of them can outweigh a full queue of text.
         val big = "x".repeat((AgentConnection.MAX_PENDING_ATTACHMENT_BYTES / 2).toInt() + 1)
-        sink.enqueue("0xagent", SESSION, "first big", listOf(big))
-        sink.enqueue("0xagent", SESSION, "second big", listOf(big))
+        assertTrue(sink.enqueue("0xagent", SESSION, "first big", listOf(big)))
 
-        val drained = sink.drainAll("0xagent", SESSION)
+        assertFalse("two attachments over the budget cannot both be queued", sink.enqueue("0xagent", SESSION, "second big", listOf(big)))
+        assertTrue("text alone still fits", sink.enqueue("0xagent", SESSION, "plain text", null))
 
-        assertEquals(
-            "two attachments over the budget must not both stay queued",
-            listOf("second big"),
-            drained.map { it.prompt }
-        )
+        assertEquals(listOf("first big", "plain text"), sink.drainAll("0xagent", SESSION).map { it.prompt })
     }
 
     @Test
-    fun `a single message over the whole budget is still queued rather than dropped`() {
-        // Evicting down to empty and then refusing the message would lose the
-        // send the user just made, which is worse than exceeding the bound.
+    fun `a single message over the whole budget is refused`() {
+        // It could never fit, and refusing it is what tells the user so: its
+        // bubble fails with Retry rather than waiting forever.
         val huge = "x".repeat(AgentConnection.MAX_PENDING_ATTACHMENT_BYTES.toInt() + 1)
 
-        sink.enqueue("0xagent", SESSION, "oversized", listOf(huge))
+        assertFalse(sink.enqueue("0xagent", SESSION, "oversized", listOf(huge)))
 
-        assertEquals(listOf("oversized"), sink.drainAll("0xagent", SESSION).map { it.prompt })
+        assertTrue(sink.drainAll("0xagent", SESSION).isEmpty())
     }
 
     @Test

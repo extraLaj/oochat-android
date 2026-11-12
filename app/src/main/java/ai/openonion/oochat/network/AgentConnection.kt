@@ -929,18 +929,13 @@ class AgentConnection(
     fun sendMessage(prompt: String, agentAddress: String, images: List<String>? = null, files: List<FileAttachment>? = null) {
         if (!isConnectionReady || webSocket == null) {
             // The sink bounds its own size (see MAX_PENDING_MESSAGES), so a
-            // stuck reconnect loop plus repeated sends can't queue forever —
-            // newest kept, oldest dropped. files_json (PendingMessageEntity,
-            // MIGRATION_8_9) carries files through the same way images_json
-            // already does, so nothing is dropped on this path.
+            // stuck reconnect loop plus repeated sends can't queue forever.
+            // A full outbox refuses the new message rather than dropping a
+            // queued one, and the send fails so its bubble offers Retry
+            // (W16AAPPLE-106). files_json (PendingMessageEntity, MIGRATION_8_9)
+            // carries files through the same way images_json already does.
             FileLogger.w(LogTags.AGENT_CONN, "Connection not ready, queuing message${if (!files.isNullOrEmpty()) " (${files.size} file(s))" else ""}")
-            pendingMessageSink.enqueue(
-                agentAddress,
-                pendingMessageRouteId(),
-                prompt,
-                images,
-                files
-            )
+            queueOrFail(agentAddress, prompt, images, files)
             return
         }
 
@@ -950,13 +945,14 @@ class AgentConnection(
         // CONNECTED like any other queued one.
         if (!sendMessageInternal(prompt, agentAddress, images, files)) {
             FileLogger.w(LogTags.AGENT_CONN, "Socket refused the write, queuing instead")
-            pendingMessageSink.enqueue(
-                agentAddress,
-                pendingMessageRouteId(),
-                prompt,
-                images,
-                files
-            )
+            queueOrFail(agentAddress, prompt, images, files)
+        }
+    }
+
+    /** Queue for the next CONNECTED, or throw [OutboxFullException] when the outbox has no room. */
+    private fun queueOrFail(agentAddress: String, prompt: String, images: List<String>?, files: List<FileAttachment>?) {
+        if (!pendingMessageSink.enqueue(agentAddress, pendingMessageRouteId(), prompt, images, files)) {
+            throw OutboxFullException()
         }
     }
 

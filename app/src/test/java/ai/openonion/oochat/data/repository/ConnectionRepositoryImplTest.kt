@@ -176,10 +176,16 @@ class ConnectionRepositoryImplTest {
             prompt: String,
             images: List<String>?,
             files: List<FileAttachment>?
-        ) { enqueued += Triple(agentAddress, sessionId, prompt) }
+        ): Boolean {
+            enqueued += Triple(agentAddress, sessionId, prompt)
+            return accepts
+        }
+        var accepts = true
         override fun drain(agentAddress: String, sessionId: String?, conversationId: String?, send: (QueuedMessage) -> Boolean) = Unit
         override fun clear(agentAddress: String) { clearCount++ }
         override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) { clearCount++ }
+        override fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int =
+            enqueued.count { it.first == agentAddress && it.second != null && (it.second == sessionId || it.second == conversationId) }
     }
 
     private fun simulateConnected(sessionId: String = "sess-1") {
@@ -1787,9 +1793,13 @@ class ConnectionRepositoryImplTest {
 
     // -- W16AAPPLE-106: Clear chat drops only its own conversation's outbox --
 
-    private fun repositoryWithOutbox(outbox: InMemoryPendingMessageSink) = ConnectionRepositoryImpl(
+    private fun repositoryWithOutbox(
+        outbox: InMemoryPendingMessageSink,
+        sessions: SessionStore? = null
+    ) = ConnectionRepositoryImpl(
         keyManager = keyManager,
         relayUrl = "ws://test.invalid",
+        sessionStore = sessions,
         pendingMessageSink = outbox,
         agentConnectionFactory = { km, url ->
             AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = outbox)
@@ -1808,7 +1818,7 @@ class ConnectionRepositoryImplTest {
         outbox.enqueue("0xAGENT", "conv-2", "queued in conv-2", null)
         repo.sendMessage("queued in conv-1", "0xAGENT", null, null)
 
-        repo.reset()
+        repo.reset("conv-1")
 
         assertEquals("the cleared conversation's message goes", emptyList<String>(), outbox.prompts("conv-1"))
         assertEquals("the other conversation's stays", listOf("queued in conv-2"), outbox.prompts("conv-2"))
@@ -1828,9 +1838,73 @@ class ConnectionRepositoryImplTest {
         repo.switchConversation("conv-1")
         repo.sendMessage("queued in conv-1", "0xAGENT", null, null)
 
-        repo.reset()
+        repo.reset("conv-1")
 
         assertEquals("the cleared conversation's message goes", emptyList<String>(), outbox.prompts("conv-1"))
         assertEquals("the other conversation's stays", listOf("queued in conv-2"), outbox.prompts("conv-2"))
+    }
+
+    @Test
+    fun `clearing a conversation the connection has already left keeps the open one's messages and session`() = runTest(testDispatcher) {
+        // Clear chat names its conversation up front; by the time this runs
+        // the user may have opened another, which the connection is now on.
+        val outbox = InMemoryPendingMessageSink()
+        val sessions = InMemorySessionStore().apply {
+            this.sessions["conv-1"] = SessionState(sessionId = "server-1")
+            this.sessions["conv-2"] = SessionState(sessionId = "server-2")
+        }
+        val repo = repositoryWithOutbox(outbox, sessions)
+        repo.connect("0xAGENT", "conv-2")
+        outbox.enqueue("0xAGENT", "conv-1", "queued in conv-1", null)
+        outbox.enqueue("0xAGENT", "conv-2", "queued in conv-2", null)
+
+        repo.reset("conv-1")
+
+        assertEquals("the cleared conversation's message goes", emptyList<String>(), outbox.prompts("conv-1"))
+        assertEquals("the open conversation's stays", listOf("queued in conv-2"), outbox.prompts("conv-2"))
+        assertNull("the cleared conversation forgets its server session", sessions.sessions["conv-1"])
+        assertEquals("the open one keeps its own", "server-2", sessions.sessions["conv-2"]?.sessionId)
+        repo.disconnect()
+    }
+
+    @Test
+    fun `a message the outbox has no room for fails its send rather than vanishing`() = runTest(testDispatcher) {
+        // Its bubble then fails with Retry instead of saying "Waiting to
+        // send..." for a message nothing will send (W16AAPPLE-106).
+        sink.accepts = false
+        repository.switchConversation("conv-1")
+
+        val result = runCatching { repository.sendMessage("typed offline", "0xAGENT", null, null) }
+
+        assertTrue("the send must fail: $result", result.isFailure)
+    }
+
+    @Test
+    fun `a message a connecting socket cannot queue fails its send too`() = runTest(testDispatcher) {
+        // The connection exists but is not ready, so it queues itself.
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.connect("0xAGENT", "conv-1")
+        repeat(AgentConnection.MAX_PENDING_MESSAGES) { i -> outbox.enqueue("0xAGENT", "conv-1", "queued-$i", null) }
+
+        val result = runCatching { repo.sendMessage("one too many", "0xAGENT", null, null) }
+
+        assertTrue("the send must fail: $result", result.isFailure)
+        assertEquals("nothing already queued is dropped", AgentConnection.MAX_PENDING_MESSAGES, outbox.countForConversation("0xAGENT", null, "conv-1"))
+        repo.disconnect(keepOutbox = true)
+    }
+
+    @Test
+    fun `the queued count for a conversation comes from the outbox`() = runTest(testDispatcher) {
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.connect("0xAGENT", "conv-1")
+        repo.disconnect(keepOutbox = true)
+        outbox.enqueue("0xAGENT", "conv-1", "one", null)
+        outbox.enqueue("0xAGENT", "conv-1", "two", null)
+        outbox.enqueue("0xAGENT", "conv-2", "elsewhere", null)
+
+        assertEquals(2, repo.queuedMessageCount("conv-1"))
+        assertEquals(0, repo.queuedMessageCount("conv-3"))
     }
 }

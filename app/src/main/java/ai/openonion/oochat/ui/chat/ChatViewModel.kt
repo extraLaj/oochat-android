@@ -1697,11 +1697,12 @@ open class ChatViewModel @JvmOverloads constructor(
                 state.copy(chatItems = openGate)
             }
             is SessionResume.Resumed -> {
-                trackRestoredOutbox(resume.items)
                 val merged = trimToRetentionWindow(
                     (resume.items + _uiState.value.chatItems).dedupeUI()
                 )
                 _uiState.update { it.copy(chatItems = merged) }
+                // After the update: settling reads the bubbles on screen.
+                trackRestoredOutbox(resume.items)
             }
         }
         if (conversationHistory.activeSessionId.value != previousSessionId) {
@@ -1738,8 +1739,8 @@ open class ChatViewModel @JvmOverloads constructor(
         loadOlderJob = launchScoped {
             val older = conversationHistory.loadOlderItems()
             if (older.isEmpty()) return@launchScoped
-            trackRestoredOutbox(older)
             _uiState.update { it.copy(chatItems = (older + it.chatItems).dedupeUI()) }
+            trackRestoredOutbox(older)
         }
     }
 
@@ -2148,10 +2149,10 @@ open class ChatViewModel @JvmOverloads constructor(
                 failRunningThinking(persist = false)
             }
             val items = conversationHistory.switchToSession(sessionId)
-            trackRestoredOutbox(items)
             _uiState.update { current ->
                 current.copy(chatItems = items)
             }
+            trackRestoredOutbox(items)
             // Rendered from Room first, then the connection moves: the
             // transcript is on screen before the re-CONNECT round trip, and a
             // message sent during it queues rather than being refused.
@@ -2237,7 +2238,32 @@ open class ChatViewModel @JvmOverloads constructor(
      * is never saved as queued.
      */
     private fun trackRestoredOutbox(items: List<ChatItem>) {
-        items.forEach { if (it is ChatItem.User && it.state == UserMessageState.QUEUED) outboxedMessageIds += it.id }
+        val restored = items.filter { it is ChatItem.User && it.state == UserMessageState.QUEUED }.map { it.id }
+        if (restored.isEmpty()) return
+        outboxedMessageIds += restored
+        // Already connected, the outbox may have gone out before this screen
+        // could see it: on relaunch, Loading connects first, and the one
+        // Connected this screen gets comes before its conversation loads. So
+        // ask the outbox rather than wait for a Connected that already came.
+        if (connectUseCase.isConnected()) launchScoped { settleRestoredOutbox() }
+    }
+
+    /**
+     * Settle the restored "Waiting to send..." bubbles by what the outbox still
+     * holds for this conversation. It sends oldest first and never drops one
+     * (it refuses a new message instead), so all but the newest that many have
+     * gone. Unknown leaves them waiting for the next Connected (W16AAPPLE-106).
+     */
+    private suspend fun settleRestoredOutbox() {
+        val conversation = activeSessionId.value ?: return
+        val stillQueued = connectUseCase.queuedMessageCount(conversation) ?: return
+        if (activeSessionId.value != conversation) return
+        val waiting = _uiState.value.chatItems
+            .filter { it is ChatItem.User && it.id in outboxedMessageIds && it.state == UserMessageState.QUEUED }
+            .map { it.id }
+        val gone = waiting.dropLast(stillQueued)
+        outboxedMessageIds -= gone.toSet()
+        gone.forEach { setUserMessageState(it, UserMessageState.SENT) }
     }
 
     /**
@@ -3462,7 +3488,7 @@ open class ChatViewModel @JvmOverloads constructor(
         // must not come back as a card of its own.
         val snapshot = clearedItems.map { it.id } + WorkRooms.parentToolCallIds(clearedItems)
         launchScoped {
-            connectUseCase.reset()
+            connectUseCase.reset(clearedSessionId)
             val scrollKeyPrefix = "${clearedSessionId.orEmpty()}\u0000"
             // Snapshot current ids into the current agent's ignore
             // set, then await the DataStore write before wiping the

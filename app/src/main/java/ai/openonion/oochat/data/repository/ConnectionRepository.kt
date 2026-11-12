@@ -296,7 +296,19 @@ interface ConnectionRepository {
 
     fun isConnected(): Boolean
 
-    suspend fun reset()
+    /**
+     * Clear chat: forget [conversationId]'s server session and drop what it
+     * queued. Named by the caller, since another conversation may be open by
+     * the time this runs; null means the current one (W16AAPPLE-106).
+     */
+    suspend fun reset(conversationId: String? = null)
+
+    /**
+     * How many of [conversationId]'s messages the outbox still holds, or null
+     * when that cannot be told (no agent yet). See
+     * [ai.openonion.oochat.network.PendingMessageSink.countForConversation].
+     */
+    suspend fun queuedMessageCount(conversationId: String): Int? = null
 
     fun getCurrentSession(): SessionState?
 
