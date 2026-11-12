@@ -42,6 +42,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -100,6 +102,10 @@ fun InputBar(
     draft: ChatComposerDraft = ChatComposerDraft(),
     draftKey: String? = null,
     onDraftChange: (ChatComposerDraft) -> Unit = {},
+    // The empty chat's layout (W16AAPPLE-113): the field as a card in the
+    // middle of the screen, every control on one row inside it, and no shelf.
+    centred: Boolean = false,
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -394,8 +400,16 @@ fun InputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 16.dp)
+            .then(
+                // Centred, the card sits on the page itself; its parent sets the margins.
+                if (centred) {
+                    Modifier
+                } else {
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 16.dp)
+                }
+            )
     ) {
         if (showModeSheet) {
             ApprovalModeSheet(
@@ -492,51 +506,30 @@ fun InputBar(
             }
         )
 
-        TextInputField(
-            value = input,
-            onValueChange = { edited ->
-                dictationAnchor = dictationAnchor?.let {
-                    DictationMerge.onFieldChanged(it, input.text, edited.text)
+        val onFieldChange: (TextFieldValue) -> Unit = { edited ->
+            dictationAnchor = dictationAnchor?.let {
+                DictationMerge.onFieldChanged(it, input.text, edited.text)
+            }
+            input = edited
+            publishDraft(text = edited.text)
+        }
+        // Idle: mic and Send. Running: Stop takes the circle, with Send
+        // beside it once there is a follow-up to queue. The mic stays
+        // through a dictation started before the turn, so it can finish.
+        val sendControls: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!isAgentWorking || voiceInput.isBusy) {
+                    MicButton(enabled = micEnabled, onClick = requestMicPermission)
                 }
-                input = edited
-                publishDraft(text = edited.text)
-            },
-            isConnected = isConnected,
-            awaitingOnboardCode = awaitingOnboardCode,
-            hasAgent = hasAgent,
-            enabled = fieldEnabled,
-            isAgentWorking = isAgentWorking,
-            interactionSource = fieldInteractionSource,
-            attachmentCount = attachedImages.size + attachedFiles.size,
-            onCameraClick = requestCameraPermission,
-            onGalleryClick = { launchImagePicker() },
-            onFileClick = { filePicker.launch(arrayOf("*/*")) },
-            trailingContent = {
-                // Idle: mic and Send. Running: Stop takes the circle, with Send
-                // beside it once there is a follow-up to queue. The mic stays
-                // through a dictation started before the turn, so it can finish.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!isAgentWorking || voiceInput.isBusy) {
-                        MicButton(enabled = micEnabled, onClick = requestMicPermission)
-                    }
-                    if (!isAgentWorking || canSend) {
-                        SendButton(enabled = canSend, onClick = ::submit)
-                    }
-                    if (isAgentWorking) {
-                        StopButton(onClick = onStop)
-                    }
+                if (!isAgentWorking || canSend) {
+                    SendButton(enabled = canSend, onClick = ::submit, quietWhenDisabled = centred)
+                }
+                if (isAgentWorking) {
+                    StopButton(onClick = onStop)
                 }
             }
-        )
-
-        // The composer's secondary shelf: approval mode, and what the session
-        // has cost so far.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = MaterialTheme.spacing.xs),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        }
+        val approvalChip: @Composable () -> Unit = {
             ApprovalModeChip(
                 mode = approvalMode,
                 // Switching mode is a message to a running agent; with no live
@@ -552,6 +545,68 @@ fun InputBar(
                 onCycle = onCycleApprovalMode,
                 onOpenSheet = { showModeSheet = true }
             )
+        }
+
+        if (centred) {
+            val attachmentCount = attachedImages.size + attachedFiles.size
+            CentredTextInputField(
+                value = input,
+                onValueChange = onFieldChange,
+                placeholder = composerPlaceholder(
+                    isConnected = isConnected,
+                    awaitingOnboardCode = awaitingOnboardCode,
+                    hasAgent = hasAgent,
+                    isAgentWorking = isAgentWorking,
+                    attachmentCount = attachmentCount,
+                    idle = "Ask a question or describe a task…"
+                ),
+                enabled = fieldEnabled,
+                interactionSource = fieldInteractionSource,
+                minTextHeight = if (LocalConfiguration.current.screenWidthDp >= 600) 82.dp else 66.dp,
+                focusRequester = focusRequester,
+                leadingTools = {
+                    AttachmentMenuButton(
+                        enabled = fieldEnabled,
+                        onCameraClick = requestCameraPermission,
+                        onGalleryClick = { launchImagePicker() },
+                        onFileClick = { filePicker.launch(arrayOf("*/*")) }
+                    )
+                    approvalChip()
+                },
+                trailingTools = {
+                    if (attachmentCount > 0) AttachmentCountBadge(attachmentCount)
+                    sendControls()
+                }
+            )
+            return@Column
+        }
+
+        TextInputField(
+            value = input,
+            onValueChange = onFieldChange,
+            isConnected = isConnected,
+            awaitingOnboardCode = awaitingOnboardCode,
+            hasAgent = hasAgent,
+            enabled = fieldEnabled,
+            isAgentWorking = isAgentWorking,
+            interactionSource = fieldInteractionSource,
+            attachmentCount = attachedImages.size + attachedFiles.size,
+            onCameraClick = requestCameraPermission,
+            onGalleryClick = { launchImagePicker() },
+            onFileClick = { filePicker.launch(arrayOf("*/*")) },
+            focusRequester = focusRequester,
+            trailingContent = sendControls
+        )
+
+        // The composer's secondary shelf: approval mode, and what the session
+        // has cost so far.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = MaterialTheme.spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            approvalChip()
             Spacer(modifier = Modifier.weight(1f))
             SessionUsageSummary(usage)
         }

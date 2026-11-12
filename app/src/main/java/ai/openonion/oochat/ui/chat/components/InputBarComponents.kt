@@ -84,11 +84,15 @@ internal fun StopButton(onClick: () -> Unit) {
 }
 
 @Composable
-internal fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+internal fun SendButton(enabled: Boolean, onClick: () -> Unit, quietWhenDisabled: Boolean = false) {
     // Green whether or not there is anything to send yet, as the design draws
-    // it: the circle is where sending happens, and it stays put.
-    val background = MaterialTheme.colorScheme.primary
-    val tint = MaterialTheme.colorScheme.onPrimary
+    // it: the circle is where sending happens, and it stays put. The empty
+    // chat's centred card is the exception (quietWhenDisabled): there the box
+    // is the call to action, and a green circle beside nothing typed competes
+    // with it.
+    val quiet = quietWhenDisabled && !enabled
+    val background = if (quiet) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f) else MaterialTheme.colorScheme.primary
+    val tint = if (quiet) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onPrimary
 
     // Scale down slightly on press (matches the Figma design's button press
     // feedback). Reuses the button's own interaction source rather than

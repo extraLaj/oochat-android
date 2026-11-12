@@ -65,6 +65,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
@@ -277,6 +278,7 @@ fun ChatScreen(
     // not on back, so a hide gesture or the IME's own dismiss key counts too.
     val imeVisible = WindowInsets.isImeVisible
     val focusManager = LocalFocusManager.current
+    val composerFocus = remember { FocusRequester() }
     LaunchedEffect(imeVisible) { if (!imeVisible) focusManager.clearFocus() }
 
     val contentBlur by animateDpAsState(
@@ -335,6 +337,51 @@ fun ChatScreen(
                     .fillMaxSize()
                     .blur(contentBlur)
             ) {
+            // W16AAPPLE-113: until the first message the composer is a card in
+            // the middle of the screen; after it, the usual bar along the bottom.
+            val emptyChat = uiState.chatItems.isEmpty()
+            val composer: @Composable (centred: Boolean) -> Unit = { centred ->
+                ChatInput(
+                    awaitingOnboardCode = awaitingOnboardCode,
+                    isConnected = isConnected,
+                    hasAgent = targetAgentAddress != null,
+                    approvalMode = approvalMode,
+                    modePending = modePending,
+                    sessionModes = sessionModes,
+                    usage = sessionUsage,
+                    skills = agentProfile?.skills.orEmpty(),
+                    onCycleApprovalMode = viewModel::cycleApprovalMode,
+                    onSelectApprovalMode = viewModel::setApprovalMode,
+                    isAgentWorking = isAgentWorking,
+                    draft = chatComposerDrafts[activeSessionId] ?: ChatComposerDraft(),
+                    draftKey = activeSessionId,
+                    onDraftChange = { viewModel.updateChatComposerDraft(activeSessionId, it) },
+                    onSend = { text, images, files ->
+                        if (hapticFeedbackEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (soundEffectsEnabled) SoundEffectPlayer.playSent()
+                        viewModel.sendMessage(text, images, files)
+                    },
+                    voiceInput = voiceInput,
+                    onStartVoiceRecording = viewModel::startVoiceRecording,
+                    onCancelVoiceRecording = viewModel::cancelVoiceRecording,
+                    onFinishVoiceInput = viewModel::finishVoiceInput,
+                    onVoiceTranscriptConsumed = viewModel::consumeVoiceTranscript,
+                    onQueryVoiceAmplitude = viewModel::currentVoiceAmplitude,
+                    onStop = viewModel::interrupt,
+                    centred = centred,
+                    focusRequester = composerFocus,
+                    // Dimmed only when it cannot be used. Offline it can, so it is
+                    // drawn at full strength; the banner already says offline.
+                    modifier = Modifier.graphicsLayer {
+                        alpha = if (composerEnabled(targetAgentAddress != null, awaitingOnboardCode, isConnected)) 1f else 0.45f
+                    }
+                )
+            }
+            // The first send swaps one composer for the other. Focus goes with
+            // it, so the keyboard the user was typing on stays up for the reply.
+            LaunchedEffect(emptyChat) {
+                if (!emptyChat && imeVisible) composerFocus.requestFocus()
+            }
             ChatTopBar(
                 title = conversationTitle,
                 connectionState = connectionState,
@@ -365,32 +412,47 @@ fun ChatScreen(
 
             PlanPanel(entries = plan)
 
-            MessageList(
-                items = uiState.chatItems,
-                timestamps = itemTimestamps,
-                wasCleared = wasCleared,
-                onRespond = viewModel::respondWithOption,
-                onApprove = viewModel::respondToApproval,
-                onOnboard = viewModel::respondToOnboard,
-                onPlanReviewResponse = viewModel::respondToPlanReview,
-                onUlwResponse = viewModel::respondToUlwTurnsReached,
-                onGateResolved = viewModel::markGateResolved,
-                onRetry = viewModel::retryFailedTurn,
-                onResendMessage = viewModel::resendMessage,
-                renderMarkdown = renderMarkdown,
-                hasLiveConnection = hasLiveConnection,
-                conversationKey = activeSessionId,
-                scrollPosition = viewModel.messageListScrollPosition(activeSessionId),
-                onScrollPositionChanged = { position ->
-                    viewModel.updateMessageListScrollPosition(activeSessionId, position)
-                },
-                hasOlderMessages = hasOlderMessages,
-                onLoadOlderMessages = viewModel::loadOlderMessages,
-                onOpenWorkRoom = onNavigateToWorkRoom,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            )
+            if (emptyChat) {
+                EmptyChat(
+                    agentName = agentProfile?.name,
+                    keyboardOpen = imeVisible,
+                    onStarter = { starter ->
+                        val draft = chatComposerDrafts[activeSessionId] ?: ChatComposerDraft()
+                        viewModel.updateChatComposerDraft(activeSessionId, draft.copy(text = starter.prefill))
+                        composerFocus.requestFocus()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { composer(true) }
+            } else {
+                MessageList(
+                    items = uiState.chatItems,
+                    timestamps = itemTimestamps,
+                    wasCleared = wasCleared,
+                    onRespond = viewModel::respondWithOption,
+                    onApprove = viewModel::respondToApproval,
+                    onOnboard = viewModel::respondToOnboard,
+                    onPlanReviewResponse = viewModel::respondToPlanReview,
+                    onUlwResponse = viewModel::respondToUlwTurnsReached,
+                    onGateResolved = viewModel::markGateResolved,
+                    onRetry = viewModel::retryFailedTurn,
+                    onResendMessage = viewModel::resendMessage,
+                    renderMarkdown = renderMarkdown,
+                    hasLiveConnection = hasLiveConnection,
+                    conversationKey = activeSessionId,
+                    scrollPosition = viewModel.messageListScrollPosition(activeSessionId),
+                    onScrollPositionChanged = { position ->
+                        viewModel.updateMessageListScrollPosition(activeSessionId, position)
+                    },
+                    hasOlderMessages = hasOlderMessages,
+                    onLoadOlderMessages = viewModel::loadOlderMessages,
+                    onOpenWorkRoom = onNavigateToWorkRoom,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+            }
 
             ExecResultList(
                 items = execItems,
@@ -435,39 +497,7 @@ fun ChatScreen(
                 )
             }
 
-            ChatInput(
-                awaitingOnboardCode = awaitingOnboardCode,
-                isConnected = isConnected,
-                hasAgent = targetAgentAddress != null,
-                approvalMode = approvalMode,
-                modePending = modePending,
-                sessionModes = sessionModes,
-                usage = sessionUsage,
-                skills = agentProfile?.skills.orEmpty(),
-                onCycleApprovalMode = viewModel::cycleApprovalMode,
-                onSelectApprovalMode = viewModel::setApprovalMode,
-                isAgentWorking = isAgentWorking,
-                draft = chatComposerDrafts[activeSessionId] ?: ChatComposerDraft(),
-                draftKey = activeSessionId,
-                onDraftChange = { viewModel.updateChatComposerDraft(activeSessionId, it) },
-                onSend = { text, images, files ->
-                    if (hapticFeedbackEnabled) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    if (soundEffectsEnabled) SoundEffectPlayer.playSent()
-                    viewModel.sendMessage(text, images, files)
-                },
-                voiceInput = voiceInput,
-                onStartVoiceRecording = viewModel::startVoiceRecording,
-                onCancelVoiceRecording = viewModel::cancelVoiceRecording,
-                onFinishVoiceInput = viewModel::finishVoiceInput,
-                onVoiceTranscriptConsumed = viewModel::consumeVoiceTranscript,
-                onQueryVoiceAmplitude = viewModel::currentVoiceAmplitude,
-                onStop = viewModel::interrupt,
-                // Dimmed only when it cannot be used. Offline it can, so it is
-                // drawn at full strength; the banner already says offline.
-                modifier = Modifier.graphicsLayer {
-                    alpha = if (composerEnabled(targetAgentAddress != null, awaitingOnboardCode, isConnected)) 1f else 0.45f
-                }
-            )
+            if (!emptyChat) composer(false)
             }
             AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
         }
@@ -556,6 +586,8 @@ private fun ChatInput(
     onVoiceTranscriptConsumed: () -> Unit,
     onQueryVoiceAmplitude: () -> Float = { 0f },
     onStop: () -> Unit,
+    centred: Boolean,
+    focusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     // Matched to the transcript's own cap: a narrow column of messages above a
@@ -585,7 +617,10 @@ private fun ChatInput(
             onVoiceTranscriptConsumed = onVoiceTranscriptConsumed,
             onQueryVoiceAmplitude = onQueryVoiceAmplitude,
             onStop = onStop,
-            modifier = Modifier.widthIn(max = ChatContentMaxWidth)
+            centred = centred,
+            focusRequester = focusRequester,
+            // Centred, EmptyChat already sets the card's width.
+            modifier = if (centred) Modifier else Modifier.widthIn(max = ChatContentMaxWidth)
         )
     }
 }

@@ -13,6 +13,7 @@ import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.model.UserMessageState
 import ai.openonion.oochat.ui.adaptive.HomeTab
 import ai.openonion.oochat.ui.adaptive.HomeTabs
+import ai.openonion.oochat.ui.chat.EmptyChat
 import ai.openonion.oochat.ui.chat.MessageList
 import ai.openonion.oochat.ui.chat.components.ApprovalCard
 import ai.openonion.oochat.ui.chat.components.ApprovalModeChip
@@ -334,6 +335,58 @@ class ChatScreenshotTest {
 
     @Test
     fun `chat screen finished - dark`() = captureChatScreen("chat_screen_finished", Palette.Dark, FINISHED_TURN, running = false)
+
+    /**
+     * A chat with no messages yet (W16AAPPLE-113): the composer as a card in
+     * the middle, with the starters below it, or without them and on one line
+     * while the keyboard is up.
+     */
+    private fun captureEmptyChat(name: String, palette: Palette, keyboardOpen: Boolean = false) =
+        composeRule.captureThemed(
+            name,
+            palette,
+            interact = if (keyboardOpen) ({ onNode(hasSetTextAction()).performClick() }) else null
+        ) {
+            Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                HomeTabs(tab = HomeTab.CHAT, homeLabel = "Dashboard", onTabChange = {})
+                ChatTopBar(
+                    title = "New chat",
+                    connectionState = ConnectionState.Connected(address = AGENT_ADDRESS),
+                    isConnected = true,
+                    onClearChat = {},
+                    onNavigateToLogs = {},
+                    onMenuClick = {},
+                    modelName = "gemini-3.8-flash",
+                    sessionActivity = SessionActivity.IDLE,
+                )
+                EmptyChat(
+                    agentName = "ConnectOnion",
+                    keyboardOpen = keyboardOpen,
+                    onStarter = {},
+                    modifier = Modifier.weight(1f),
+                ) {
+                    InputBar(
+                        isConnected = true,
+                        approvalMode = ApprovalMode.AUTO,
+                        onSend = { _, _, _ -> },
+                        centred = true,
+                    )
+                }
+            }
+        }
+
+    @Test
+    fun `empty chat - light`() = captureEmptyChat("chat_empty", Palette.Light)
+
+    @Test
+    fun `empty chat - dark`() = captureEmptyChat("chat_empty", Palette.Dark)
+
+    @Test
+    fun `empty chat keyboard open - light`() = captureEmptyChat("chat_empty_keyboard", Palette.Light, keyboardOpen = true)
+
+    @Test
+    @Config(qualifiers = RobolectricDeviceQualifiers.MediumTablet)
+    fun `empty chat tablet - light`() = captureEmptyChat("chat_empty_tablet", Palette.Light)
 
     @Test
     fun `turn steps collapsed - light`() = captureTurnSteps("chat_turn_collapsed", Palette.Light, FINISHED_TURN)
