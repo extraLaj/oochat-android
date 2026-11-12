@@ -257,6 +257,12 @@ class ChatViewModelTest {
         var interruptInvocations = 0
         override suspend fun interrupt() { interruptInvocations++ }
 
+        val providerStops = mutableListOf<ai.openonion.oochat.domain.model.ProviderStop>()
+        override suspend fun sendProviderStop(stop: ai.openonion.oochat.domain.model.ProviderStop): Boolean {
+            providerStops += stop
+            return true
+        }
+
         val providerInputs = mutableListOf<ai.openonion.oochat.domain.model.ProviderInput>()
         override suspend fun sendProviderInput(input: ai.openonion.oochat.domain.model.ProviderInput): Boolean {
             providerInputs += input
@@ -2940,6 +2946,38 @@ class ChatViewModelTest {
         testScheduler.runCurrent()
 
         assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
+    }
+
+    @Test
+    fun `a Work Room Stop goes out only once confirmed, for that run alone, and settles on the Host's answer`() = runTest(testDispatcher) {
+        // W16AAPPLE-37.
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        val run = ChatItem.ProviderInvocation(id = "codex:call-1", provider = "codex", stateRevision = 4)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(run))
+        testScheduler.runCurrent()
+
+        vm.requestWorkRoomStop("codex:call-1")
+        testScheduler.runCurrent()
+        assertTrue("the first tap only opens the confirmation", connectUseCase.providerStops.isEmpty())
+        vm.confirmWorkRoomStop("codex:call-1")
+        testScheduler.runCurrent()
+
+        val stop = connectUseCase.providerStops.single()
+        assertEquals("codex:call-1", stop.invocationId)
+        assertEquals(4L, stop.stateRevision)
+        assertEquals("the agent's own turn is not interrupted", 0, connectUseCase.interruptInvocations)
+
+        connectUseCase.emit(
+            ChatEvent.ProviderStopAcked(ai.openonion.oochat.domain.model.ProviderStopAck(stop.requestId, "codex:call-1", accepted = true))
+        )
+        testScheduler.runCurrent()
+        assertEquals(
+            ai.openonion.oochat.domain.model.WorkRoomStopState.Stopping,
+            vm.workRoomStop("codex:call-1").state
+        )
     }
 
     @Test

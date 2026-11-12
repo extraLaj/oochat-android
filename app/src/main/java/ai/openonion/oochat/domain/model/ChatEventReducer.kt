@@ -255,6 +255,8 @@ object ChatEventReducer {
             is ChatEvent.AnswerRefused -> ReduceResult(current)
             // A Work Room draft's fate, settled by the ViewModel.
             is ChatEvent.ProviderInputAcked -> ReduceResult(current)
+            // A Work Room's Stop, settled by the ViewModel.
+            is ChatEvent.ProviderStopAcked -> ReduceResult(current)
             is ChatEvent.OutboxFlushed -> ReduceResult(current)
 
             is ChatEvent.ConnectionErrorOccurred -> {

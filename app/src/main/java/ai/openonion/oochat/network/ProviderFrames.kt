@@ -8,6 +8,7 @@ import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
+import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import kotlinx.serialization.Serializable
@@ -19,7 +20,8 @@ import kotlinx.serialization.json.Json
  * and `provider_activity`, as connectonion's coding-agent plugins send them
  * (`plugins/coding_agents.py`, `useful_tools/codex.py`, and
  * `core/provider_events.py` for the activity copy), and `PROVIDER_INPUT_ACK`,
- * the answer to a message typed into a Work Room (W16AAPPLE-35).
+ * the answer to a message typed into a Work Room (W16AAPPLE-35), and
+ * `PROVIDER_INTERRUPT_ACK`, the answer to a Work Room's scoped Stop (W16AAPPLE-37).
  *
  * `provider_message` and `provider_artifact` (W16AAPPLE-34) are read as the Host
  * writes them and no more loosely: a message is bounded plain text from the user
@@ -35,6 +37,7 @@ internal object ProviderFrames {
     private const val INVOCATION = "provider_invocation"
     private const val ACTIVITY = "provider_activity"
     private const val INPUT_ACK = "PROVIDER_INPUT_ACK"
+    private const val STOP_ACK = "PROVIDER_INTERRUPT_ACK"
     private const val MESSAGE = "provider_message"
     private const val ARTIFACT = "provider_artifact"
 
@@ -100,7 +103,7 @@ internal object ProviderFrames {
      */
     fun parse(text: String): ParseResult? {
         // Cheap screen first: every other frame type goes straight to the shared decode.
-        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK).none { text.contains("\"$it\"") }) {
+        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
             return null
         }
         val wire = try {
@@ -111,6 +114,7 @@ internal object ProviderFrames {
             return null
         }
         if (wire.type == INPUT_ACK) return ParseResult(event = wire.toInputAck())
+        if (wire.type == STOP_ACK) return ParseResult(event = wire.toStopAck())
         val item = when (wire.type) {
             INVOCATION -> wire.toInvocation()
             ACTIVITY -> wire.toActivityUpdate()
@@ -157,6 +161,26 @@ internal object ProviderFrames {
      * a draft is never cleared on a frame that does not say outright that the
      * provider took the text. One that names no request answers nothing.
      */
+    /**
+     * `PROVIDER_INTERRUPT_ACK` (W16AAPPLE-37), by the same rule as [toInputAck]:
+     * only `accepted: true` is an acceptance, and one naming no request answers nothing.
+     */
+    private fun Wire.toStopAck(): ConnectionEvent {
+        val request = requestId?.takeIf { it.isNotBlank() } ?: run {
+            FileLogger.w(LogTags.PROTOCOL, "PROVIDER_INTERRUPT_ACK without a requestId, ignoring")
+            return ConnectionEvent.Unknown
+        }
+        return ConnectionEvent.ProviderStopAcked(
+            ProviderStopAck(
+                requestId = request,
+                invocationId = invocationId?.takeIf { it.isNotBlank() },
+                accepted = accepted == true,
+                stateRevision = stateRevision?.takeIf { it > 0 },
+                reason = reason?.takeIf { it.isNotBlank() }
+            )
+        )
+    }
+
     private fun Wire.toInputAck(): ConnectionEvent {
         val request = requestId?.takeIf { it.isNotBlank() } ?: run {
             FileLogger.w(LogTags.PROTOCOL, "PROVIDER_INPUT_ACK without a requestId, ignoring")

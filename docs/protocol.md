@@ -45,6 +45,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_change` | Supported | [`SignedCommandTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SignedCommandTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
 | `ONBOARD_SUBMIT` | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `SESSION_STATUS` request | Supported | [`OutgoingMessagesTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/OutgoingMessagesTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `PROVIDER_INTERRUPT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomStopsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomStopsTest.kt), [`WorkRoomStopStateTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomStopStateTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a Work Room's scoped Stop, behind a 15-second confirmation (W16AAPPLE-37) |
 | `PROVIDER_INPUT` | Supported | [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); a message typed into a Work Room (W16AAPPLE-35) |
 | `SESSION_SYNC` index request | Supported | [`SessionSyncProtocolTest`](../app/src/test/java/ai/openonion/oochat/data/protocol/SessionSyncProtocolTest.kt), [`SessionSyncClientTest`](../app/src/test/java/ai/openonion/oochat/network/SessionSyncClientTest.kt), [`SessionSyncRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/SessionSyncRepositoryImplTest.kt), [`SyncRecentChatsUseCaseTest`](../app/src/test/java/ai/openonion/oochat/domain/usecase/SyncRecentChatsUseCaseTest.kt), [`ChatViewModelTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ChatViewModelTest.kt); complete indexes are atomically reconciled on connect and reconnect, with one full retry for an expired cursor |
 | OIP 0.2 descriptor | Missing / deferred | No Android implementation or compatibility test |
@@ -69,6 +70,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `provider_message` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_artifact` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-40) | - |
+| `PROVIDER_INTERRUPT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomStopsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomStopsTest.kt); settles the Stop, and only `accepted: true` is an acceptance; the run's own `cancelled` frame says it stopped |
 | `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -372,7 +374,8 @@ The Host's checks, in `authenticated_command_payload` in
 | Signature never used before (a shared, persistent ledger) | `unauthorized: signed command already used` |
 
 Signed: `INPUT`, `EXEC`, `ASK_USER_RESPONSE`, `APPROVAL_RESPONSE`, `INTERRUPT`,
-`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change` and `WIKI_READ`. These are the frames
+`PLAN_REVIEW_RESPONSE`, `ULW_RESPONSE`, `mode_change`, `WIKI_READ`, `PROVIDER_INPUT` and
+`PROVIDER_INTERRUPT`. These are the frames
 the Host leaves unsigned on purpose (`SignedCommand.EXEMPT_TYPES`, matching
 `exempt` in `ws_router/session.py`):
 
@@ -1508,8 +1511,8 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Its approvals are below. Stop and permission profiles in the room are
-W16AAPPLE-37 and -43, and the local and remote handover states are W16AAPPLE-40.
+Its approvals, messages, pictures and Stop are below. Permission profiles in the
+room are W16AAPPLE-43, and the local and remote handover states are W16AAPPLE-40.
 
 ### Messages and pictures in a Work Room
 
@@ -1623,6 +1626,50 @@ and Claude Code takes a message once its run has ended. The ACK reaches the
 ViewModel as `ChatEvent.ProviderInputAcked`, which the reducer leaves alone and
 which is handled ahead of the per-conversation routing, since the draft it
 settles belongs to a room, not a chat.
+
+### Stopping one Work Room
+
+The room's **Stop run** stops that one run and nothing else (W16AAPPLE-37):
+a signed `PROVIDER_INTERRUPT`, never the outer `INTERRUPT`, which would end the
+agent's whole turn. connectonion `ws_router/session.py` handles it and
+`network/io/websocket.py` `request_provider_interrupt` passes it to the exact
+live run (connectonion `docs/network/websocket-protocol.md`, "Scoped
+native-provider stop"):
+
+| Field | Value |
+| --- | --- |
+| `invocationId` | The run's id. |
+| `stateRevision` | The run's revision as the screen holds it when the user confirms. The Host refuses a Stop for a run that has moved on (`state_changed`). |
+| `requestId` | A fresh UUID, which the answer names. |
+
+The Host answers with `PROVIDER_INTERRUPT_ACK` (`requestId`, `invocationId`,
+`accepted`, and `stateRevision` and `reason` when it has them). `accepted: true`
+means the Host owns that live run and passed the Stop on, not that it has
+stopped: the run's own `provider_invocation` with `status: "cancelled"` says
+that, and the room then shows **Stopped**. A refusal is shown under the button
+by `reason`: `state_changed`, `state_unconfirmed` and `invalid_revision` say the
+run moved on, `not_active` that it is no longer running, `invalid_request` and
+anything else their own sentences; never the code itself.
+
+**The 15-second confirmation barrier.** Tapping Stop sends nothing. It opens a
+confirmation that says only this run stops and the agent carries on, with a
+countdown, and stays open for 15 seconds (`WorkRoomStopState.BARRIER_MS`, the
+barrier the project's functionality mapping specifies for this story). Only
+**Stop** inside that window sends the frame; **Keep running**, or the 15
+seconds running out, closes it with nothing sent, and Stop has to be tapped
+again. A confirmation can therefore never be acted on long after it was
+opened, when the room may show a different state from the one the user
+decided on. A run that ended while the confirmation was open is not stopped.
+
+`WorkRoomStopState` is the Stop's state machine: Idle → Confirming (tap) →
+Sending (confirm) → Stopping (ACK accepted) or back to Idle (Keep running, the
+barrier closing, a refusal, a send that could not go out, or no ACK within 15
+seconds). Nothing else is sent while one waits. `WorkRoomStops` (owned by
+`ChatViewModel`, like the drafts) runs it per room and closes the barrier on
+time; the countdown on screen only shows it. Never queued, like
+`PROVIDER_INPUT`. The ACK reaches the ViewModel as `ChatEvent.ProviderStopAcked`,
+handled ahead of the per-conversation routing. Stop is shown only while the run
+is live.
 
 ## Control Center
 

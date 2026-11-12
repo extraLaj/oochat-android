@@ -18,6 +18,7 @@ import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanPriority
 import ai.openonion.oochat.domain.model.PlanStatus
 import ai.openonion.oochat.domain.model.ProviderInputAck
+import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.domain.model.ReceivedFile
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.ThinkingStatus
@@ -1197,6 +1198,12 @@ sealed class ConnectionEvent {
      * screen owns and is not a chat item.
      */
     data class ProviderInputAcked(val ack: ProviderInputAck) : ConnectionEvent()
+
+    /**
+     * `PROVIDER_INTERRUPT_ACK`: the Host's answer to a Work Room's scoped Stop
+     * (W16AAPPLE-37). Settles that room's Stop, not a chat item.
+     */
+    data class ProviderStopAcked(val ack: ProviderStopAck) : ConnectionEvent()
 
     /**
      * Not a frame: the connection has finished flushing its outbox after a

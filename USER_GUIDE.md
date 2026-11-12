@@ -238,6 +238,15 @@ recent part of the conversation. Passwords and keys are hidden, as elsewhere in
 the app, and a reply that is nothing but the coding agent's raw output is replaced
 by a note that the details are in the agent's logs.
 
+To stop the coding agent, tap **Stop run** under the task. Nothing happens
+yet: the room asks **Stop this Codex run?** (or Claude Code) and counts down 15
+seconds. Tap **Stop** within that time to stop it, or **Keep running** to leave
+it. If you do neither, the question closes by itself and the run carries on.
+Only this Work Room stops: the agent keeps going with the rest of its turn, and
+the coding agent keeps any changes it has already made. Once its Host has
+stopped it, the run says **Stopped**. The **Stop** button in the chat is
+different: it ends the agent's whole turn.
+
 To steer the run, type into the field at the bottom of the room and tap Send.
 The message goes to the coding agent itself, not to the agent that started it.
 It leaves the field only once the coding agent has taken it; until then the

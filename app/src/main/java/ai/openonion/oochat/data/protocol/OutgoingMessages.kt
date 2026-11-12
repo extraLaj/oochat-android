@@ -128,6 +128,23 @@ data class ProviderInputMessage(
     }
 }
 
+/**
+ * A Work Room's scoped Stop (W16AAPPLE-37): connectonion `ws_router/session.py`'s
+ * `PROVIDER_INTERRUPT`, which stops one live Claude Code or Codex run without
+ * ending the agent's turn. Answered by a `PROVIDER_INTERRUPT_ACK` with the same
+ * [requestId]; the run's own `provider_invocation` with `status: "cancelled"` then
+ * says it has stopped. The Host refuses it unless [stateRevision] is the run's
+ * current one. camelCase on the wire, like every Work Room frame. Signed like
+ * every other command.
+ */
+@Serializable
+data class ProviderInterruptMessage(
+    val invocationId: String,
+    val stateRevision: Long,
+    val requestId: String,
+    val type: String = "PROVIDER_INTERRUPT"
+)
+
 @Serializable
 data class PongMessage(
     val type: String = "PONG"

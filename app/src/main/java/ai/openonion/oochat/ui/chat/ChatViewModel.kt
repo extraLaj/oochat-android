@@ -73,6 +73,8 @@ import ai.openonion.oochat.ui.navigation.DrawerEntry
 import ai.openonion.oochat.ui.workroom.WorkRoomDraft
 import ai.openonion.oochat.ui.workroom.WorkRoomInputs
 import ai.openonion.oochat.ui.workroom.WorkRoomScrollPosition
+import ai.openonion.oochat.ui.workroom.WorkRoomStopUi
+import ai.openonion.oochat.ui.workroom.WorkRoomStops
 import ai.openonion.oochat.ui.workroom.WorkRoomText
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogSanitizer
@@ -290,6 +292,13 @@ open class ChatViewModel @JvmOverloads constructor(
     /** Each Work Room's draft and send state, by conversation-and-invocation key. */
     val workRoomDrafts: StateFlow<Map<String, WorkRoomDraft>> = workRoomInputs.drafts
 
+    // Each Work Room's scoped Stop (W16AAPPLE-37), owned here like the drafts,
+    // so a Stop already sent is still settled after leaving the room.
+    private val workRoomStops = WorkRoomStops(viewModelScope, send = { connectUseCase.sendProviderStop(it) })
+
+    /** Each Work Room's Stop, by conversation-and-invocation key. */
+    val workRoomStopStates: StateFlow<Map<String, WorkRoomStopUi>> = workRoomStops.rooms
+
     // Keep Work Room viewports by conversation and run.
     private val workRoomScrollPositions = mutableMapOf<String, WorkRoomScrollPosition>()
 
@@ -351,6 +360,12 @@ open class ChatViewModel @JvmOverloads constructor(
         invocationId: String,
         drafts: Map<String, WorkRoomDraft> = workRoomDrafts.value
     ): WorkRoomDraft = drafts[workRoomKey(invocationId)] ?: WorkRoomDraft()
+
+    /** Return the Stop belonging to the active conversation's Work Room. */
+    fun workRoomStop(
+        invocationId: String,
+        stops: Map<String, WorkRoomStopUi> = workRoomStopStates.value
+    ): WorkRoomStopUi = stops[workRoomKey(invocationId)] ?: WorkRoomStopUi()
 
     private fun workRoomKey(invocationId: String): String =
         "${activeSessionId.value.orEmpty()}\u0000$invocationId"
@@ -1155,6 +1170,11 @@ open class ChatViewModel @JvmOverloads constructor(
                     // waiting on it is whichever one sent it, so no conversation routing.
                     if (event is ChatEvent.ProviderInputAcked) {
                         workRoomInputs.onAck(event.ack)
+                        return@collect
+                    }
+                    // Likewise a Work Room's Stop (W16AAPPLE-37).
+                    if (event is ChatEvent.ProviderStopAcked) {
+                        workRoomStops.onAck(event.ack)
                         return@collect
                     }
                     // What the outbox still holds is now final (W16AAPPLE-106).
@@ -2178,6 +2198,7 @@ open class ChatViewModel @JvmOverloads constructor(
             if (conversationHistory.deleteSession(sessionId)) {
                 val workRoomKeyPrefix = "${sessionId}\u0000"
                 workRoomInputs.discardMatching { it.startsWith(workRoomKeyPrefix) }
+                workRoomStops.discardMatching { it.startsWith(workRoomKeyPrefix) }
                 synchronized(workRoomScrollPositions) {
                     workRoomScrollPositions.keys
                         .filter { it.startsWith(workRoomKeyPrefix) }
@@ -3208,6 +3229,27 @@ open class ChatViewModel @JvmOverloads constructor(
         workRoomInputs.send(run, workRoomKey(invocationId))
     }
 
+    /** The user tapped Stop in [invocationId]'s Work Room: open its 15-second confirmation (W16AAPPLE-37). */
+    fun requestWorkRoomStop(invocationId: String) {
+        val run = workRoomRunFor(invocationId) ?: return
+        workRoomStops.requestStop(run, workRoomKey(invocationId))
+    }
+
+    /** Confirmed inside the barrier: send the scoped Stop at the run's revision as this screen holds it. */
+    fun confirmWorkRoomStop(invocationId: String) {
+        val run = workRoomRunFor(invocationId) ?: return
+        workRoomStops.confirm(run, workRoomKey(invocationId))
+    }
+
+    /** Backed out of the Stop confirmation. */
+    fun cancelWorkRoomStop(invocationId: String) {
+        workRoomStops.cancel(workRoomKey(invocationId))
+    }
+
+    private fun workRoomRunFor(invocationId: String): ChatItem.ProviderInvocation? =
+        _uiState.value.chatItems
+            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+
     fun respond(itemId: String, answer: String) {
         val question = _uiState.value.chatItems
             .filterIsInstance<ChatItem.AskUser>()
@@ -3510,6 +3552,7 @@ open class ChatViewModel @JvmOverloads constructor(
                     .forEach(workRoomScrollPositions::remove)
             }
             workRoomInputs.discardMatching { it.startsWith(scrollKeyPrefix) }
+            workRoomStops.discardMatching { it.startsWith(scrollKeyPrefix) }
             if (clearedSessionId != null) {
                 _chatComposerDrafts.update { it - clearedSessionId }
                 synchronized(messageListScrollPositions) {

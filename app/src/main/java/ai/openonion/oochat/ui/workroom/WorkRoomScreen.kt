@@ -71,6 +71,7 @@ fun WorkRoomScreenWrapper(
     )
     val state by viewModel.uiState.collectAsState()
     val drafts by viewModel.workRoomDrafts.collectAsState()
+    val stops by viewModel.workRoomStopStates.collectAsState()
     val run = state.chatItems.firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId }
         as ChatItem.ProviderInvocation?
     WorkRoomScreen(
@@ -85,7 +86,11 @@ fun WorkRoomScreenWrapper(
         onApprovalDecision = { itemId, approved, scope ->
             viewModel.markGateResolved(itemId)
             viewModel.respondToApproval(itemId, approved, scope, if (approved) null else WORK_ROOM_DENY_MODE)
-        }
+        },
+        stopUi = viewModel.workRoomStop(invocationId, stops),
+        onStop = { viewModel.requestWorkRoomStop(invocationId) },
+        onConfirmStop = { viewModel.confirmWorkRoomStop(invocationId) },
+        onCancelStop = { viewModel.cancelWorkRoomStop(invocationId) }
     )
 }
 
@@ -96,7 +101,8 @@ internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatIt
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
  * a phone: the task and where it stands, the latest picture of its workspace, what
  * was said to and by the provider (W16AAPPLE-34), then each step it took, as the Host
- * describes it, and a field to steer it (W16AAPPLE-35). Stop comes with W16AAPPLE-37.
+ * describes it, and a field to steer it (W16AAPPLE-35), and a Stop for this run only,
+ * behind a 15-second confirmation (W16AAPPLE-37).
  * [run] is null once the chat no longer holds it.
  */
 @Composable
@@ -109,7 +115,11 @@ fun WorkRoomScreen(
     scrollPosition: WorkRoomScrollPosition = WorkRoomScrollPosition(),
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit = {},
     approvals: List<ChatItem.ApprovalNeeded> = emptyList(),
-    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> }
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit = { _, _, _ -> },
+    stopUi: WorkRoomStopUi = WorkRoomStopUi(),
+    onStop: () -> Unit = {},
+    onConfirmStop: () -> Unit = {},
+    onCancelStop: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -132,7 +142,9 @@ fun WorkRoomScreen(
                 )
                 return@Box
             }
-            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged, approvals, onApprovalDecision)
+            WorkRoomTranscript(run, scrollPosition, onScrollPositionChanged, approvals, onApprovalDecision) {
+                WorkRoomStopControl(run, stopUi, onStop, onConfirmStop, onCancelStop)
+            }
         }
     }
 }
@@ -144,7 +156,8 @@ private fun WorkRoomTranscript(
     scrollPosition: WorkRoomScrollPosition,
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit,
     approvals: List<ChatItem.ApprovalNeeded>,
-    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit
+    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit,
+    stop: @Composable () -> Unit = {}
 ) {
     val pendingApprovals = approvals.filter { it.decision == null }
     val resolvedApprovals = approvals.filter { it.decision != null }
@@ -152,6 +165,7 @@ private fun WorkRoomTranscript(
     val currentArtifact = run.artifact?.takeIf { it.stateRevision == run.stateRevision }
     val itemKeys = buildList {
         add("header")
+        if (!run.status.isTerminal) add("stop")
         currentArtifact?.let { add("artifact") }
         pendingApprovals.forEach { add("approval:${it.id}") }
         if (run.messages.isNotEmpty()) {
@@ -179,7 +193,10 @@ private fun WorkRoomTranscript(
 
     LaunchedEffect(listState) {
         snapshotFlow {
-            val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            // The key of the item the index and offset describe, not just the first one
+            // laid out: one peeking into the top padding would anchor the room an item off.
+            val firstVisible = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == listState.firstVisibleItemIndex }
             WorkRoomScrollPosition(
                 firstVisibleItemKey = firstVisible?.key as? String,
                 firstVisibleItemIndex = listState.firstVisibleItemIndex,
@@ -201,6 +218,8 @@ private fun WorkRoomTranscript(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)
     ) {
         item(key = "header") { RunHeader(run) }
+        // Stop for this run only (W16AAPPLE-37), while there is something to stop.
+        if (!run.status.isTerminal) item(key = "stop") { stop() }
         currentArtifact?.let { artifact -> item(key = "artifact") { LatestView(artifact) } }
         items(pendingApprovals, key = { "approval:${it.id}" }) { approval ->
             WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { approved, scope ->

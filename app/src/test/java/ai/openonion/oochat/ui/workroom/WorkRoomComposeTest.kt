@@ -27,6 +27,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
@@ -327,6 +328,8 @@ class WorkRoomComposeTest {
         composeRule.onNodeWithText("You", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("Codex", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("I added it. Run the tests with:", useUnmergedTree = true).assertIsDisplayed()
+        // Below the fold now that a working run has Stop under its header (W16AAPPLE-37).
+        composeRule.onNodeWithTag(WORK_ROOM_TRANSCRIPT_TAG).performScrollToNode(hasText("and tell me what fails.", substring = true))
         composeRule.onNodeWithText("and tell me what fails.", useUnmergedTree = true).assertIsDisplayed()
     }
 

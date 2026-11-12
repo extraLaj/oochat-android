@@ -84,6 +84,13 @@ sealed class ChatEvent {
      */
     data class ProviderInputAcked(val ack: ProviderInputAck) : ChatEvent()
 
+    /**
+     * The Host's answer to a Work Room's scoped Stop (W16AAPPLE-37). Settles
+     * that room's Stop, which the ViewModel owns; the run itself ends by the
+     * `provider_invocation` that follows.
+     */
+    data class ProviderStopAcked(val ack: ProviderStopAck) : ChatEvent()
+
     /** The connection finished flushing the outbox for [conversationId] (W16AAPPLE-106). */
     data class OutboxFlushed(val conversationId: String?) : ChatEvent()
 }
