@@ -316,10 +316,13 @@ object ChatEventReducer {
         val append = { list: List<ChatItem>, added: ChatItem -> ChatEventHelpers.appendPinningGates(list, added, resolvedGateIds) }
         return when {
             item !is ChatItem.ProviderInvocation && item !is ChatItem.ProviderActivityUpdate &&
+                item !is ChatItem.ProviderMessageUpdate && item !is ChatItem.ProviderArtifactUpdate &&
                 !WorkRooms.isParentOfShownRun(current, item) -> null
             item.id in ignoredIds -> ReduceResult(current)
             item is ChatItem.ProviderInvocation -> WorkRooms.foldInvocation(current, item, append) ?: ReduceResult(current)
             item is ChatItem.ProviderActivityUpdate -> WorkRooms.foldActivity(current, item, append) ?: ReduceResult(current)
+            item is ChatItem.ProviderMessageUpdate -> WorkRooms.foldMessage(current, item, append) ?: ReduceResult(current)
+            item is ChatItem.ProviderArtifactUpdate -> WorkRooms.foldArtifact(current, item, append) ?: ReduceResult(current)
             // The outer tool call's own card: the Work Room card already is it.
             else -> ReduceResult(current)
         }

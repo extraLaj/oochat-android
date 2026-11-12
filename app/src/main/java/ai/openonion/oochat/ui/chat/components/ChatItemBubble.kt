@@ -49,7 +49,7 @@ internal fun ChatItemBubble(
         is ChatItem.ToolCall -> ToolCallDispatch(item)
         is ChatItem.ProviderInvocation -> WorkRoomCard(item, onOpen = { onOpenWorkRoom(item.id) })
         // Folded into its run's card by the reducer; never in the list itself.
-        is ChatItem.ProviderActivityUpdate -> Unit
+        is ChatItem.ProviderActivityUpdate, is ChatItem.ProviderMessageUpdate, is ChatItem.ProviderArtifactUpdate -> Unit
         is ChatItem.AskUser -> AskUserCard(item, onRespond)
         is ChatItem.ApprovalNeeded -> {
             val workRoom = item.workRoom

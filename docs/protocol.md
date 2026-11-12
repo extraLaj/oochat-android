@@ -66,7 +66,9 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `tool_result` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `provider_invocation` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_activity` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
-| `provider_message`, `provider_artifact`, `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-34, -40) | - |
+| `provider_message` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_artifact` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
+| `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-40) | - |
 | `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
 | `plan` | Supported | [`StreamingFramesSpecTest`](../app/src/test/java/ai/openonion/oochat/network/StreamingFramesSpecTest.kt) |
 | `agent_image` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt) |
@@ -1429,6 +1431,8 @@ as `plugins/coding_agents.py`, `useful_tools/codex.py` and
 |---|---|---|
 | `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
 | `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
+| `provider_message` | `invocationId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
+| `provider_artifact` | `invocationId`, `artifactId`, `kind`, `stateRevision`, `thumbnailDataUrl`, `alt` | The run's latest picture, in its card. `kind` is `screenshot`; the picture is an inline PNG or JPEG. |
 | `tool_call` / `tool_result` carrying `invocationId` | `tool_id`, `status` | A step from a Host that sends no `provider_activity` for it, after the native steps, under the Host's generic title "Use a provider tool". Its `name` is not shown: for Codex it is the raw command or file path. |
 
 They are folded (`WorkRooms`, through `ChatEventReducer`) the way the Host
@@ -1475,9 +1479,54 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Its approvals are below. Provider messages and artifacts, Stop and permission
-profiles in the room are W16AAPPLE-34, -37 and -43, and the local and remote
-handover states are W16AAPPLE-40.
+Its approvals are below. Stop and permission profiles in the room are
+W16AAPPLE-37 and -43, and the local and remote handover states are W16AAPPLE-40.
+
+### Messages and pictures in a Work Room
+
+`provider_message` and `provider_artifact` (W16AAPPLE-34) are decoded by
+`ProviderFrames` and folded into the run's card (`ChatItem.ProviderInvocation`),
+which keeps `messages` and the latest `artifact`. They are read as strictly as
+`core/provider_events.py` writes them, and a frame that is not that shape is
+dropped, its trace `id` still moving the replay cursor:
+
+- **A message** needs a `messageId` of letters, digits and `._:-`, a `role` of
+  `user` or `assistant`, and text that is not empty once trimmed. A NUL is
+  removed and text over 16,000 characters is cut with an ellipsis, as the Host
+  cuts it. A `continuationOf` that is not an id is ignored, not the message.
+- **A picture** needs `kind: "screenshot"`, a positive `stateRevision`, an
+  `artifactId` of the same shape and a `thumbnailDataUrl` that is an inline PNG
+  or JPEG (`data:image/png|jpeg;base64,`) of at most 262,144 characters. Nothing
+  is ever fetched, and SVG, HTML and links are refused. The `alt` is one of the
+  Host's two approved descriptions; any other is replaced by the first.
+
+They fold like a step does. A message is updated in place by `messageId`, so one
+sent live and again when the turn commits, or replayed after a reconnect, is
+shown once where it first arrived. The picture is the run's latest: one with a
+lower `stateRevision` than the one shown changes nothing, and an equal or higher
+one replaces it. Either may arrive before its run, and then starts the card. A
+later `provider_invocation` keeps both, as a frame names only what changed.
+
+The conversation is kept to the newest messages that fit in 200,000 characters
+(`WorkRooms.MAX_CONVERSATION_CHARS`), oldest first out, and always the newest
+message. A run is saved as one row, which Android cannot read back past about
+2 MB, and a long session can say far more; the cap, a full conversation of
+three-byte characters and the largest picture fit with room to spare
+(`TranscriptItemCodecTest`). Both are saved with the card
+(`TranscriptItemPayload.ProviderInvocation`); a row from before they existed
+reads as having none, and a saved message whose role this build does not know is
+left out rather than shown as someone else's.
+
+The room shows the picture under the task (**Latest view**, at its own
+proportions, described to TalkBack by the approved `alt`) and the conversation
+above the steps. Each message is one item for TalkBack, the speaker then the
+words. The text is drawn as Markdown so a reply's code blocks are monospace,
+with links left inert. It goes through `SensitiveText.messageText` on its way to
+the screen: secrets and home paths are masked, and a message that is itself a raw
+provider payload (it begins with a JSON object or array, a stack trace or an
+error page) is replaced by the standard "details are in the agent's logs" line,
+while a snippet quoted inside a reply is kept, since code is what the user came
+to read. The Control Center app receives neither.
 
 ### Approvals in a Work Room
 
