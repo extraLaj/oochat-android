@@ -1157,6 +1157,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         workRoomInputs.onAck(event.ack)
                         return@collect
                     }
+                    // What the outbox still holds is now final (W16AAPPLE-106).
+                    if (event is ChatEvent.OutboxFlushed) {
+                        if (event.conversationId == null || event.conversationId == activeSessionId.value) settleOutboxedMessages()
+                        return@collect
+                    }
                     // Every conversation has its own server session, so a
                     // session_sync replays only this conversation's history —
                     // no attribution needed. What still needs routing is the
@@ -2213,22 +2218,13 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * The connection is back, and it flushed its outbox on the way: the messages typed while it was
-     * down are on the wire now. Their bubbles stop saying they are waiting, which is also what
-     * unpins them from the bottom of the list, so the reply to one lands below it instead of above.
-     *
-     * Only the bubbles that went to the outbox: one held behind a running turn is waiting for that
-     * turn, not for the socket, and stays queued. And only the ones on screen, which are this
-     * conversation's: the outbox flushes per conversation, so another conversation's stay queued
-     * until it is the one connected (W16AAPPLE-106). Each is saved as gone, so a restart agrees.
+     * The connection is back, or has finished flushing its outbox: settle the "Waiting to send..."
+     * bubbles by what the outbox still holds (see [settleOutbox]). Asked on Connected and again on
+     * [ChatEvent.OutboxFlushed], since Connected arrives before the flush has run.
      */
     private fun settleOutboxedMessages() {
         if (outboxedMessageIds.isEmpty()) return
-        val flushed = _uiState.value.chatItems
-            .filter { it is ChatItem.User && it.id in outboxedMessageIds && it.state == UserMessageState.QUEUED }
-            .map { it.id }
-        outboxedMessageIds -= flushed.toSet()
-        flushed.forEach { setUserMessageState(it, UserMessageState.SENT) }
+        launchScoped { settleOutbox() }
     }
 
     /**
@@ -2245,18 +2241,25 @@ open class ChatViewModel @JvmOverloads constructor(
         // could see it: on relaunch, Loading connects first, and the one
         // Connected this screen gets comes before its conversation loads. So
         // ask the outbox rather than wait for a Connected that already came.
-        if (connectUseCase.isConnected()) launchScoped { settleRestoredOutbox() }
+        if (connectUseCase.isConnected()) launchScoped { settleOutbox() }
     }
 
     /**
-     * Settle the restored "Waiting to send..." bubbles by what the outbox still
-     * holds for this conversation. It sends oldest first and never drops one
-     * (it refuses a new message instead), so all but the newest that many have
-     * gone. Unknown leaves them waiting for the next Connected (W16AAPPLE-106).
+     * Settle this conversation's "Waiting to send..." bubbles by what the outbox still holds for
+     * it. The outbox sends oldest first and never drops one (it refuses a new message instead), so
+     * all but the newest that many have gone: they stop saying they are waiting, which also unpins
+     * them from the bottom of the list, and are saved as gone so a restart agrees. A send that
+     * bounced went back into the outbox, so it and those behind it keep waiting.
+     *
+     * Only the bubbles that went to the outbox: one held behind a running turn is waiting for that
+     * turn, not for the socket. Only this conversation's: another's flush when it is the one
+     * connected. Asked about this chat's own agent, not whichever the connection is on. Unknown
+     * leaves them waiting for the next chance (W16AAPPLE-106).
      */
-    private suspend fun settleRestoredOutbox() {
+    private suspend fun settleOutbox() {
         val conversation = activeSessionId.value ?: return
-        val stillQueued = connectUseCase.queuedMessageCount(conversation) ?: return
+        val agent = _targetAgentAddress.takeIf { it.isNotBlank() } ?: return
+        val stillQueued = connectUseCase.queuedMessageCount(agent, conversation) ?: return
         if (activeSessionId.value != conversation) return
         val waiting = _uiState.value.chatItems
             .filter { it is ChatItem.User && it.id in outboxedMessageIds && it.state == UserMessageState.QUEUED }

@@ -62,10 +62,14 @@ abstract class PendingMessageDao {
     )
     abstract fun idsForConversation(agentAddress: String, sessionId: String?, conversationId: String?): List<Long>
 
-    /** How many rows [idsForConversation] would return. */
+    /**
+     * How many rows [oldestClaimableForAgent] could hand out for [sessionId]
+     * and [conversationId], the NULL arm included: what is still to go out in
+     * that conversation (W16AAPPLE-106).
+     */
     @Query(
         "SELECT COUNT(*) FROM pending_messages WHERE agent_address = :agentAddress " +
-            "AND (session_id = :sessionId OR session_id = :conversationId)"
+            "AND (session_id IS NULL OR session_id = :sessionId OR session_id = :conversationId)"
     )
     abstract fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int
 

@@ -107,17 +107,48 @@ class InMemoryPendingMessageSinkTest {
     }
 
     @Test
-    fun `the count for a conversation is what is still waiting to go out in it`() {
-        // What the chat settles a restored "Waiting to send..." bubble by (W16AAPPLE-106).
+    fun `the count for a conversation is what would go out in it`() {
+        // What the chat settles "Waiting to send..." bubbles by (W16AAPPLE-106).
+        // A message no conversation is named on would go out in whichever one
+        // connects next, so it counts for each: a bubble waits a little longer
+        // rather than being called sent while it is still queued.
         sink.enqueue("0xagent", "on the session", sessionId = SESSION)
         sink.enqueue("0xagent", "on the conversation", sessionId = "conversation-A")
         sink.enqueue("0xagent", "elsewhere", sessionId = "conversation-B")
         sink.enqueue("0xagent", "unnamed", sessionId = null)
         sink.enqueue("0xagentB", "another agent", sessionId = "conversation-A")
 
-        assertEquals(2, sink.countForConversation("0xagent", SESSION, "conversation-A"))
-        assertEquals(1, sink.countForConversation("0xagent", null, "conversation-B"))
-        assertEquals(0, sink.countForConversation("0xagent", null, "conversation-C"))
+        assertEquals(3, sink.countForConversation("0xagent", SESSION, "conversation-A"))
+        assertEquals(2, sink.countForConversation("0xagent", null, "conversation-B"))
+        assertEquals(1, sink.countForConversation("0xagent", null, "conversation-C"))
+    }
+
+    @Test
+    fun `clearing one conversation does not stop another's failed send going back`() {
+        // B is connected and flushing; Clear chat in A runs meanwhile. B's
+        // message has to go back in the outbox, not be lost (W16AAPPLE-106).
+        sink.enqueue("0xagent", "for B", sessionId = "conversation-B")
+        sink.enqueue("0xagent", "for A", sessionId = "conversation-A")
+
+        sink.drain("0xagent", null, "conversation-B") {
+            sink.clearConversation("0xagent", null, "conversation-A")
+            false
+        }
+
+        assertEquals(listOf("for B"), sink.drainAll("0xagent", "conversation-B").map { it.prompt })
+        assertTrue(sink.drainAll("0xagent", "conversation-A").isEmpty())
+    }
+
+    @Test
+    fun `clearing the conversation being flushed does drop its failed send`() {
+        sink.enqueue("0xagent", "for B", sessionId = "conversation-B")
+
+        sink.drain("0xagent", null, "conversation-B") {
+            sink.clearConversation("0xagent", null, "conversation-B")
+            false
+        }
+
+        assertTrue(sink.drainAll("0xagent", "conversation-B").isEmpty())
     }
 
     @Test

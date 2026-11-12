@@ -268,14 +268,40 @@ class RoomPendingMessageSinkTest {
     }
 
     @Test
-    fun `the count for a conversation is what is still waiting to go out in it`() {
+    fun `the count for a conversation is what would go out in it`() {
         sink.enqueue(agent, session, "on the session", null, null)
         sink.enqueue(agent, "conversation-A", "on the conversation", null, null)
         sink.enqueue(agent, "conversation-B", "elsewhere", null, null)
         sink.enqueue(agent, null, "unnamed", null, null)
 
-        assertEquals(2, sink.countForConversation(agent, session, "conversation-A"))
-        assertEquals(0, sink.countForConversation(agent, null, "conversation-C"))
+        assertEquals(3, sink.countForConversation(agent, session, "conversation-A"))
+        assertEquals(1, sink.countForConversation(agent, null, "conversation-C"))
+    }
+
+    @Test
+    fun `clearing one conversation does not stop another's failed send going back`() {
+        sink.enqueue(agent, "conversation-B", "for B", null, null)
+        sink.enqueue(agent, "conversation-A", "for A", null, null)
+
+        sink.drain(agent, null, "conversation-B") {
+            sink.clearConversation(agent, null, "conversation-A")
+            false
+        }
+
+        assertEquals(listOf("for B"), sink.drainAll(sessionId = "conversation-B").map { it.prompt })
+        assertEquals(0, sink.countForConversation(agent, null, "conversation-A"))
+    }
+
+    @Test
+    fun `clearing the conversation being flushed does drop its failed send`() {
+        sink.enqueue(agent, "conversation-B", "for B", null, null)
+
+        sink.drain(agent, null, "conversation-B") {
+            sink.clearConversation(agent, null, "conversation-B")
+            false
+        }
+
+        assertEquals(0, db.pendingMessageDao().countForAgent(agent))
     }
 
     @Test

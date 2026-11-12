@@ -329,9 +329,16 @@ class ChatViewModelTest {
             resetGate?.await()
         }
 
-        /** What the outbox still holds per conversation; absent means unknown. */
+        /** What the outbox still holds per conversation; absent means empty. */
         val queuedCounts = mutableMapOf<String, Int>()
-        override suspend fun queuedMessageCount(conversationId: String): Int? = queuedCounts[conversationId]
+        /** When set, the outbox cannot be asked. */
+        var queuedCountUnknown = false
+        /** The agent each count was asked for. */
+        val queuedCountAgents = mutableListOf<String>()
+        override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? {
+            queuedCountAgents += agentAddress
+            return if (queuedCountUnknown) null else queuedCounts[conversationId] ?: 0
+        }
 
 
         // When true, the NEXT collected event throws CancellationException
@@ -6352,6 +6359,7 @@ class ChatViewModelTest {
                 ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "unknown", timestamp = 300L, inOutbox = true)
             )
             connectUseCase.markConnected(address)
+            connectUseCase.queuedCountUnknown = true
             testScheduler.runCurrent()
 
             vm.connectToAgent(address)
@@ -6359,6 +6367,75 @@ class ChatViewModelTest {
 
             assertEquals(UserMessageState.QUEUED, userMessage("unknown").state)
         }
+
+    @Test
+    fun `a waiting message settles when the flush has finished, not when Connected arrives`() =
+        runTest(testDispatcher) {
+            // The connection reports Connected before it flushes the outbox.
+            val address = validHexAddress()
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            vm.sendMessage("typed offline")
+            testScheduler.runCurrent()
+            val conversation = vm.activeSessionId.value ?: error("test setup: no conversation")
+            connectUseCase.queuedCounts[conversation] = 1
+
+            connectUseCase.markConnected(address)
+            testScheduler.runCurrent()
+            assertEquals("still in the outbox", UserMessageState.QUEUED, userMessage("typed offline").state)
+
+            connectUseCase.queuedCounts[conversation] = 0
+            connectUseCase.emit(ChatEvent.OutboxFlushed(conversation))
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("typed offline").state)
+            assertFalse("and saved as gone", savedInOutbox("typed offline"))
+        }
+
+    @Test
+    fun `a send that bounced during the flush keeps waiting, and is saved as waiting`() =
+        runTest(testDispatcher) {
+            // The flush stops at a send the socket refused, and that message
+            // and those behind it stay queued: they have not gone (W16AAPPLE-106).
+            val address = validHexAddress()
+            val session = seedPreviousConversation(address)
+            messageRepo.seed(
+                ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "went out", timestamp = 300L, inOutbox = true),
+                ChatMessage(id = "m4", sessionId = session.id, role = Role.USER, content = "bounced", timestamp = 400L, inOutbox = true)
+            )
+            vm.connectToAgent(address)
+            testScheduler.runCurrent()
+            assertEquals("test setup", UserMessageState.QUEUED, userMessage("went out").state)
+            connectUseCase.queuedCounts[session.id] = 1
+
+            connectUseCase.markConnected(address)
+            connectUseCase.emit(ChatEvent.OutboxFlushed(session.id))
+            testScheduler.runCurrent()
+
+            assertEquals(UserMessageState.SENT, userMessage("went out").state)
+            assertEquals(UserMessageState.QUEUED, userMessage("bounced").state)
+            assertTrue("saved as waiting, so a restart agrees", savedInOutbox("bounced"))
+            assertFalse(savedInOutbox("went out"))
+        }
+
+    @Test
+    fun `the outbox is asked about the chat's own agent`() = runTest(testDispatcher) {
+        // Not whichever agent the connection is on: the chat can load another
+        // agent's conversation before the connection moves to it.
+        val address = validHexAddress()
+        val session = seedPreviousConversation(address)
+        messageRepo.seed(
+            ChatMessage(id = "m3", sessionId = session.id, role = Role.USER, content = "waiting", timestamp = 300L, inOutbox = true)
+        )
+        connectUseCase.markConnected("0x" + "ee".repeat(32))
+        testScheduler.runCurrent()
+
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+
+        assertTrue("asked about ${connectUseCase.queuedCountAgents}", connectUseCase.queuedCountAgents.isNotEmpty())
+        assertTrue(connectUseCase.queuedCountAgents.all { it == address })
+    }
 
     @Test
     fun `Clear chat names the conversation it clears`() = runTest(testDispatcher) {

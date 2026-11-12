@@ -483,6 +483,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.ProviderInputAcked -> {
                         _chatEvents.tryEmit(ChatEvent.ProviderInputAcked(event.ack))
                     }
+                    is ConnectionEvent.OutboxFlushed -> {
+                        _chatEvents.tryEmit(ChatEvent.OutboxFlushed(event.conversationId))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
@@ -949,11 +952,12 @@ class ConnectionRepositoryImpl(
         }
     }
 
-    override suspend fun queuedMessageCount(conversationId: String): Int? = withContext(Dispatchers.IO) {
-        val agent = currentAgentAddress ?: return@withContext null
-        val sessionId = connection?.currentSession?.sessionId?.takeIf { conversationId == currentConversationId }
+    override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = withContext(Dispatchers.IO) {
+        if (agentAddress.isBlank()) return@withContext null
+        val onThisConversation = agentAddress == currentAgentAddress && conversationId == currentConversationId
+        val sessionId = connection?.currentSession?.sessionId?.takeIf { onThisConversation }
             ?: sessionStore?.getSession(conversationId)?.sessionId
-        pendingMessageSink.countForConversation(agent, sessionId, conversationId)
+        pendingMessageSink.countForConversation(agentAddress, sessionId, conversationId)
     }
 
     override suspend fun peekPersistedSessionId(conversationId: String): String? = withContext(Dispatchers.IO) {

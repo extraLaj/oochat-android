@@ -276,9 +276,9 @@ interface ConnectToAgentUseCaseContract {
     suspend fun reset(conversationId: String? = null)
 
     /**
-     * How many of [conversationId]'s messages are still waiting in the
-     * outbox, or null when that cannot be told. The chat settles restored
-     * "Waiting to send..." bubbles by it (W16AAPPLE-106).
+     * How many of [agentAddress]'s messages for [conversationId] are still
+     * waiting in the outbox, or null when that cannot be told. The chat
+     * settles "Waiting to send..." bubbles by it (W16AAPPLE-106).
      */
-    suspend fun queuedMessageCount(conversationId: String): Int? = null
+    suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = null
 }

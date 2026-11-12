@@ -1036,6 +1036,10 @@ class AgentConnection(
             }
         }
         if (flushed > 0) FileLogger.i(LogTags.AGENT_CONN, "Flushed $flushed pending messages")
+        // Reported whether or not anything went: the chat settles by what is left.
+        if (flush.generation == socketGeneration.get()) {
+            _events.tryEmit(ConnectionEvent.OutboxFlushed(flush.conversationId ?: flush.sessionId))
+        }
     }
 
     fun respond(answer: String, requestId: String? = null) {

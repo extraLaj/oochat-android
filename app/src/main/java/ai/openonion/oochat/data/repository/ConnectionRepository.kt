@@ -304,11 +304,13 @@ interface ConnectionRepository {
     suspend fun reset(conversationId: String? = null)
 
     /**
-     * How many of [conversationId]'s messages the outbox still holds, or null
-     * when that cannot be told (no agent yet). See
+     * How many of [agentAddress]'s messages for [conversationId] the outbox
+     * still holds. The agent is the caller's, not whichever this connection is
+     * on: a chat can load another agent's conversation before the connection
+     * moves to it. See
      * [ai.openonion.oochat.network.PendingMessageSink.countForConversation].
      */
-    suspend fun queuedMessageCount(conversationId: String): Int? = null
+    suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? = null
 
     fun getCurrentSession(): SessionState?
 

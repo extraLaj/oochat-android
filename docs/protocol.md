@@ -891,18 +891,27 @@ turn and gets no such reply.
 in database v14), and so is a message still in the outbox, as `QUEUED` in the
 same column (W16AAPPLE-106). `SENT` comes back `SENT`. One still in the outbox
 comes back `QUEUED` ("Waiting to send..."), since the outbox survives the restart
-and will still send it, and the next `Connected` on its conversation settles it
-to `SENT` and saves it so. If the connection is already up when the conversation
-loads (on relaunch the Loading screen connects first, and the outbox goes out
-then), the screen asks the outbox how many of the conversation's messages it
-still holds (`PendingMessageSink.countForConversation`) and settles all but that
-many of the newest. A message
+and will still send it. A message
 that was awaiting an answer, or held in memory (behind a running turn, for a
 resend, or after a retryable refusal), comes back `FAILED`, since its delivery
 is unknown or the hold was lost. A new message held behind a running turn is
 saved at the tap for this reason, already `FAILED`, and its row is moved to the
 end of the conversation when it is sent, so it still reloads below the reply it
 waited behind. One gap remains; see the last item under Known gaps below.
+
+**Settling a waiting message.** The screen settles "Waiting to send..." bubbles
+by what the outbox still holds for the conversation
+(`PendingMessageSink.countForConversation`, for the chat's own agent, which may
+not be the one the connection is on yet). The outbox sends oldest first and never
+drops a message, so all but the newest that many have gone: they become `SENT`
+and are saved so. It asks on `Connected`, again when the connection reports the
+flush finished (`OutboxFlushed`, since `Connected` arrives before the flush runs),
+and when a conversation loads while already connected (on relaunch the Loading
+screen connects first, and the outbox goes out then). A send the socket refused
+mid-flush goes back into the outbox, so it and those behind it keep waiting. The
+count includes messages queued before any conversation was named, which would go
+out in whichever conversation connects next: a bubble waits a little longer
+rather than being called sent too soon.
 
 **When this happens at all.** `ChatViewModel.sendWhenTheAgentIsIdle` still holds
 ordinary messages until the running turn ends (see `architecture.md`), so a

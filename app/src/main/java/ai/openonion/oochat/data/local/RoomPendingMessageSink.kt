@@ -49,6 +49,13 @@ class RoomPendingMessageSink(
     private val lock = Any()
     private val clearGenerations = mutableMapOf<String, Long>()
 
+    // Per agent and session tag; see InMemoryPendingMessageSink's own.
+    private val conversationClears = mutableMapOf<Pair<String, String>, Long>()
+
+    /** Caller holds [lock]. What a failed send's put-back is checked against. */
+    private fun generationOf(agentAddress: String, rowSessionId: String?): Pair<Long, Long> =
+        (clearGenerations[agentAddress] ?: 0L) to (rowSessionId?.let { conversationClears[agentAddress to it] } ?: 0L)
+
     override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?): Boolean {
         val payload = attachmentPayload(images, files)
         synchronized(lock) {
@@ -84,7 +91,7 @@ class RoomPendingMessageSink(
         while (true) {
             val claimed = synchronized(lock) {
                 dao.claimNextForAgent(agentAddress, sessionId, conversationId, maxId)
-                    ?.let { it to (clearGenerations[agentAddress] ?: 0L) }
+                    ?.let { it to generationOf(agentAddress, it.sessionId) }
             } ?: break
             val row = claimed.first
             val drainGeneration = claimed.second
@@ -99,7 +106,7 @@ class RoomPendingMessageSink(
             val accepted = runCatching { send(message) }.getOrDefault(false)
             if (!accepted) {
                 synchronized(lock) {
-                    if ((clearGenerations[agentAddress] ?: 0L) == drainGeneration) {
+                    if (generationOf(agentAddress, row.sessionId) == drainGeneration) {
                         // Restore the claimed row's id. Calling enqueue() would
                         // append the failed message after everything behind it.
                         restore(row, message)
@@ -124,8 +131,10 @@ class RoomPendingMessageSink(
 
     override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
         synchronized(lock) {
-            // Bumped as clear() does; see InMemoryPendingMessageSink.clearConversation.
-            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
+            // This conversation's only; see InMemoryPendingMessageSink.clearConversation.
+            listOfNotNull(sessionId, conversationId).distinct().forEach { tag ->
+                conversationClears[agentAddress to tag] = (conversationClears[agentAddress to tag] ?: 0L) + 1
+            }
             val ids = dao.idsForConversation(agentAddress, sessionId, conversationId)
             if (ids.isEmpty()) return
             ids.forEach { spillFile(it).delete() }

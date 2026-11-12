@@ -350,8 +350,8 @@ class ConnectToAgentUseCase(
         repository?.reset(conversationId)
     }
 
-    override suspend fun queuedMessageCount(conversationId: String): Int? =
-        repository?.queuedMessageCount(conversationId)
+    override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? =
+        repository?.queuedMessageCount(agentAddress, conversationId)
 
     @Synchronized
     private fun getOrCreateRepository(): ConnectionRepository {

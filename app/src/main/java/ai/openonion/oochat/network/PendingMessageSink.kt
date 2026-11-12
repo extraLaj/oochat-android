@@ -59,10 +59,12 @@ interface PendingMessageSink {
     fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?)
 
     /**
-     * How many messages queued for [agentAddress] on [sessionId] or
-     * [conversationId] are still waiting to go out. The chat settles restored
-     * "Waiting to send..." bubbles by it: the outbox sends oldest first and
-     * never drops one, so any beyond this count have gone (W16AAPPLE-106).
+     * How many queued messages [drain] would send for the same arguments:
+     * those on [sessionId] or [conversationId], plus any with no session
+     * named, which go out in whichever conversation connects next. The chat
+     * settles "Waiting to send..." bubbles by it: the outbox sends oldest
+     * first and never drops one, so any beyond this count have gone. Counting
+     * the unnamed ones errs towards waiting, never towards "sent" (W16AAPPLE-106).
      */
     fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int
 }
@@ -81,6 +83,15 @@ class InMemoryPendingMessageSink : PendingMessageSink {
     private val lock = Any()
     private val entries = mutableListOf<Entry>()
     private val clearGenerations = mutableMapOf<String, Long>()
+
+    // Bumped by clearConversation, per agent and session tag, so a drain only
+    // gives up putting back a message whose own conversation was cleared
+    // meanwhile, not one Clear chat in another conversation never touched.
+    private val conversationClears = mutableMapOf<Pair<String, String>, Long>()
+
+    /** Caller holds [lock]. What a failed send's put-back is checked against. */
+    private fun generationOf(agentAddress: String, rowSessionId: String?): Pair<Long, Long> =
+        (clearGenerations[agentAddress] ?: 0L) to (rowSessionId?.let { conversationClears[agentAddress to it] } ?: 0L)
 
     override fun enqueue(agentAddress: String, sessionId: String?, prompt: String, images: List<String>?, files: List<FileAttachment>?): Boolean {
         val incoming = attachmentBytes(images, files)
@@ -112,12 +123,12 @@ class InMemoryPendingMessageSink : PendingMessageSink {
                         it.sessionId == sessionId || it.sessionId == conversationId)
                 } ?: return
                 entries.remove(entry)
-                entry to (clearGenerations[agentAddress] ?: 0L)
+                entry to generationOf(agentAddress, entry.sessionId)
             }
             val accepted = runCatching { send(next.message) }.getOrDefault(false)
             if (!accepted) {
                 synchronized(lock) {
-                    if ((clearGenerations[agentAddress] ?: 0L) == drainGeneration) entries.add(0, next)
+                    if (generationOf(agentAddress, next.sessionId) == drainGeneration) entries.add(0, next)
                 }
                 return
             }
@@ -141,16 +152,21 @@ class InMemoryPendingMessageSink : PendingMessageSink {
 
     override fun clearConversation(agentAddress: String, sessionId: String?, conversationId: String?) {
         synchronized(lock) {
-            // Bumped as clear() does, so a drain racing this cannot put back a
-            // message it had claimed. A drain only runs for the conversation
-            // connected, which is the one Clear chat clears.
-            clearGenerations[agentAddress] = (clearGenerations[agentAddress] ?: 0L) + 1
+            // So a drain of this conversation racing the clear cannot put back
+            // a message it had claimed. Only this conversation's: Clear chat
+            // may run on one the connection is not on, and the drain in flight
+            // is then another's, whose failed send must still go back.
+            listOfNotNull(sessionId, conversationId).distinct().forEach { tag ->
+                conversationClears[agentAddress to tag] = (conversationClears[agentAddress to tag] ?: 0L) + 1
+            }
             entries.removeAll { it.agentAddress == agentAddress && it.belongsTo(sessionId, conversationId) }
         }
     }
 
     override fun countForConversation(agentAddress: String, sessionId: String?, conversationId: String?): Int =
-        synchronized(lock) { entries.count { it.agentAddress == agentAddress && it.belongsTo(sessionId, conversationId) } }
+        synchronized(lock) {
+            entries.count { it.agentAddress == agentAddress && (it.sessionId == null || it.belongsTo(sessionId, conversationId)) }
+        }
 
     /** Named on [sessionId] or [conversationId]; one with no session named belongs to neither. */
     private fun Entry.belongsTo(sessionId: String?, conversationId: String?): Boolean =

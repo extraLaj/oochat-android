@@ -1904,7 +1904,45 @@ class ConnectionRepositoryImplTest {
         outbox.enqueue("0xAGENT", "conv-1", "two", null)
         outbox.enqueue("0xAGENT", "conv-2", "elsewhere", null)
 
-        assertEquals(2, repo.queuedMessageCount("conv-1"))
-        assertEquals(0, repo.queuedMessageCount("conv-3"))
+        assertEquals(2, repo.queuedMessageCount("0xAGENT", "conv-1"))
+        assertEquals(0, repo.queuedMessageCount("0xAGENT", "conv-3"))
+    }
+
+    @Test
+    fun `the queued count is for the agent asked about, not the one connected`() = runTest(testDispatcher) {
+        // The chat can load another agent's conversation before the
+        // connection moves to it; that agent's outbox is the one that counts.
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.connect("0xAGENT", "conv-1")
+        outbox.enqueue("0xOTHER", "conv-9", "queued for the other agent", null)
+
+        assertEquals(1, repo.queuedMessageCount("0xOTHER", "conv-9"))
+        assertEquals(0, repo.queuedMessageCount("0xAGENT", "conv-9"))
+        repo.disconnect(keepOutbox = true)
+    }
+
+    @Test
+    fun `the connection says when it has finished flushing the outbox`() = runBlocking {
+        // The chat settles "Waiting to send..." bubbles then, by what is left:
+        // a send that bounced has gone back and must keep waiting (W16AAPPLE-106).
+        val outbox = InMemoryPendingMessageSink()
+        val repo = repositoryWithOutbox(outbox)
+        repo.switchConversation("conv-1")
+        repo.sendMessage("typed offline", "0xAGENT", null, null)
+        repo.connect("0xAGENT", "conv-1")
+
+        val flushed = withTimeout(3000L) {
+            val deferred = async { repo.observeEvents().first { it is ChatEvent.OutboxFlushed } }
+            while (deferred.isActive) {
+                factory.lastListener?.onMessage(factory.lastWebSocket!!, """{"type":"CONNECTED","session_id":"conv-1"}""")
+                delay(20)
+            }
+            deferred.await()
+        } as ChatEvent.OutboxFlushed
+
+        assertEquals("conv-1", flushed.conversationId)
+        assertEquals(0, outbox.countForConversation("0xAGENT", null, "conv-1"))
+        repo.disconnect()
     }
 }
