@@ -213,6 +213,14 @@ tests, with the files it changed, and says how the run ended. It keeps updating
 while you watch. You only see the steps the agent's Host describes, never the
 raw commands it ran.
 
+The room also shows the conversation with the coding agent, your messages and its
+replies, under **Conversation**, with any code in a reply set in a fixed-width
+font. Under the task, **Latest view** is the most recent picture of its workspace
+or browser, when the agent's Host has sent one. A long run keeps only its most
+recent part of the conversation. Passwords and keys are hidden, as elsewhere in
+the app, and a reply that is nothing but the coding agent's raw output is replaced
+by a note that the details are in the agent's logs.
+
 To steer the run, type into the field at the bottom of the room and tap Send.
 The message goes to the coding agent itself, not to the agent that started it.
 It leaves the field only once the coding agent has taken it; until then the

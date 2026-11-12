@@ -301,7 +301,11 @@ sealed class ChatItem {
         val elapsedMs: Long? = null,
         /** Orders frames for the same run; an older one never overwrites a newer. */
         val stateRevision: Long? = null,
-        val activities: List<ProviderActivity> = emptyList()
+        val activities: List<ProviderActivity> = emptyList(),
+        /** The conversation with the provider, in the order it arrived (W16AAPPLE-34). */
+        val messages: List<ProviderMessage> = emptyList(),
+        /** The latest picture of the run's workspace or browser, once the Host has sent one. */
+        val artifact: ProviderArtifact? = null
     ) : ChatItem()
 
     /**
@@ -314,6 +318,26 @@ sealed class ChatItem {
         val parentToolCallId: String? = null,
         val provider: String = "",
         val activity: ProviderActivity
+    ) : ChatItem() {
+        override val id: String get() = invocationId
+    }
+
+    /** One `provider_message` frame on its way to its run (W16AAPPLE-34); never shown or saved itself. */
+    data class ProviderMessageUpdate(
+        val invocationId: String,
+        val parentToolCallId: String? = null,
+        val provider: String = "",
+        val message: ProviderMessage
+    ) : ChatItem() {
+        override val id: String get() = invocationId
+    }
+
+    /** One `provider_artifact` frame on its way to its run (W16AAPPLE-34); never shown or saved itself. */
+    data class ProviderArtifactUpdate(
+        val invocationId: String,
+        val parentToolCallId: String? = null,
+        val provider: String = "",
+        val artifact: ProviderArtifact
     ) : ChatItem() {
         override val id: String get() = invocationId
     }
