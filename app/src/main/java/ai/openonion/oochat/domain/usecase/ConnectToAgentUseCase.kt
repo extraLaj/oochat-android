@@ -346,9 +346,12 @@ class ConnectToAgentUseCase(
         return repository?.isConnected() == true
     }
 
-    override suspend fun reset() {
-        repository?.reset()
+    override suspend fun reset(conversationId: String?) {
+        repository?.reset(conversationId)
     }
+
+    override suspend fun queuedMessageCount(agentAddress: String, conversationId: String): Int? =
+        repository?.queuedMessageCount(agentAddress, conversationId)
 
     @Synchronized
     private fun getOrCreateRepository(): ConnectionRepository {

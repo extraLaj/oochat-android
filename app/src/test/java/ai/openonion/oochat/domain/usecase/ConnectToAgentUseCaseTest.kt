@@ -121,8 +121,10 @@ class ConnectToAgentUseCaseTest {
         override fun isConnected(): Boolean = state.value is ConnectionState.Connected
 
         var resetCount = 0
-        override suspend fun reset() {
+        val resetConversations = mutableListOf<String?>()
+        override suspend fun reset(conversationId: String?) {
             resetCount++
+            resetConversations += conversationId
         }
 
         var currentSessionResult: SessionState? = null

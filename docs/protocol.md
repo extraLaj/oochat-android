@@ -889,14 +889,31 @@ turn and gets no such reply.
 | Any other `ERROR` frame | No change. It says nothing about whether the host took this message; the host's own refusal arrives as its own event. |
 | Disconnect / reconnect | `FAILED`. No reply can arrive on a dead socket and whether the host queued it is unknown. |
 
-**After a restart.** Only `FAILED` is saved (`chat_messages.delivery_state`,
-added in database v14). `SENT` and outbox messages come back `SENT`. A message
+**After a restart.** `FAILED` is saved (`chat_messages.delivery_state`, added
+in database v14), and so is a message still in the outbox, as `QUEUED` in the
+same column (W16AAPPLE-106). `SENT` comes back `SENT`. One still in the outbox
+comes back `QUEUED` ("Waiting to send..."), since the outbox survives the restart
+and will still send it. A message
 that was awaiting an answer, or held in memory (behind a running turn, for a
 resend, or after a retryable refusal), comes back `FAILED`, since its delivery
 is unknown or the hold was lost. A new message held behind a running turn is
 saved at the tap for this reason, already `FAILED`, and its row is moved to the
 end of the conversation when it is sent, so it still reloads below the reply it
 waited behind. One gap remains; see the last item under Known gaps below.
+
+**Settling a waiting message.** The screen settles "Waiting to send..." bubbles
+by what the outbox still holds for the conversation
+(`PendingMessageSink.countForConversation`, for the chat's own agent, which may
+not be the one the connection is on yet). The outbox sends oldest first and never
+drops a message, so all but the newest that many have gone: they become `SENT`
+and are saved so. It asks on `Connected`, again when the connection reports the
+flush finished (`OutboxFlushed`, since `Connected` arrives before the flush runs),
+and when a conversation loads while already connected (on relaunch the Loading
+screen connects first, and the outbox goes out then). A send the socket refused
+mid-flush goes back into the outbox, so it and those behind it keep waiting. The
+count includes messages queued before any conversation was named, which would go
+out in whichever conversation connects next: a bubble waits a little longer
+rather than being called sent too soon.
 
 **When this happens at all.** `ChatViewModel.sendWhenTheAgentIsIdle` still holds
 ordinary messages until the running turn ends (see `architecture.md`), so a
@@ -1215,13 +1232,25 @@ the turn, not for the socket.
 The composer stays usable while disconnected, so the outbox is reachable
 (W16AAPPLE-102). With no connection object at all (before the first connect, or
 after one gave up) `ConnectionRepositoryImpl.sendMessage` queues the message for
-the conversation itself. Only a user disconnect (the banner's Stop) empties the
-outbox: replacing the connection (Reconnect) and `ConnectToAgentUseCase`'s
-first-connect timeout (and cancelling the Loading screen) keep it. When Stop
-does empty it, the bubbles this screen queued in this process turn failed rather
-than staying "Waiting to send". The outbox is per agent, though, so Stop also
-drops what other conversations with that agent, or a previous run, queued, and
-those bubbles do not change.
+the conversation itself. Stopping the connection keeps the outbox: the banner's
+Stop, replacing the connection (Reconnect), `ConnectToAgentUseCase`'s
+first-connect timeout and cancelling the Loading screen all leave it alone, so a
+"Waiting to send..." bubble always goes out on the next connect to its
+conversation (W16AAPPLE-106, reversing W16AAPPLE-96's drop on Stop). The outbox
+is per agent but flushes per conversation, so another conversation's queued
+messages wait until it is the one connected. Their rows are saved as queued, so
+they still say "Waiting to send..." when that conversation is opened again, or
+after a restart. Clear chat drops only the cleared conversation's queued
+messages (`PendingMessageSink.clearConversation`), with or without a
+connection, and even if another conversation is open by the time it runs: it
+names the conversation it clears (`reset(conversationId)`). A message queued
+before any conversation was named is left alone, since it may be another's.
+
+The outbox is bounded (`MAX_PENDING_MESSAGES` per agent, and
+`MAX_PENDING_ATTACHMENT_BYTES` of attachments). When it is full a new message is
+refused, not queued, and its send fails, so the bubble offers Retry; nothing
+already queued is dropped to make room. That is what lets a message that is no
+longer in the outbox be taken as sent.
 
 **Known gaps.**
 

@@ -447,14 +447,21 @@ class ConversationHistoryUseCase(
             }
             when (msg.role) {
                 // Failed stays failed, so the bubble and the retry bar still
-                // offer the resend. Everything else comes back sent: in flight
-                // is not a state that survives the process (see saveFailedToSend).
+                // offer the resend. One still in the outbox is still waiting:
+                // the outbox survives the process and sends it on the next
+                // connect (W16AAPPLE-106). Everything else comes back sent: in
+                // flight is not a state that survives the process (see
+                // saveFailedToSend).
                 Role.USER -> ChatItem.User(
                     id = msg.id,
                     content = msg.content,
                     images = msg.images,
                     files = msg.files,
-                    state = if (msg.failedToSend) UserMessageState.FAILED else UserMessageState.SENT
+                    state = when {
+                        msg.failedToSend -> UserMessageState.FAILED
+                        msg.inOutbox -> UserMessageState.QUEUED
+                        else -> UserMessageState.SENT
+                    }
                 )
                 // Turn, not Agent: the live flow renders every assistant
                 // reply as a Turn, and minting the same shape here is what
@@ -601,10 +608,11 @@ class ConversationHistoryUseCase(
      * The caller decides what counts as failed *after a restart*, which is
      * not always the state on screen: a message held in memory or awaiting
      * the host's answer is lost if the process dies, so it is saved as failed
-     * until it is known to have gone.
+     * until it is known to have gone. One [inOutbox] is not lost, and comes
+     * back waiting to send.
      */
-    suspend fun saveFailedToSend(messageId: String, failedToSend: Boolean) {
-        runCatchingCancellable { messageRepository.updateFailedToSend(messageId, failedToSend) }
+    suspend fun saveFailedToSend(messageId: String, failedToSend: Boolean, inOutbox: Boolean = false) {
+        runCatchingCancellable { messageRepository.updateFailedToSend(messageId, failedToSend, inOutbox) }
             .onFailure { e -> FileLogger.e(LogTags.CONV_HISTORY, "saveFailedToSend failed: ${e.message}") }
     }
 
@@ -652,16 +660,24 @@ class ConversationHistoryUseCase(
         return session.id
     }
 
-    /** Wipes the active session's persisted log (used by `clearChat`). */
-    suspend fun clearActiveSession() {
-        val sessionId = _activeSessionId.value ?: return
+    /** Wipes the active session's persisted log. */
+    suspend fun clearActiveSession() = clearSession(_activeSessionId.value)
+
+    /**
+     * Wipes [sessionId]'s persisted log (used by `clearChat`). Named by the
+     * caller rather than read here: Clear chat waits on storage before this
+     * runs, and a conversation opened meanwhile must not be the one wiped
+     * (W16AAPPLE-106).
+     */
+    suspend fun clearSession(sessionId: String?) {
+        if (sessionId == null) return
         runCatchingCancellable {
             messageRepository.deleteMessagesBySession(sessionId)
             sessionRepository.updateMessageInfo(sessionId, 0, null)
         }.onFailure { e -> FileLogger.e(LogTags.CONV_HISTORY, "session clear failed: ${e.message}") }
         // The rows the window pointed into are gone, so there is nothing older
-        // to page back in — leaving the offset would offer a "load earlier"
-        // that returns an empty page forever.
-        resetWindow()
+        // to page back in, and leaving the offset would offer a "load earlier"
+        // that returns an empty page forever. Only if it is still the one shown.
+        if (_activeSessionId.value == sessionId) resetWindow()
     }
 }

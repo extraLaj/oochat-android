@@ -37,7 +37,8 @@ object MessageMapper {
             files = decodeFiles(entity.files),
             itemType = entity.itemType,
             payload = entity.payload,
-            failedToSend = entity.deliveryState == ChatMessageEntity.DELIVERY_FAILED
+            failedToSend = entity.deliveryState == ChatMessageEntity.DELIVERY_FAILED,
+            inOutbox = entity.deliveryState == ChatMessageEntity.DELIVERY_QUEUED
         )
     }
 
@@ -54,13 +55,19 @@ object MessageMapper {
             files = encodeFiles(domain.files),
             itemType = domain.itemType,
             payload = domain.payload,
-            deliveryState = deliveryStateOf(domain.failedToSend)
+            deliveryState = deliveryStateOf(domain.failedToSend, domain.inOutbox)
         )
     }
 
-    /** [ChatMessageEntity.deliveryState] for a message that did or did not get through. */
-    fun deliveryStateOf(failedToSend: Boolean): String? =
-        if (failedToSend) ChatMessageEntity.DELIVERY_FAILED else null
+    /**
+     * [ChatMessageEntity.deliveryState] for a message that did not get through,
+     * is still in the outbox, or went. Failed wins: it is what offers Retry.
+     */
+    fun deliveryStateOf(failedToSend: Boolean, inOutbox: Boolean = false): String? = when {
+        failedToSend -> ChatMessageEntity.DELIVERY_FAILED
+        inOutbox -> ChatMessageEntity.DELIVERY_QUEUED
+        else -> null
+    }
 
     fun toDomainList(entities: List<ChatMessageEntity>): List<ChatMessage> {
         return entities.map { toDomain(it) }

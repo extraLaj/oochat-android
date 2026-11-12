@@ -83,6 +83,9 @@ sealed class ChatEvent {
      * Settles that room's draft, which the ViewModel owns; not a chat item.
      */
     data class ProviderInputAcked(val ack: ProviderInputAck) : ChatEvent()
+
+    /** The connection finished flushing the outbox for [conversationId] (W16AAPPLE-106). */
+    data class OutboxFlushed(val conversationId: String?) : ChatEvent()
 }
 
 /**

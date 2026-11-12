@@ -1,17 +1,19 @@
 package ai.openonion.oochat.ui.chat
 
+import ai.openonion.oochat.data.local.db.entity.ChatMessageEntity
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.Role
 import ai.openonion.oochat.domain.model.UserMessageState
-import ai.openonion.oochat.knownIssue
 import ai.openonion.oochat.testing.FakeOipHost.Companion.string
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,6 +47,18 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
     private fun restoreNetwork() {
         relay.dialFailure = null
         online.tryEmit(true)
+    }
+
+    private fun App.bubble(): ChatItem.User = items.filterIsInstance<ChatItem.User>().single { it.content == queued }
+
+    /** For waiting on: the list can be mid-reload when a condition is checked, and that is not a failure. */
+    private fun App.bubbleState(): UserMessageState? =
+        items.filterIsInstance<ChatItem.User>().singleOrNull { it.content == queued }?.state
+
+    /** What the saved row says: still in the outbox, so it comes back "Waiting to send..." after a restart. */
+    private suspend fun App.savedAsQueued(conversation: String): Boolean = withContext(Dispatchers.IO) {
+        val id = rows(conversation).single { it.role == Role.USER && it.content == queued }.id
+        db.messageDao().getDeliveryStateById(id) == ChatMessageEntity.DELIVERY_QUEUED
     }
 
     private suspend fun App.outboxSize(): Int = withContext(Dispatchers.IO) { db.pendingMessageDao().countForAgent(agent) }
@@ -121,8 +135,8 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
         assertEquals("the message is saved once", listOf(queued), rows.map { it.content })
         val bubbles = second.items.filterIsInstance<ChatItem.User>().filter { it.content == queued }
         assertEquals("and shown once", 1, bubbles.size)
-        // Not checking the bubble's state: after a restart it shows as sent
-        // even before it has gone (W16AAPPLE-106, the test below).
+        pumpUntil("the bubble to stop waiting once it has gone") { second.bubbleState() == UserMessageState.SENT }
+        assertFalse("and saved as gone, not still queued", second.savedAsQueued(conversation))
     }
 
     @Test
@@ -139,8 +153,127 @@ class OfflineQueueRestartTest : RelayResumeTestBase() {
         assertEquals(conversation, second.vm.activeSessionId.value)
         val bubble = second.items.filterIsInstance<ChatItem.User>().single { it.content == queued }
         assertTrue("a message the outbox will still send must not offer Retry", bubble.state != UserMessageState.FAILED)
-        knownIssue("W16AAPPLE-106: after a restart, a message still in the outbox shows as sent, not \"Waiting to send\"") {
-            assertEquals("it has not gone yet, so it should still say so", UserMessageState.QUEUED, bubble.state)
+        // It has not gone yet, so it must still say so (W16AAPPLE-106).
+        assertEquals("not shown as sent before it has gone", UserMessageState.QUEUED, bubble.state)
+    }
+
+    @Test
+    fun `a message still queued after the restart stops waiting once it goes out`() = runBlocking {
+        val (first, conversation) = queueWhileOffline()
+        first.kill()
+
+        restoreNetwork()
+        val second = relaunch()
+        pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
+        pumpFor(5_000L)
+
+        assertEquals("sent exactly once", listOf(queued), relay.inputs.map { it.string("prompt") })
+        assertEquals(listOf(conversation), relay.inputSessions)
+        pumpUntil("the bubble to say it has gone") { second.bubbleState() == UserMessageState.SENT }
+        assertFalse("and saved as gone, so the next launch agrees", second.savedAsQueued(conversation))
+    }
+
+    @Test
+    fun `a message the Loading screen's connect sent stops waiting when the chat opens`() = runBlocking {
+        // On relaunch Loading connects before the chat screen exists, so the
+        // outbox goes out then. The chat joins a connection already Connected
+        // and must still find out the message went (W16AAPPLE-106).
+        val (first, conversation) = queueWhileOffline()
+        first.kill()
+
+        restoreNetwork()
+        val second = App().also { launches += it }
+        // As Loading does; launched, since connect waits for CONNECTED and the
+        // relay only answers while it is pumped.
+        val loading = launch { second.connection.connect(agent, conversation, null, null) }
+        pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
+        pumpUntil("Loading's connect to finish") { loading.isCompleted }
+        pumpFor(1_000L)
+
+        second.vm.connectToAgent(agent)
+        pumpUntil("the saved conversation to load") { second.items.any { it is ChatItem.User && it.content == queued } }
+        pumpUntil("the bubble to say it has gone") { second.bubbleState() == UserMessageState.SENT }
+        assertFalse("and saved as gone, so the next restart agrees", second.savedAsQueued(conversation))
+        assertEquals("sent exactly once", listOf(queued), relay.inputs.map { it.string("prompt") })
+    }
+
+    // -- W16AAPPLE-106: Stop keeps the outbox --------------------------
+
+    @Test
+    fun `Stop keeps a queued message, which goes out on the next connect`() = runBlocking {
+        val (first, conversation) = queueWhileOffline()
+
+        first.vm.disconnect()
+        pumpFor(1_000L)
+
+        assertEquals("Stop must not drop what the bubble says is waiting", 1, first.outboxSize())
+        assertEquals("so the bubble keeps waiting, with no Retry", UserMessageState.QUEUED, first.bubble().state)
+        assertTrue("and is saved as waiting, so a restart agrees", first.savedAsQueued(conversation))
+
+        restoreNetwork()
+        first.vm.connectToAgent(agent)
+        pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
+        pumpFor(5_000L)
+
+        assertEquals("sent exactly once", listOf(queued), relay.inputs.map { it.string("prompt") })
+        assertEquals("on the conversation it was written in", listOf(conversation), relay.inputSessions)
+        pumpUntil("the bubble to say it has gone") { first.bubbleState() == UserMessageState.SENT }
+        assertFalse(first.savedAsQueued(conversation))
+    }
+
+    @Test
+    fun `Stop in another conversation keeps this one's queued message`() = runBlocking {
+        val (first, conversation) = queueWhileOffline()
+        first.vm.startNewSession()
+        pumpUntil("the new conversation to open") {
+            first.vm.activeSessionId.value != conversation && first.items.none { it is ChatItem.User }
         }
+
+        first.vm.disconnect()
+        pumpFor(1_000L)
+        assertEquals("Stop in the other conversation must not drop it", 1, first.outboxSize())
+
+        first.vm.switchToSession(conversation)
+        pumpUntil("the first conversation to load") { first.items.any { it is ChatItem.User && it.content == queued } }
+        assertEquals("its bubble still says it is waiting", UserMessageState.QUEUED, first.bubble().state)
+
+        restoreNetwork()
+        first.vm.connectToAgent(agent)
+        pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
+        pumpFor(5_000L)
+
+        assertEquals("sent exactly once", listOf(queued), relay.inputs.map { it.string("prompt") })
+        assertEquals("on the conversation it was written in", listOf(conversation), relay.inputSessions)
+        pumpUntil("the bubble to say it has gone") { first.bubbleState() == UserMessageState.SENT }
+    }
+
+    @Test
+    fun `Clear chat in another conversation keeps this one's queued message`() = runBlocking {
+        val (first, conversation) = queueWhileOffline()
+        first.vm.startNewSession()
+        pumpUntil("the new conversation to open") {
+            first.vm.activeSessionId.value != conversation && first.items.none { it is ChatItem.User }
+        }
+        val cleared = "Typed in the chat about to be cleared"
+        first.vm.sendMessage(cleared)
+        pumpUntil("that message to reach the outbox too") { runBlocking { first.outboxSize() } == 2 }
+
+        first.vm.clearChat()
+        pumpUntil("the cleared chat's message to leave the outbox") { runBlocking { first.outboxSize() } == 1 }
+        pumpFor(1_000L)
+        assertEquals("only the cleared conversation's message goes", 1, first.outboxSize())
+
+        first.vm.switchToSession(conversation)
+        pumpUntil("the first conversation to load") { first.items.any { it is ChatItem.User && it.content == queued } }
+        assertEquals("its bubble still says it is waiting", UserMessageState.QUEUED, first.bubble().state)
+
+        restoreNetwork()
+        first.vm.connectToAgent(agent)
+        pumpUntil("the queued message to reach the Host") { relay.inputs.isNotEmpty() }
+        pumpFor(5_000L)
+
+        assertEquals("only the kept message goes, once", listOf(queued), relay.inputs.map { it.string("prompt") })
+        assertEquals("on the conversation it was written in", listOf(conversation), relay.inputSessions)
+        pumpUntil("the bubble to say it has gone") { first.bubbleState() == UserMessageState.SENT }
     }
 }

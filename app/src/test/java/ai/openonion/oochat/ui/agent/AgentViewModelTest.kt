@@ -159,7 +159,7 @@ class AgentViewModelTest {
         override suspend fun querySessionStatus() {}
         override suspend fun disconnect(keepOutbox: Boolean) {}
         override fun isConnected() = false
-        override suspend fun reset() {}
+        override suspend fun reset(conversationId: String?) {}
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────
