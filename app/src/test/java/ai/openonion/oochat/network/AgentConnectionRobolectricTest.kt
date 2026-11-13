@@ -10,6 +10,8 @@ import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderPermissionAck
 import ai.openonion.oochat.domain.model.ProviderPermissionChange
+import ai.openonion.oochat.domain.model.ProviderStop
+import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import androidx.test.core.app.ApplicationProvider
@@ -3094,6 +3096,53 @@ class AgentConnectionRobolectricTest {
         assertEquals(
             listOf(ProviderPermissionAck("req-1", "codex:call-1", accepted = false, reason = "stale_revision")),
             events.seen.filterIsInstance<ConnectionEvent.ProviderPermissionAcked>().map { it.ack }
+        )
+    }
+
+    // Scoped Stop (W16AAPPLE-37)
+
+    @Test
+    fun `a Work Room Stop goes out as a signed PROVIDER_INTERRUPT in the Host's shape`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        assertTrue(connection.sendProviderStop(ProviderStop("codex:call-1", 4, "req-1")))
+
+        val sent = factory.lastWebSocket!!.sentMessages.single()
+        assertEquals("fake-signature", Json.parseToJsonElement(sent).jsonObject.getValue("signature").jsonPrimitive.content)
+        val command = signedCommand(sent)
+        assertEquals("PROVIDER_INTERRUPT", command.getValue("type").jsonPrimitive.content)
+        assertEquals("codex:call-1", command.getValue("invocationId").jsonPrimitive.content)
+        assertEquals(4L, command.getValue("stateRevision").jsonPrimitive.long)
+        assertEquals("req-1", command.getValue("requestId").jsonPrimitive.content)
+        assertTrue("never the outer INTERRUPT, which would end the agent's turn", sent.contains("\"PROVIDER_INTERRUPT\""))
+    }
+
+    @Test
+    fun `no Work Room Stop goes out before the connection is ready, and none is queued`() = runTest {
+        connection.connect("0xAGENT")
+
+        assertFalse(connection.sendProviderStop(ProviderStop("codex:call-1", 4, "req-1")))
+        simulateConnected()
+        assertTrue(factory.lastWebSocket!!.sentMessages.none { it.contains("PROVIDER_INTERRUPT") })
+    }
+
+    @Test
+    fun `the Host's answer to a Work Room Stop is passed on`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"PROVIDER_INTERRUPT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":true,"stateRevision":4}"""
+        )
+        withContext(Dispatchers.Default) { events.awaitDrained() }
+
+        assertEquals(
+            listOf(ProviderStopAck("req-1", "codex:call-1", accepted = true, stateRevision = 4)),
+            events.seen.filterIsInstance<ConnectionEvent.ProviderStopAcked>().map { it.ack }
         )
     }
 

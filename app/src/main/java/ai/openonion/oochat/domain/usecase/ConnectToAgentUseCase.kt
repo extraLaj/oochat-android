@@ -16,6 +16,7 @@ import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderPermissionChange
+import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -285,6 +286,9 @@ class ConnectToAgentUseCase(
 
     override suspend fun sendProviderInput(input: ProviderInput): Boolean =
         getOrCreateRepository().sendProviderInput(input)
+
+    override suspend fun sendProviderStop(stop: ProviderStop): Boolean =
+        getOrCreateRepository().sendProviderStop(stop)
 
     override suspend fun sendProviderPermissionChange(change: ProviderPermissionChange): Boolean =
         getOrCreateRepository().sendProviderPermissionChange(change)

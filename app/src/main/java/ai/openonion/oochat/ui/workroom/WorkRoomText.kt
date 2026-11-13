@@ -130,6 +130,44 @@ internal object WorkRoomText {
         else -> "The agent did not make that change."
     }
 
+    // Scoped Stop (W16AAPPLE-37). Always "this run", so it never reads as the
+    // chat's Stop, which ends the agent's whole turn.
+
+    fun stopTitle(run: ChatItem.ProviderInvocation): String = "Stop this ${providerName(run)} run?"
+
+    fun stopBody(run: ChatItem.ProviderInvocation): String =
+        "Only this Work Room stops. The agent keeps going with the rest of its turn, " +
+            "and ${providerName(run)} keeps the changes it has already made."
+
+    /** How long the confirmation stays open. */
+    fun stopCountdown(seconds: Int): String = if (seconds == 1) "Closes in 1 second" else "Closes in $seconds seconds"
+
+    const val STOP = "Stop run"
+
+    const val STOP_CONFIRM = "Stop"
+
+    const val STOP_KEEP = "Keep running"
+
+    const val STOP_SENDING = "Stopping…"
+
+    const val STOP_NOT_READY = "This run cannot be stopped from here yet."
+
+    const val STOP_NOT_CONNECTED = "Not connected to the agent, so Stop was not sent."
+
+    const val STOP_NO_ANSWER = "No answer from the agent. Check whether the run is still working before stopping it again."
+
+    /**
+     * A refusal, by the Host's reason (connectonion `network/host/ws_router/session.py`,
+     * `network/io/websocket.py` `request_provider_interrupt`). Never the code itself.
+     */
+    fun stopRefused(reason: String?): String = when (reason) {
+        "state_changed", "state_unconfirmed", "invalid_revision" ->
+            "The run moved on before Stop reached it. Check where it is now, then stop it again."
+        "not_active" -> "This run is no longer running, so there was nothing to stop."
+        "invalid_request" -> "The agent could not read that Stop."
+        else -> "The agent did not stop this run."
+    }
+
     fun approvalTitle(approval: WorkRoomApproval): String =
         approval.presentation?.action ?: "${providerName(approval.provider)} asks for approval"
 

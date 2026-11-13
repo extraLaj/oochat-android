@@ -16,6 +16,7 @@ import ai.openonion.oochat.data.protocol.OnboardSubmitPayload
 import ai.openonion.oochat.data.protocol.PlanReviewResponse
 import ai.openonion.oochat.data.protocol.PongMessage
 import ai.openonion.oochat.data.protocol.ProviderInputMessage
+import ai.openonion.oochat.data.protocol.ProviderInterruptMessage
 import ai.openonion.oochat.data.protocol.ProviderPermissionChangeMessage
 import ai.openonion.oochat.data.protocol.RemReadMessage
 import ai.openonion.oochat.data.protocol.SessionState
@@ -28,6 +29,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderPermissionChange
+import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.domain.usecase.StaleSessionDetector
@@ -1099,6 +1101,30 @@ class AgentConnection(
             LogTags.AGENT_CONN,
             "PROVIDER_PERMISSION_CHANGE -> request_id=${change.requestId.take(8)} " +
                 "revision=${change.stateRevision} option=${change.optionId} confirmRisk=${change.confirmRisk}"
+        )
+        return socket.send(frame)
+    }
+
+    /**
+     * Send a Work Room's scoped Stop (W16AAPPLE-37) as a signed
+     * `PROVIDER_INTERRUPT`. True only when the frame went out on a connection
+     * that has finished CONNECT; whether the Host took it is the
+     * `PROVIDER_INTERRUPT_ACK` with the same request id, passed up as
+     * [ConnectionEvent.ProviderStopAcked]. Never queued: a Stop is bound to
+     * the run as the user saw it, which a queued one could outlive.
+     */
+    fun sendProviderStop(stop: ProviderStop): Boolean {
+        val socket = webSocket?.takeIf { isConnectionReady } ?: return false
+        val frame = signedCommand(
+            ProviderInterruptMessage(
+                invocationId = stop.invocationId,
+                stateRevision = stop.stateRevision,
+                requestId = stop.requestId
+            )
+        ) ?: return false
+        FileLogger.i(
+            LogTags.AGENT_CONN,
+            "PROVIDER_INTERRUPT -> request_id=${stop.requestId.take(8)} revision=${stop.stateRevision}"
         )
         return socket.send(frame)
     }
@@ -2177,6 +2203,15 @@ class AgentConnection(
                     FileLogger.i(
                         LogTags.AGENT_CONN,
                         "PROVIDER_PERMISSION_ACK <- request_id=${ack.requestId.take(8)} " +
+                            if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
+                    )
+                    _events.tryEmit(event)
+                }
+                is ConnectionEvent.ProviderStopAcked -> {
+                    val ack = event.ack
+                    FileLogger.i(
+                        LogTags.AGENT_CONN,
+                        "PROVIDER_INTERRUPT_ACK <- request_id=${ack.requestId.take(8)} " +
                             if (ack.accepted) "accepted" else "refused (${ack.reason ?: "<no reason>"})"
                     )
                     _events.tryEmit(event)
