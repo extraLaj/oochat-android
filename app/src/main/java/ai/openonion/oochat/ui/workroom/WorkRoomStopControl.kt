@@ -81,6 +81,8 @@ private fun StopButton(label: String, enabled: Boolean, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
+        // The theme's shape, as the Work Room approval card's buttons, not Material's pill.
+        shape = MaterialTheme.shapes.small,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
     ) {
         Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -129,6 +131,7 @@ private fun StopConfirmation(run: ChatItem.ProviderInvocation, onConfirm: () -> 
                 TextButton(onClick = onCancel) { Text(WorkRoomText.STOP_KEEP) }
                 Button(
                     onClick = onConfirm,
+                    shape = MaterialTheme.shapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
