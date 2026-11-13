@@ -10,6 +10,9 @@ import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
@@ -146,6 +149,22 @@ class ControlCenterChatItemsTest {
             json("""{"id":"shot-1","kind":"screenshot","stateRevision":3,"thumbnailDataUrl":"data:image/png;base64,AAAA","alt":"Browser view"}"""),
             sent["artifact"]
         )
+    }
+
+    @Test
+    fun `a run goes out with who holds it, as the Host nests its session, and none when it has no state`() {
+        val held = ChatItem.ProviderInvocation(
+            id = "claude_code:call-1",
+            provider = "claude_code",
+            control = ProviderControl(ProviderControlOwner.TERMINAL, ProviderControlPhase.HANDOVER_TO_LOCAL, 6)
+        )
+
+        val sent = one(held)
+
+        assertEquals(JsonPrimitive("terminal"), sent["controlOwner"])
+        assertEquals(JsonPrimitive("handover_to_local"), sent["controlPhase"])
+        assertEquals(JsonPrimitive(6), sent["controlRevision"])
+        assertEquals(null, one(held.copy(control = null))["controlPhase"])
     }
 
     @Test

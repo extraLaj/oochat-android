@@ -170,6 +170,12 @@ object ControlCenterChatItems {
                         }
                     )
                 }
+                // The state the Host last confirmed, nested as ui.py nests a `provider_session` (W16AAPPLE-40).
+                item.control?.let { control ->
+                    put("controlOwner", control.owner.name.lowercase())
+                    put("controlPhase", control.phase.name.lowercase())
+                    put("controlRevision", control.revision)
+                }
                 // Only a picture of the run as it stands, as ui.py nests it.
                 item.artifact?.takeIf { it.stateRevision == item.stateRevision }?.let { artifact ->
                     put(
@@ -187,7 +193,8 @@ object ControlCenterChatItems {
         )
         is ChatItem.OnboardingFailed, is ChatItem.PlanReviewItem, is ChatItem.UlwTurnsReachedItem,
         is ChatItem.DiffPreviewItem, is ChatItem.ModeChangedItem, is ChatItem.ProviderActivityUpdate,
-        is ChatItem.ProviderMessageUpdate, is ChatItem.ProviderArtifactUpdate -> emptyList()
+        is ChatItem.ProviderMessageUpdate, is ChatItem.ProviderArtifactUpdate,
+        is ChatItem.ProviderSessionUpdate -> emptyList()
     }
 
     /** A `provider_activity` step as ui.py `_nested_provider_activity` nests it. */

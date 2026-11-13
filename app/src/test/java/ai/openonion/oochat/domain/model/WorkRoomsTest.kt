@@ -218,6 +218,17 @@ class WorkRoomsTest {
             artifact = ProviderArtifact(id, image, "Latest provider workspace view", revision)
         )
 
+    private fun held(
+        phase: ProviderControlPhase,
+        revision: Long,
+        owner: ProviderControlOwner = ProviderControlOwner.BROWSER
+    ) = ChatItem.ProviderSessionUpdate(
+        invocationId = "codex:call-1",
+        parentToolCallId = "call-1",
+        provider = "claude_code",
+        control = ProviderControl(owner, phase, revision)
+    )
+
     private fun cardOf(result: ReduceResult) =
         result.chatItems.single { it is ChatItem.ProviderInvocation } as ChatItem.ProviderInvocation
 
@@ -411,5 +422,78 @@ class WorkRoomsTest {
             "codex:read-only",
             (changed.chatItems.single { it is ChatItem.ProviderInvocation } as ChatItem.ProviderInvocation).providerPermission?.activeOptionId
         )
+    }
+
+    // ── control state (W16AAPPLE-40) ──────────────────────────────────
+
+    @Test
+    fun `a session frame sets the run's control state and nothing else about the run`() {
+        val onScreen = reduce(listOf(user), run()).chatItems
+
+        val result = reduce(onScreen, held(ProviderControlPhase.HANDOVER_TO_REMOTE, revision = 2))
+
+        assertEquals(
+            ProviderControl(ProviderControlOwner.BROWSER, ProviderControlPhase.HANDOVER_TO_REMOTE, 2),
+            cardOf(result).control
+        )
+        assertEquals(run().copy(control = cardOf(result).control), cardOf(result))
+        assertEquals(cardOf(result), result.itemToPersist)
+    }
+
+    @Test
+    fun `a handover is not taken for done until the Host says so, and a later revision replaces an earlier`() {
+        val starting = reduce(reduce(listOf(user), run()).chatItems, held(ProviderControlPhase.HANDOVER_TO_REMOTE, 2))
+        val confirmed = reduce(starting.chatItems, held(ProviderControlPhase.REMOTE_CONTROLLING, 3))
+
+        assertEquals(ProviderControlPhase.HANDOVER_TO_REMOTE, cardOf(starting).control?.phase)
+        assertEquals(ProviderControlPhase.REMOTE_CONTROLLING, cardOf(confirmed).control?.phase)
+    }
+
+    @Test
+    fun `an older control revision never replaces a newer, and an equal one does`() {
+        val onScreen = reduce(reduce(listOf(user), run()).chatItems, held(ProviderControlPhase.REMOTE_CONTROLLING, 5)).chatItems
+
+        val older = reduce(onScreen, held(ProviderControlPhase.HANDOVER_TO_REMOTE, 4))
+        val equal = reduce(onScreen, held(ProviderControlPhase.FAILED, 5))
+
+        assertEquals(onScreen, older.chatItems)
+        assertNull(older.itemToPersist)
+        assertEquals(ProviderControlPhase.FAILED, cardOf(equal).control?.phase)
+    }
+
+    @Test
+    fun `a session frame that arrives before its run starts the card, in the place of the tool card`() {
+        val result = reduce(listOf(user, parentCard), held(ProviderControlPhase.LOCAL_OBSERVING, 1, ProviderControlOwner.TERMINAL))
+
+        assertEquals(listOf("u-1", "codex:call-1"), result.chatItems.map { it.id })
+        assertEquals(ProviderControlOwner.TERMINAL, cardOf(result).control?.owner)
+    }
+
+    @Test
+    fun `a later run frame keeps the control state, and one that carries an older does not replace it`() {
+        val held = reduce(reduce(listOf(user), run()).chatItems, held(ProviderControlPhase.REMOTE_CONTROLLING, 5)).chatItems
+
+        val finished = reduce(held, run(revision = 4, status = ProviderInvocationStatus.COMPLETED))
+        val replayOlder = reduce(
+            finished.chatItems,
+            run(revision = 5).copy(control = ProviderControl(ProviderControlOwner.TERMINAL, ProviderControlPhase.LOCAL_OBSERVING, 2))
+        )
+        val replayNewer = reduce(
+            finished.chatItems,
+            run(revision = 6).copy(control = ProviderControl(ProviderControlOwner.TERMINAL, ProviderControlPhase.COMPLETED, 7))
+        )
+
+        assertEquals(ProviderControlPhase.REMOTE_CONTROLLING, cardOf(finished).control?.phase)
+        assertEquals(ProviderControlPhase.REMOTE_CONTROLLING, cardOf(replayOlder).control?.phase)
+        assertEquals(ProviderControlPhase.COMPLETED, cardOf(replayNewer).control?.phase)
+    }
+
+    @Test
+    fun `a session frame is never a list item of its own`() {
+        val onScreen = reduce(listOf(user), run()).chatItems
+
+        val result = reduce(onScreen, held(ProviderControlPhase.LOCAL_STARTING, 1, ProviderControlOwner.TERMINAL))
+
+        assertTrue(result.chatItems.none { it is ChatItem.ProviderSessionUpdate })
     }
 }

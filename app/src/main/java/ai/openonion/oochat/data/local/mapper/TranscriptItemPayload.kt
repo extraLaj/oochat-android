@@ -10,6 +10,9 @@ import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
@@ -216,6 +219,7 @@ sealed class TranscriptItemPayload {
         val activities: List<Step> = emptyList(),
         val messages: List<Message> = emptyList(),
         val artifact: Artifact? = null,
+        val control: Control? = null,
         val providerPermission: Permission? = null
     ) : TranscriptItemPayload() {
         /** The run's provider permission mode as last confirmed by the Host (W16AAPPLE-43). */
@@ -264,6 +268,14 @@ sealed class TranscriptItemPayload {
             val dataUrl: String,
             val alt: String,
             val stateRevision: Long
+        )
+
+        /** Who holds the session and how the handover stands, as the Host last confirmed it (W16AAPPLE-40). */
+        @Serializable
+        data class Control(
+            val owner: String,
+            val phase: String,
+            val revision: Long
         )
     }
 }
@@ -471,6 +483,13 @@ object TranscriptItemCodec {
                     alt = it.alt,
                     stateRevision = it.stateRevision
                 )
+            },
+            control = item.control?.let {
+                TranscriptItemPayload.ProviderInvocation.Control(
+                    owner = it.owner.name,
+                    phase = it.phase.name,
+                    revision = it.revision
+                )
             }
         )
         else -> null
@@ -631,6 +650,14 @@ object TranscriptItemCodec {
             },
             artifact = payload.artifact?.let {
                 ProviderArtifact(id = it.id, dataUrl = it.dataUrl, alt = it.alt, stateRevision = it.stateRevision)
+            },
+            // An owner or phase this build does not know comes back as no state, never as another one.
+            control = payload.control?.let {
+                ProviderControl(
+                    owner = runCatching { enumValueOf<ProviderControlOwner>(it.owner) }.getOrNull() ?: return@let null,
+                    phase = runCatching { enumValueOf<ProviderControlPhase>(it.phase) }.getOrNull() ?: return@let null,
+                    revision = it.revision
+                )
             }
         )
     }
