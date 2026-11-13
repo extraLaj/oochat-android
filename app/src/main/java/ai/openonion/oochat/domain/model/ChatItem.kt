@@ -306,6 +306,8 @@ sealed class ChatItem {
         val messages: List<ProviderMessage> = emptyList(),
         /** The latest picture of the run's workspace or browser, once the Host has sent one. */
         val artifact: ProviderArtifact? = null,
+        /** Who holds a Claude Code session and how the handover stands, as the Host confirmed it (W16AAPPLE-40). */
+        val control: ProviderControl? = null,
         /** The run's own permission mode and choices (W16AAPPLE-43); null when the Host offers none. */
         val providerPermission: ProviderPermissionState? = null
     ) : ChatItem()
@@ -340,6 +342,16 @@ sealed class ChatItem {
         val parentToolCallId: String? = null,
         val provider: String = "",
         val artifact: ProviderArtifact
+    ) : ChatItem() {
+        override val id: String get() = invocationId
+    }
+
+    /** One `provider_session` frame on its way to its run (W16AAPPLE-40); never shown or saved itself. */
+    data class ProviderSessionUpdate(
+        val invocationId: String,
+        val parentToolCallId: String? = null,
+        val provider: String = "",
+        val control: ProviderControl
     ) : ChatItem() {
         override val id: String get() = invocationId
     }

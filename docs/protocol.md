@@ -70,7 +70,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `provider_activity` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_message` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
 | `provider_artifact` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt) |
-| `provider_session` | Not yet: ignored as unknown frames (W16AAPPLE-40) | - |
+| `provider_session` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`WorkRoomsTest`](../app/src/test/java/ai/openonion/oochat/domain/model/WorkRoomsTest.kt), [`WorkRoomComposeTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomComposeTest.kt); shows who holds a Claude Code session, and only a state the Host confirmed |
 | `PROVIDER_PERMISSION_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomPermissionsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomPermissionsTest.kt); settles the permission control, and only `accepted: true` is an acceptance |
 | `PROVIDER_INTERRUPT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`WorkRoomStopsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomStopsTest.kt); settles the Stop, and only `accepted: true` is an acceptance; the run's own `cancelled` frame says it stopped |
 | `PROVIDER_INPUT_ACK` | Supported | [`ProtocolParserWorkRoomTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserWorkRoomTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt), [`WorkRoomInputsTest`](../app/src/test/java/ai/openonion/oochat/ui/workroom/WorkRoomInputsTest.kt); clears a Work Room draft only when `accepted` is `true` |
@@ -1463,10 +1463,11 @@ as `plugins/coding_agents.py`, `useful_tools/codex.py` and
 
 | Frame | Fields read | Effect |
 |---|---|---|
-| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision`, `providerPermission` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
+| `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision`, `providerPermission`, `controlOwner`, `controlPhase`, `controlRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
 | `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
 | `provider_message` | `invocationId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
 | `provider_artifact` | `invocationId`, `artifactId`, `kind`, `stateRevision`, `thumbnailDataUrl`, `alt` | The run's latest picture, in its card. `kind` is `screenshot`; the picture is an inline PNG or JPEG. |
+| `provider_session` | `invocationId`, `parentToolCallId`, `provider`, `owner`, `phase`, `stateRevision` | Who holds a Claude Code session and how a handover between the terminal and the app stands, on the run's card. See Handover states below. |
 | `tool_call` / `tool_result` carrying `invocationId` | `tool_id`, `status` | A step from a Host that sends no `provider_activity` for it, after the native steps, under the Host's generic title "Use a provider tool". Its `name` is not shown: for Codex it is the raw command or file path. |
 
 They are folded (`WorkRooms`, through `ChatEventReducer`) the way the Host
@@ -1513,8 +1514,8 @@ card.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.
-Its approvals, messages, pictures, permission mode and Stop are below. The local
-and remote handover states are W16AAPPLE-40.
+Its approvals, messages, pictures, permission mode, Stop and the handover states of
+a Claude Code session are below.
 
 ### Messages and pictures in a Work Room
 
@@ -1552,7 +1553,10 @@ reads as having none, and a saved message whose role this build does not know is
 left out rather than shown as someone else's.
 
 The room shows the picture under the task (**Latest view**, at its own
-proportions, described to TalkBack by the approved `alt`) and the conversation
+proportions, described to TalkBack by the approved `alt`), but only while the
+picture is of the run as it stands: its `stateRevision` equals the run's, as in
+the Host's own replay (`_nest_provider_invocations`), so a picture the run has
+moved past is not shown as current. It shows the conversation
 above the steps. Each message is one item for TalkBack, the speaker then the
 words. The text is drawn as Markdown so a reply's code blocks are monospace,
 with links left inert. It goes through `SensitiveText.messageText` on its way to
@@ -1560,7 +1564,48 @@ the screen: secrets and home paths are masked, and a message that is itself a ra
 provider payload (it begins with a JSON object or array, a stack trace or an
 error page) is replaced by the standard "details are in the agent's logs" line,
 while a snippet quoted inside a reply is kept, since code is what the user came
-to read. The Control Center app receives neither.
+to read. The Control Center app receives the conversation as `messages`
+(`id`, `role`, `text`) and the picture as `artifact` (`id`, `kind`,
+`stateRevision`, `thumbnailDataUrl`, `alt`), in the Host's nested shape, the
+picture only while it matches the run's `stateRevision`.
+
+### Handover states of a Claude Code session
+
+A Claude Code session started in a terminal on the Host (`co ai`, connectonion
+`cli/co_ai/claude_station.py`) can be handed to the app and back. The Host says
+where it stands with `provider_session` (`core/provider_events.py`
+`provider_session_event`), and a replayed `provider_invocation` carries the
+latest as `controlOwner`, `controlPhase` and `controlRevision`
+(`_nest_provider_invocations`). `ProviderFrames` reads both as strictly as the
+Host writes them: an `owner` that is not `terminal` or `browser`, a `phase` that
+is not one of the seven below, or a revision that is not positive makes the
+frame nothing (its trace `id` still moves the replay cursor), and on a replayed
+run costs only the state, never the run.
+
+| `phase` | Shown | Detail in the room |
+|---|---|---|
+| `local_starting` | Starting in the terminal | |
+| `local_observing` | Running in the terminal. This app is watching. | The terminal still has control. |
+| `handover_to_remote` | Handing over to a remote client. Not confirmed yet. | Control has not moved yet; the Host will confirm it or report the failure. |
+| `remote_controlling` | Controlled remotely (this app or the web) | The Host confirmed that a remote client has control. It does not say whether that is this app or the web. |
+| `handover_to_local` | Handing back to the terminal. Not confirmed yet. | Control has not returned yet. |
+| `completed` | Session completed | |
+| `failed` | Session failed (also in the error colour) | The Host reported that the session did not complete. |
+
+The app never infers a state. Only what the Host sent is shown, so "Controlled remotely
+(this app or the web)" appears only for the Host's own `remote_controlling`. It
+does not say which client, because the Host's `browser` owner means any remote
+client. A handover under way says it has not happened. A state with the highest `stateRevision`
+wins: an older one never replaces a newer, an equal one does, as the Host's own
+fold does. The wording follows the phase, not the `owner`, which the Host derives
+from the phase and which still reads `browser` while control is handed back. The
+state is kept by later `provider_invocation` frames that leave it out, saved
+with the card (`TranscriptItemPayload.ProviderInvocation.control`, where a value
+this build does not know reads as no state), and sent to the Control Center app
+as `controlOwner`, `controlPhase` and `controlRevision`.
+
+The app shows the state; it does not yet take or release control
+(`PROVIDER_CONTROL`).
 
 ### Approvals in a Work Room
 
