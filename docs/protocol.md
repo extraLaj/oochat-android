@@ -94,7 +94,7 @@ The authoritative ConnectOnion OIP implementation reference is the
 | `mode_budget_changed` | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt) |
 | `RUNTIME_INPUT_ACK` | Supported | [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `OUTPUT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
-| `EXEC_RESULT` | Supported | [`ProtocolParserExecTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserExecTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
+| `EXEC_RESULT` | Supported | [`ProtocolParserExecTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserExecTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ExecErrorFramesTest`](../app/src/test/java/ai/openonion/oochat/ui/chat/ExecErrorFramesTest.kt) |
 | `WIKI_RESULT` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`RemNotebookTest`](../app/src/test/java/ai/openonion/oochat/domain/model/RemNotebookTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt) |
 | `ERROR` | Supported | [`ProtocolParserTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserTest.kt), [`ProtocolParserVersionRejectionTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserVersionRejectionTest.kt), [`ProtocolParserRuntimeInputTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserRuntimeInputTest.kt) |
 | `SESSION_STATUS` response | Supported | [`ProtocolParserStatusEventsTest`](../app/src/test/java/ai/openonion/oochat/network/ProtocolParserStatusEventsTest.kt), [`AgentConnectionRobolectricTest`](../app/src/test/java/ai/openonion/oochat/network/AgentConnectionRobolectricTest.kt), [`ConnectionRepositoryImplTest`](../app/src/test/java/ai/openonion/oochat/data/repository/ConnectionRepositoryImplTest.kt) |
@@ -514,8 +514,19 @@ waiting EXEC card at once instead of leaving it to time out:
   socket it means the Host lost the session, so the client reconnects
   ([below](#when-a-reconnect-fails)). Nothing is sent again by itself.
 
-Any other refusal, such as a signed-command `unauthorized: …`, could belong to
-an `INPUT` instead, so a waiting EXEC is left to its timeout.
+A refusal from the Host's signed-command gate (`unauthorized: ...`,
+`forbidden: ...`, `misconfigured: ...`, from `host/auth.py` via
+`ws_router/session.py`) names no command either, and could belong to an `INPUT`.
+The Host checks each signed command before it reads the next frame, so the
+client pins it on an EXEC only when it can only be that one: of the EXECs sent
+since the last other signed command, exactly one is still waiting. That card
+shows the refusal as its error at once, and no chat error repeats it. With a
+chat message sent after the EXEC, or two EXECs still waiting, the EXEC is left
+to its own answer or its timeout (W16AAPPLE-101).
+
+An `EXEC_RESULT` that arrives after its wait timed out is not dropped: a card
+still showing "Unknown result" takes it (`ConnectionEvent.LateExecResult`). A
+card that already has an answer keeps it.
 
 ### `WIKI_READ` — `RemReadMessage` (Rem)
 
@@ -738,6 +749,17 @@ An error result has this form:
   "duration_ms": 18.0
 }
 ```
+
+The Host sends it in four shapes, all shown the same way, as an error with the
+Host's own `error` text (W16AAPPLE-101, `ExecErrorFramesTest` against a
+simulated Host):
+
+| Cause | `tool` | `duration_ms` | `error` starts |
+|---|---|---|---|
+| No tool named (`ws_router/exec.py`) | absent | absent | `tool required` |
+| Caller not allowed, tool not whitelisted, unknown tool (`host/server.py`, `host/http_router.py`) | present | absent | `forbidden: ...`, `blocked: ...`, `unknown tool ...` |
+| The tool raised (`host/http_router.py`) | present | present | the exception's type, e.g. `CalledProcessError: ...` |
+| The handler itself failed (`ws_router/exec.py`) | present | absent | the exception's type |
 
 The parser accepts a success only when `result` is present and accepts an
 error only when `error` is present. Frames with a missing `exec_id`, missing

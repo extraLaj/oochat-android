@@ -1108,6 +1108,13 @@ sealed class ConnectionEvent {
     ) : ConnectionEvent()
 
     /**
+     * Not a frame: an EXEC_RESULT that came when nobody was waiting for it any
+     * more, usually because the wait timed out. The card that gave up on it is
+     * told what the Host said after all (W16AAPPLE-101).
+     */
+    data class LateExecResult(val execId: String, val outcome: ai.openonion.oochat.domain.model.ExecOutcome) : ConnectionEvent()
+
+    /**
      * A `WIKI_RESULT`: the Host's answer to the Rem read with [requestId].
      * [html] is the whole reader page and stays inside the network layer,
      * which turns it into a [ai.openonion.oochat.domain.model.RemOutcome].

@@ -258,6 +258,7 @@ object ChatEventReducer {
             // A Work Room permission control's request, settled by the ViewModel.
             is ChatEvent.ProviderPermissionAcked -> ReduceResult(current)
             is ChatEvent.OutboxFlushed -> ReduceResult(current)
+            is ChatEvent.ExecResultArrived -> ReduceResult(current)
 
             is ChatEvent.ConnectionErrorOccurred -> {
                 // Attach to whichever Turn/Thinking bubble was in flight —

@@ -3500,6 +3500,36 @@ class AgentConnectionRobolectricTest {
         assertEquals(ExecOutcome.Success("second result"), second.await())
     }
 
+    // -- W16AAPPLE-101: an answer that comes after the wait ended ---------
+
+    @Test
+    fun `an EXEC_RESULT after the timeout is passed on rather than dropped`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        val events = collectEvents()
+
+        val outcome = connection.executeTool(
+            execId = "exec-slow",
+            tool = "shell",
+            args = Json.parseToJsonElement("""{"command":"sleep 200"}""").jsonObject,
+            recipient = "0xAGENT",
+            timeoutMs = 50
+        )
+        assertTrue("test setup: the wait ended first: $outcome", outcome is ExecOutcome.Unknown)
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"EXEC_RESULT","exec_id":"exec-slow","tool":"shell","status":"error","error":"Timeout: killed","duration_ms":200000}"""
+        )
+
+        withContext(Dispatchers.Default) {
+            events.await("the late result to be passed on") { seen -> seen.any { it is ConnectionEvent.LateExecResult } }
+        }
+        val late = events.seen.filterIsInstance<ConnectionEvent.LateExecResult>().single()
+        assertEquals("exec-slow", late.execId)
+        assertEquals(ExecOutcome.Error("Timeout: killed", durationMs = 200000.0), late.outcome)
+    }
+
     // ── W16AAPPLE-90: signing with the server's time ───────────────────
 
     /** A 101 whose `Date` reads [serverMillis], as the Host (uvicorn) and the relay both send. */

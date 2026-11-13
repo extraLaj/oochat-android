@@ -1180,6 +1180,11 @@ open class ChatViewModel @JvmOverloads constructor(
                         workRoomPermissions.onAck(event.ack)
                         return@collect
                     }
+                    // An EXEC's answer after its card gave up waiting (W16AAPPLE-101).
+                    if (event is ChatEvent.ExecResultArrived) {
+                        completeLateExec(event.execId, event.outcome)
+                        return@collect
+                    }
                     // What the outbox still holds is now final (W16AAPPLE-106).
                     if (event is ChatEvent.OutboxFlushed) {
                         if (event.conversationId == null || event.conversationId == activeSessionId.value) settleOutboxedMessages()
@@ -3339,6 +3344,19 @@ open class ChatViewModel @JvmOverloads constructor(
         _execItems.update { items ->
             items.map { item ->
                 if (item.execId == execId) item.copy(outcome = outcome) else item
+            }
+        }
+    }
+
+    /**
+     * The Host's answer to an EXEC whose card stopped waiting for it. Only a
+     * card left at "Unknown result" takes it: one that already has an answer
+     * keeps it (W16AAPPLE-101).
+     */
+    private fun completeLateExec(execId: String, outcome: ExecOutcome) {
+        _execItems.update { items ->
+            items.map { item ->
+                if (item.execId == execId && item.outcome is ExecOutcome.Unknown) item.copy(outcome = outcome) else item
             }
         }
     }

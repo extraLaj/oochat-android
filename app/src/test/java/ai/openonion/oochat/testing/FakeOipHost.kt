@@ -69,6 +69,9 @@ open class FakeOipHost : WebSocketFactory {
     val sockets = CopyOnWriteArrayList<FakeOipSocket>()
     val connects = CopyOnWriteArrayList<JsonObject>()
     val inputs = CopyOnWriteArrayList<JsonObject>()
+
+    /** Every EXEC the app sent, in order. The test answers each as the Host would ([reply]). */
+    val execs = CopyOnWriteArrayList<JsonObject>()
     val statusQueries = CopyOnWriteArrayList<JsonObject>()
     private val answered = mutableSetOf<String>()
 
@@ -116,6 +119,9 @@ open class FakeOipHost : WebSocketFactory {
                 turnEvents.clear()
                 running = true
             }
+            // Recorded, not answered: each test sends the Host's own reply,
+            // EXEC_RESULT or a plain ERROR (ws_router/exec.py, session.py).
+            "EXEC" -> execs += frame
             // Answered on any live connection, as session.py does, and only from the sessions held in
             // memory: one that has run no turn since the Host started is not_found there, whatever
             // CONNECTED said about it.
@@ -157,6 +163,11 @@ open class FakeOipHost : WebSocketFactory {
     /** The agent emits [frame]: buffered for replay, forwarded if anyone is attached. */
     fun emit(frame: String) {
         turnEvents += frame
+        live?.let { deliver(it, frame) }
+    }
+
+    /** A frame the Host sends in answer to one command: not a turn event, so not buffered for replay. */
+    fun reply(frame: String) {
         live?.let { deliver(it, frame) }
     }
 

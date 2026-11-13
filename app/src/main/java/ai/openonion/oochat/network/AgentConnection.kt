@@ -149,6 +149,15 @@ class AgentConnection(
     private val pendingExecs = ConcurrentHashMap<String, CompletableDeferred<ExecOutcome>>()
 
     /**
+     * The EXECs sent since the last other signed command, oldest first. The Host
+     * checks each signed command before it reads the next frame, so a refusal
+     * that names no exec_id answers the newest command it had read: when exactly
+     * one of these is still waiting, the refusal is that one's (W16AAPPLE-101).
+     * Cleared by any other signed command, after which a refusal may be its.
+     */
+    private val execsSinceOtherCommand = mutableListOf<String>()
+
+    /**
      * Rem reads waiting for the WIKI_RESULT carrying the same request_id. Each
      * is completed with how to make its outcome, not the outcome itself: the
      * reader page can be 16 MiB, and parsing it here would hold up every chat
@@ -669,11 +678,13 @@ class AgentConnection(
      *
      * @param to the agent CONNECT named; the Host refuses any other recipient.
      */
-    private inline fun <reified T> signedCommand(command: T, to: String = agentAddress): String? {
+    private inline fun <reified T> signedCommand(command: T, to: String = agentAddress, isExec: Boolean = false): String? {
         val k = keys ?: run {
             FileLogger.e(LogTags.AGENT_CONN, "signedCommand: no keys loaded, dropping")
             return null
         }
+        // A refusal after this one may be this one's; see execsSinceOtherCommand.
+        if (!isExec) synchronized(execsSinceOtherCommand) { execsSinceOtherCommand.clear() }
         val frame = SignedCommand.envelope(
             command = json.encodeToJsonElement(command).jsonObject,
             to = to,
@@ -723,6 +734,7 @@ class AgentConnection(
             pendingExecs.remove(execId, result)
             return ExecOutcome.NotSent("The WebSocket rejected the EXEC frame")
         }
+        synchronized(execsSinceOtherCommand) { execsSinceOtherCommand += execId }
 
         FileLogger.i(LogTags.AGENT_CONN, "EXEC → tool=$tool exec_id=${execId.take(8)}")
         return awaitExecResult(execId, result, timeoutMs)
@@ -735,7 +747,7 @@ class AgentConnection(
         args: JsonObject,
         recipient: String
     ): String? =
-        signedCommand(ExecMessage(execId = execId, tool = tool, args = args, to = recipient), to = recipient)
+        signedCommand(ExecMessage(execId = execId, tool = tool, args = args, to = recipient), to = recipient, isExec = true)
 
     /** Wait for EXEC result, if timeout remove pending EXEC commands. */
     private suspend fun awaitExecResult(
@@ -774,10 +786,14 @@ class AgentConnection(
 
         val waiter = pendingExecs.remove(event.execId)
         if (waiter == null) {
+            // Nobody is waiting: the wait timed out, or it was never ours. The
+            // Host did answer, so pass it on; a card that gave up on it can
+            // still say what happened (W16AAPPLE-101).
             FileLogger.w(
                 LogTags.AGENT_CONN,
-                "Ignoring EXEC_RESULT for unknown exec_id=${event.execId.take(8)}"
+                "EXEC_RESULT for exec_id=${event.execId.take(8)} with nobody waiting; passing it on"
             )
+            _events.tryEmit(ConnectionEvent.LateExecResult(event.execId, outcome))
         } else {
             waiter.complete(outcome)
         }
@@ -788,9 +804,16 @@ class AgentConnection(
      * uses these for requests that cannot be accepted at all, so complete the
      * waiting EXEC calls instead of leaving them to time out.
      *
+     * A signed-command refusal (`unauthorized: ...`, `forbidden: ...`,
+     * `misconfigured: ...`, from the Host's command gate in session.py) names no
+     * command either. It settles an EXEC only when it can only be that EXEC's:
+     * see [execsSinceOtherCommand]. Otherwise the EXEC waits for its own answer
+     * or times out, as before (W16AAPPLE-101).
+     *
      * @return true when the ERROR was about EXEC alone and has now been shown
      *   on its cards, so the generic chat error would only repeat it. That is
-     *   `provider_station_only` (session.py's EXEC branch). "authenticate first"
+     *   `provider_station_only` (session.py's EXEC branch), or a signed-command
+     *   refusal pinned on one EXEC. "authenticate first"
      *   refuses every command on the socket, so it settles the cards but still
      *   returns false: the Host lost the session, and the ERROR goes on to
      *   [recoverLostSession], which tells the chat about a message refused with it.
@@ -801,7 +824,7 @@ class AgentConnection(
         // would incorrectly settle unrelated tool cards.
         val providerRestriction = event.code.equals("provider_station_only", ignoreCase = true)
         val authenticationRequired = event.message.contains("authenticate first", ignoreCase = true)
-        if (!providerRestriction && !authenticationRequired) return false
+        if (!providerRestriction && !authenticationRequired) return failExecForCommandRefusal(event)
 
         val outcome = ExecOutcome.Error(event.message)
         var settled = false
@@ -812,6 +835,24 @@ class AgentConnection(
             }
         }
         return settled && providerRestriction
+    }
+
+    /**
+     * A refusal from the Host's signed-command gate, settled on the one EXEC it
+     * can only belong to (see [execsSinceOtherCommand]). Never while a CONNECT
+     * is outstanding: then the ERROR is that CONNECT's answer.
+     */
+    private fun failExecForCommandRefusal(event: ConnectionEvent.ConnectionError): Boolean {
+        val message = event.message.trimStart().lowercase()
+        val commandRefusal = COMMAND_REFUSAL_PREFIXES.any { message.startsWith(it) }
+        if (!commandRefusal || awaitingConnected) return false
+        val refused = synchronized(execsSinceOtherCommand) {
+            execsSinceOtherCommand.filter { pendingExecs.containsKey(it) }.singleOrNull()
+        } ?: return false
+        val waiter = pendingExecs.remove(refused) ?: return false
+        FileLogger.w(LogTags.AGENT_CONN, "EXEC exec_id=${refused.take(8)} refused: ${event.message}")
+        waiter.complete(ExecOutcome.Error(event.message))
+        return true
     }
 
     /** Release every caller waiting on a socket that can no longer answer. */
@@ -2198,6 +2239,9 @@ class AgentConnection(
     }
 
     companion object {
+        /** How the Host's signed-command gate starts a refusal (host/auth.py, ws_router/session.py). */
+        private val COMMAND_REFUSAL_PREFIXES = listOf("unauthorized:", "forbidden:", "misconfigured:")
+
         const val DEFAULT_RELAY = "https://oo.openonion.ai"
 
         private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.-]*)://")

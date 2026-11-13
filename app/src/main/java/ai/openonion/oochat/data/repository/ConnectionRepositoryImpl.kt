@@ -490,6 +490,9 @@ class ConnectionRepositoryImpl(
                     is ConnectionEvent.OutboxFlushed -> {
                         _chatEvents.tryEmit(ChatEvent.OutboxFlushed(event.conversationId))
                     }
+                    is ConnectionEvent.LateExecResult -> {
+                        _chatEvents.tryEmit(ChatEvent.ExecResultArrived(event.execId, event.outcome))
+                    }
                     is ConnectionEvent.RuntimeInputRejected -> {
                         _chatEvents.tryEmit(ChatEvent.RuntimeInputRejected(event.sessionId, event.retryable))
                     }
