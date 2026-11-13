@@ -61,17 +61,52 @@ data class RemNotebook(val pages: List<RemPage>) {
             val snapshot = runCatching {
                 Json.parseToJsonElement(line.removePrefix(DATA_PREFIX).removeSuffix(";"))
             }.getOrNull() as? JsonObject ?: return null
+            // From connectonion 1.9.3, `const REM` is only the reader's "Today" shell: page
+            // texts cut to a few sections, and no sessions, notes or logs. The full notebook
+            // comes in the page's rem-detail block (W16AAPPLE-110). An older page has none.
+            val detail = detailBlock(html)
 
-            val order = (snapshot["categories"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
-            val pages = (snapshot["records"] as? JsonArray).orEmpty().mapNotNull { record ->
-                (record as? JsonObject)?.toPage()
-            }
+            val order = ((detail?.get("categories") ?: snapshot["categories"]) as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.content }
+            val pages = mergedRecords(snapshot, detail).mapNotNull { it.toPage() }
             return RemNotebook(
                 pages.sortedWith(
                     compareBy<RemPage> { order.indexOf(it.category).let { i -> if (i < 0) order.size else i } }
                         .thenBy { it.title.lowercase() }
                 )
             )
+        }
+
+        private const val DETAIL_OPEN = """<script id="rem-detail" type="application/json">"""
+
+        /**
+         * The page's full notebook (rem/reader.py `_detail_data`), or null when it has none: a
+         * page from before connectonion 1.9.3, or one whose block is empty or unreadable, which
+         * then reads as its shell alone. Inert JSON, with `<` escaped like the shell's, so the
+         * first `</script>` after it is its end.
+         */
+        private fun detailBlock(html: String): JsonObject? {
+            val start = html.indexOf(DETAIL_OPEN).takeIf { it >= 0 }?.plus(DETAIL_OPEN.length) ?: return null
+            val end = html.indexOf("</script>", start).takeIf { it >= 0 } ?: return null
+            val body = html.substring(start, end).trim().takeIf { it.isNotEmpty() } ?: return null
+            return runCatching { Json.parseToJsonElement(body) }.getOrNull() as? JsonObject
+        }
+
+        /**
+         * The shell's records with the detail laid over them, as rem/reader.html `loadDetails`
+         * merges them: a detail record replaces the fields it carries on the shell record with
+         * its path (always its full `text`), and one the shell does not have is added.
+         */
+        private fun mergedRecords(shell: JsonObject, detail: JsonObject?): List<JsonObject> {
+            val records = LinkedHashMap<String, JsonObject>()
+            val unkeyed = mutableListOf<JsonObject>()
+            fun add(record: JsonObject) {
+                val path = record.string("path") ?: return run { unkeyed += record }
+                records[path] = records[path]?.let { JsonObject(it + record) } ?: record
+            }
+            (shell["records"] as? JsonArray).orEmpty().forEach { (it as? JsonObject)?.let(::add) }
+            (detail?.get("records") as? JsonArray).orEmpty().forEach { (it as? JsonObject)?.let(::add) }
+            return records.values.toList() + unkeyed
         }
 
         /** Categories the reader's contents leave off: the AI's own notes and run logs. */
@@ -82,6 +117,12 @@ data class RemNotebook(val pages: List<RemPage>) {
             val text = string("text") ?: return null
             val category = string("category")?.takeIf { it.isNotBlank() } ?: return null
             val id = string("path") ?: return null
+            // A topic Rem labels [personal] or [sensitive] is marked `private`; the Host leaves
+            // it out of any page but its owner's local one, and the app never shows one either.
+            if (flag("private")) return null
+            // Rem's own state (run memory, the index) lives in hidden folders such as .state,
+            // never in a category; a record there is not a page of the notebook (W16AAPPLE-110).
+            if (id.split('/').any { it.startsWith(".") }) return null
             return RemPage(
                 id = id,
                 category = category,

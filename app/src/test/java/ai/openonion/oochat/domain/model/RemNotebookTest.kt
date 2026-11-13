@@ -377,4 +377,94 @@ class RemNotebookTest {
         assertNull("climbs out of the notebook", linked.pageLinkedFrom("people/priya.md", "../../etc/passwd"))
         assertNull(linked.pageLinkedFrom("people/priya.md", "mailto:priya@harbour.example"))
     }
+
+    // ── connectonion 1.9.3+: a Today shell plus the full notebook in rem-detail (W16AAPPLE-110) ──
+
+    /**
+     * A reader page in connectonion 1.9.5's shape (rem/reader.py `_page`, the WIKI_READ case:
+     * not live). `const REM` is the Today shell, whose page texts keep only Facts, Contact,
+     * Open threads and Insight and which leaves out sessions, notes and logs; the
+     * `rem-detail` block holds what the shell does not (`_detail_data`): every record's full
+     * `text`, any field that differs, and the records the shell left out.
+     */
+    private fun todayPage(shell: String, detail: String) = """
+        <!doctype html>
+        <html><body>
+        <script>
+        "use strict";
+        const REM = $shell;
+        window.REM = REM;
+        </script>
+        <script id="rem-detail" type="application/json">$detail</script>
+        </body></html>
+    """.trimIndent()
+
+    private val todayShell = """{"categories":["people","projects","sessions","notes"],"deferred_details":true,"detail_url":"",""" +
+        """"records":[{"path":"people/sam.md","category":"people","title":"Sam Lee",""" +
+        """"text":"# Sam Lee\n\n## Facts\n\n- Works at Harbour [1]","updated":"2026-11-10T09:00:00+00:00"},""" +
+        """{"path":"projects/apollo.md","category":"projects","title":"Apollo","text":"# Apollo\n\n## Open threads\n\n- Ship it"}]}"""
+
+    private val todayDetail = """{"records":[""" +
+        """{"path":"people/sam.md","text":"# Sam Lee\n\n## Facts\n\n- Works at Harbour [1]\n\n## Background\n\nMet at <b>Harbour</b> in 2024."},""" +
+        """{"path":"projects/apollo.md","text":"# Apollo\n\nThe whole project page.\n\n## Open threads\n\n- Ship it","needs_review":true},""" +
+        """{"path":"sessions/codex-1.md","category":"sessions","title":"Codex session","text":"# Codex session\n\nWhat you typed."},""" +
+        """{"path":"notes/reflection.md","category":"notes","title":"Reflection","text":"x"}]}"""
+
+    @Test
+    fun `a page in the Today shape shows each page's full text, not the shell's summary`() {
+        val parsed = RemNotebook.parse(todayPage(todayShell, todayDetail))!!
+
+        val sam = parsed.pages.single { it.id == "people/sam.md" }
+        assertTrue("the section the shell cut is back", sam.markdown.contains("## Background"))
+        assertTrue("escaping undone in the detail too", sam.markdown.contains("Met at <b>Harbour</b> in 2024."))
+        assertEquals("fields only the shell carries are kept", "Sam Lee", sam.title)
+        assertEquals("2026-11-10T09:00:00+00:00", sam.updated)
+    }
+
+    @Test
+    fun `records only in the detail are added, and its fields win`() {
+        val parsed = RemNotebook.parse(todayPage(todayShell, todayDetail))!!
+
+        assertEquals(
+            listOf("people" to listOf("Sam Lee"), "sessions" to listOf("Codex session")),
+            parsed.sections.map { (category, pages) -> category to pages.map { it.title } }
+        )
+        val apollo = parsed.pages.single { it.id == "projects/apollo.md" }
+        assertFalse("needs_review from the detail holds it back from the contents", apollo.listed)
+        assertTrue(apollo.markdown.startsWith("# Apollo\n\nThe whole project page."))
+        assertEquals("notes stay unlisted but open by link", false, parsed.pages.single { it.id == "notes/reflection.md" }.listed)
+    }
+
+    @Test
+    fun `a page whose detail is empty or unreadable reads as its shell alone`() {
+        listOf("", "{not json", "[]").forEach { detail ->
+            val parsed = RemNotebook.parse(todayPage(todayShell, detail))!!
+            assertEquals(detail, listOf("people/sam.md", "projects/apollo.md"), parsed.pages.map { it.id }.sorted())
+            assertFalse(detail, parsed.pages.single { it.id == "people/sam.md" }.markdown.contains("## Background"))
+        }
+    }
+
+    @Test
+    fun `a topic marked private is never shown`() {
+        val shell = """{"categories":["knowledge"],"records":[""" +
+            """{"path":"knowledge/health.md","category":"knowledge","title":"Health [sensitive]","text":"x","private":true},""" +
+            """{"path":"knowledge/kotlin.md","category":"knowledge","title":"Kotlin","text":"x"}]}"""
+
+        val parsed = RemNotebook.parse("const REM = $shell;")!!
+
+        assertEquals(listOf("knowledge/kotlin.md"), parsed.pages.map { it.id })
+    }
+
+    @Test
+    fun `Rem's own state, such as the run memory, is never a page`() {
+        // connectonion 1.9.3rc55 keeps the native round's run memory in .state/memory.md (#2828).
+        val shell = """{"categories":["notes"],"records":[""" +
+            """{"path":".state/memory.md","category":"notes","title":"Run memory","text":"x"},""" +
+            """{"path":"notes/.hidden/x.md","category":"notes","title":"Hidden","text":"x"},""" +
+            """{"path":"notes/reflection.md","category":"notes","title":"Reflection","text":"x"}]}"""
+
+        val parsed = RemNotebook.parse(todayPage(shell, ""))!!
+
+        assertEquals(listOf("notes/reflection.md"), parsed.pages.map { it.id })
+    }
 }
