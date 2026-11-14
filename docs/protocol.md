@@ -556,6 +556,43 @@ owner's machine, source folders, run logs, mail accounts) is dropped. The page i
 is never logged. Parsing happens in `readRem()` once the answer is in, off the
 socket's thread, so a large notebook does not hold up chat frames.
 
+**The page from connectonion 1.9.3 on (W16AAPPLE-110).** Checked against 1.9.5,
+the client's release after the "second brain" plan (connectonion#2844).
+`WIKI_READ` still answers with `rem/reader.py` `render(root)`, but that page now
+splits the notebook in two (`_page`):
+
+- `const REM = {…};` is only the reader's **Today** shell (`_today_data`): each
+  page's text cut to its Facts, Contact, Open threads and Insight sections and
+  the sources they cite, and no `sessions`, `notes` or `logs` records.
+- `<script id="rem-detail" type="application/json">{…}</script>` holds the rest
+  (`_detail_data`): every record's full `text`, any field that differs from the
+  shell's, and the records the shell left out. It is inert JSON with `<`
+  escaped, like the shell.
+
+`RemNotebook.parse` merges the two as the Host reader's `loadDetails` does: the
+shell's records by `path`, a detail record's fields laid over the record with
+its path, and a record only in the detail added. Without the merge, every page
+would show only its Today sections. A page from an older Host has no detail
+block, and an empty or unreadable one reads as the shell alone, so both keep
+working. The `WIKI_RESULT` frame itself is unchanged.
+
+The Host's own web reader renders the page in its live mode instead: no detail
+block, and `REM.detail_url` pointing at `/rem/data.json`, which the browser
+fetches over HTTP. `WIKI_READ` never asks for that mode (`render(root)` is not
+live), but a Host that switched to it would leave the app with the shell alone:
+every page cut to its Today sections, with no error. The app would then need to
+ask for the full snapshot some other way, since it has no HTTP route to the Host.
+
+Two privacy rules that release relies on are kept in the app as well, though a
+`WIKI_READ` page never carries what they guard against:
+
+- A `knowledge` topic whose title Rem labels `[personal]` or `[sensitive]` is
+  marked `private: true` and left out of every page but its owner's local one.
+  The app drops any record marked `private`.
+- The native round's run memory (#2828) and Rem's other state live in hidden
+  folders such as `.state/`, never in a category. The app drops any record whose
+  path has a segment starting with `.`, so none can appear as a page.
+
 The contents list only the pages the Host reader lists (`listedRecords` in
 `rem/reader.html`). Pages held for review (`needs_review`), services still on a
 people page (`service`), duplicate skill catalog entries (`catalog_parent`),
