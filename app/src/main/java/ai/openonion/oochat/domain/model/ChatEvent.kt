@@ -98,6 +98,9 @@ sealed class ChatEvent {
      */
     data class ProviderPermissionAcked(val ack: ProviderPermissionAck) : ChatEvent()
 
+    /** An EXEC's answer that came after its wait ended; see ConnectionEvent.LateExecResult (W16AAPPLE-101). */
+    data class ExecResultArrived(val execId: String, val outcome: ExecOutcome) : ChatEvent()
+
     /** The connection finished flushing the outbox for [conversationId] (W16AAPPLE-106). */
     data class OutboxFlushed(val conversationId: String?) : ChatEvent()
 }

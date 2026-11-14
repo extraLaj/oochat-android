@@ -61,6 +61,26 @@ class ExecResultListTest {
     }
 
     @Test
+    fun `a refused command says so, with the reason`() {
+        composeRule.setContent {
+            ExecResultList(
+                items = listOf(
+                    ExecUiItem(
+                        execId = "exec-2",
+                        tool = "delete_file",
+                        outcome = ExecOutcome.Refused("unauthorized: signed command already used")
+                    )
+                ),
+                onDismiss = {}
+            )
+        }
+
+        composeRule.onNodeWithText("delete_file").assertExists()
+        composeRule.onNodeWithText("Refused").assertExists()
+        composeRule.onNodeWithText("unauthorized: signed command already used").assertExists()
+    }
+
+    @Test
     fun `pending result displays running state`() {
         composeRule.setContent {
             ExecResultList(

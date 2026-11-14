@@ -12,6 +12,7 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.ControlCenterApp
 import ai.openonion.oochat.domain.model.EvalStatus
+import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.HostModeState
 import ai.openonion.oochat.domain.model.IntentStatus
 import ai.openonion.oochat.domain.model.PlanEntry
@@ -1107,6 +1108,13 @@ sealed class ConnectionEvent {
         val tool: String? = null,
         val durationMs: Double? = null
     ) : ConnectionEvent()
+
+    /**
+     * Not a frame: an EXEC_RESULT that came when nobody was waiting for it any
+     * more, usually because the wait timed out. The card that gave up on it is
+     * told what the Host said after all (W16AAPPLE-101).
+     */
+    data class LateExecResult(val execId: String, val outcome: ExecOutcome) : ConnectionEvent()
 
     /**
      * A `WIKI_RESULT`: the Host's answer to the Rem read with [requestId].

@@ -883,6 +883,51 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `a result that arrives after the wait ended replaces the unknown outcome`() = runTest(testDispatcher) {
+        // W16AAPPLE-101: the Host did answer, only late; the card should say what it said.
+        vm.connectToAgent(validHexAddress())
+        connectUseCase.executeToolHandler = { ExecOutcome.Unknown("No EXEC_RESULT received within 120000ms") }
+        vm.executeTool(tool = "shell", argsJson = """{"command":"sleep 200"}""")
+        testScheduler.advanceUntilIdle()
+        val execId = vm.execItems.value.single().execId
+
+        connectUseCase.emit(ChatEvent.ExecResultArrived(execId, ExecOutcome.Error("Timeout: killed", 200000.0)))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(ExecOutcome.Error("Timeout: killed", 200000.0), vm.execItems.value.single().outcome)
+    }
+
+    @Test
+    fun `a late result replaces a refusal that was pinned on the command`() = runTest(testDispatcher) {
+        // A pinned refusal is the client's reading; the Host's own answer wins (review of !90).
+        vm.connectToAgent(validHexAddress())
+        connectUseCase.executeToolHandler = { ExecOutcome.Refused("unauthorized: signed command already used") }
+        vm.executeTool(tool = "shell", argsJson = """{"command":"pwd"}""")
+        testScheduler.advanceUntilIdle()
+        val execId = vm.execItems.value.single().execId
+
+        connectUseCase.emit(ChatEvent.ExecResultArrived(execId, ExecOutcome.Success("ok")))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(ExecOutcome.Success("ok"), vm.execItems.value.single().outcome)
+    }
+
+    @Test
+    fun `a late result never overrides an answer the card already has`() = runTest(testDispatcher) {
+        vm.connectToAgent(validHexAddress())
+        connectUseCase.executeToolHandler = { ExecOutcome.Success("ok") }
+        vm.executeTool(tool = "shell", argsJson = """{"command":"pwd"}""")
+        testScheduler.advanceUntilIdle()
+        val execId = vm.execItems.value.single().execId
+
+        connectUseCase.emit(ChatEvent.ExecResultArrived(execId, ExecOutcome.Error("stale")))
+        connectUseCase.emit(ChatEvent.ExecResultArrived("not-a-card", ExecOutcome.Success("ignored")))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(listOf(ExecOutcome.Success("ok")), vm.execItems.value.map { it.outcome })
+    }
+
+    @Test
     fun `dismissing an EXEC card removes only that card`() = runTest(testDispatcher) {
         vm.connectToAgent(validHexAddress())
         vm.executeTool("read_file", "{}")

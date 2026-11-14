@@ -442,6 +442,7 @@ open class ChatViewModel @JvmOverloads constructor(
         is ExecOutcome.Error -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
         is ExecOutcome.NotSent -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
         is ExecOutcome.Unknown -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
+        is ExecOutcome.Refused -> copy(outcome = o.copy(message = SensitiveText.errorText(o.message)))
     }
 
     /** The Todo List as the panel draws it; an entry with nothing to hide stays the same instance. */
@@ -1220,6 +1221,11 @@ open class ChatViewModel @JvmOverloads constructor(
                     // Likewise a Work Room's permission control (W16AAPPLE-43).
                     if (event is ChatEvent.ProviderPermissionAcked) {
                         workRoomPermissions.onAck(event.ack)
+                        return@collect
+                    }
+                    // An EXEC's answer after its card gave up waiting (W16AAPPLE-101).
+                    if (event is ChatEvent.ExecResultArrived) {
+                        completeLateExec(event.execId, event.outcome)
                         return@collect
                     }
                     // What the outbox still holds is now final (W16AAPPLE-106).
@@ -3433,6 +3439,20 @@ open class ChatViewModel @JvmOverloads constructor(
         _execItems.update { items ->
             items.map { item ->
                 if (item.execId == execId) item.copy(outcome = outcome) else item
+            }
+        }
+    }
+
+    /**
+     * The Host's answer to an EXEC whose card stopped waiting for it. Only a
+     * card left at "Unknown result", or holding a refusal the client pinned on
+     * it, takes it: one with the Host's own answer keeps it (W16AAPPLE-101).
+     */
+    private fun completeLateExec(execId: String, outcome: ExecOutcome) {
+        _execItems.update { items ->
+            items.map { item ->
+                val provisional = item.outcome is ExecOutcome.Unknown || item.outcome is ExecOutcome.Refused
+                if (item.execId == execId && provisional) item.copy(outcome = outcome) else item
             }
         }
     }
