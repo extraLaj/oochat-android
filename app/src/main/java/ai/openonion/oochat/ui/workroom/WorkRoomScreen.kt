@@ -5,6 +5,7 @@ import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.ui.chat.ChatViewModel
+import ai.openonion.oochat.ui.chat.components.WorkRoomHandover
 import ai.openonion.oochat.ui.chat.components.WorkRoomStatus
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.theme.spacing
@@ -308,6 +309,7 @@ private fun RunHeader(run: ChatItem.ProviderInvocation) {
             modifier = Modifier.semantics { heading() }
         )
         WorkRoomStatus(run.status)
+        run.control?.let { WorkRoomHandover(it, showDetail = true) }
         if (!run.status.isTerminal) {
             // The Host's own line on a working run; the steps below say what it is doing.
             run.currentSummary?.takeIf { it.isNotBlank() }?.let {

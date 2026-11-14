@@ -4,6 +4,9 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
@@ -45,6 +48,7 @@ internal object ProviderFrames {
     private const val PERMISSION_ACK = "PROVIDER_PERMISSION_ACK"
     private const val MESSAGE = "provider_message"
     private const val ARTIFACT = "provider_artifact"
+    private const val SESSION = "provider_session"
 
     // The writer's limits (core/provider_events.py), held again here: this is the reader.
     private val MESSAGE_ID = Regex("^[A-Za-z0-9._:-]{1,512}\$")
@@ -101,7 +105,13 @@ internal object ProviderFrames {
         val alt: String? = null,
         // Kept raw and read on its own: an odd value then costs only the
         // permission control, never the run's frame (W16AAPPLE-43).
-        val providerPermission: JsonElement? = null
+        val providerPermission: JsonElement? = null,
+        // A provider_session frame's own control state, and the same state the Host nests on a replayed run (W16AAPPLE-40).
+        val owner: String? = null,
+        val phase: String? = null,
+        val controlOwner: String? = null,
+        val controlPhase: String? = null,
+        val controlRevision: Long? = null
     )
 
     @Serializable
@@ -129,7 +139,7 @@ internal object ProviderFrames {
      */
     fun parse(text: String): ParseResult? {
         // Cheap screen first: every other frame type goes straight to the shared decode.
-        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK, PERMISSION_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
+        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, SESSION, INPUT_ACK, PERMISSION_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
             return null
         }
         val wire = try {
@@ -147,6 +157,7 @@ internal object ProviderFrames {
             ACTIVITY -> wire.toActivityUpdate()
             MESSAGE -> wire.toMessageUpdate()
             ARTIFACT -> wire.toArtifactUpdate()
+            SESSION -> wire.toSessionUpdate()
             else -> return null
         }
         val msgId = wire.id?.takeIf { it.isNotBlank() }
@@ -240,7 +251,32 @@ internal object ProviderFrames {
             errorSummary = errorSummary,
             elapsedMs = elapsedMs?.toLong(),
             stateRevision = stateRevision?.takeIf { it > 0 },
+            control = control(controlOwner, controlPhase, controlRevision),
             providerPermission = providerPermission?.let(::toPermission)
+        )
+    }
+
+    /**
+     * A `provider_session` frame (core/provider_events.py `provider_session_event`). Read as the
+     * Host writes it: an owner or phase it does not define, or a revision that is not positive,
+     * makes the frame nothing, so a state the Host never confirmed is never shown (W16AAPPLE-40).
+     */
+    private fun Wire.toSessionUpdate(): ChatItem.ProviderSessionUpdate? {
+        val invocation = invocationId?.takeIf { it.isNotBlank() } ?: return null
+        return ChatItem.ProviderSessionUpdate(
+            invocationId = invocation,
+            parentToolCallId = parentToolCallId,
+            provider = provider.orEmpty(),
+            control = control(owner, phase, stateRevision) ?: return null
+        )
+    }
+
+    /** The control state named by [owner], [phase] and [revision], or null unless all three are the Host's. */
+    private fun control(owner: String?, phase: String?, revision: Long?): ProviderControl? {
+        return ProviderControl(
+            owner = ProviderControlOwner.fromWire(owner) ?: return null,
+            phase = ProviderControlPhase.fromWire(phase) ?: return null,
+            revision = revision?.takeIf { it > 0 } ?: return null
         )
     }
 

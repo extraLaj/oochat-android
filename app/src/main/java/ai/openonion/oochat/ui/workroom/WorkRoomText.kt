@@ -3,6 +3,7 @@ package ai.openonion.oochat.ui.workroom
 import ai.openonion.oochat.domain.model.ApprovalBoundary
 import ai.openonion.oochat.domain.model.ApprovalDecision
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.WorkRoomApproval
 
@@ -27,6 +28,38 @@ internal object WorkRoomText {
         ProviderInvocationStatus.FAILED -> "Failed"
         ProviderInvocationStatus.CANCELLED -> "Stopped"
         ProviderInvocationStatus.ENDED -> "Ended"
+    }
+
+    /**
+     * Where a Claude Code session's control stands, by the phase the Host confirmed
+     * (W16AAPPLE-40). A handover under way says so, and says it has not happened yet; only
+     * the Host's own `remote_controlling` says a remote client has control. The Host's owner is
+     * only `browser` for any remote client, so it cannot say whether that is this app or the web,
+     * and the words do not claim it. The owner is not used: it only follows from the phase
+     * (claude_station.py `_session_event`).
+     */
+    fun handover(phase: ProviderControlPhase): String = when (phase) {
+        ProviderControlPhase.LOCAL_STARTING -> "Starting in the terminal"
+        ProviderControlPhase.LOCAL_OBSERVING -> "Running in the terminal. This app is watching."
+        ProviderControlPhase.HANDOVER_TO_REMOTE -> "Handing over to a remote client. Not confirmed yet."
+        ProviderControlPhase.REMOTE_CONTROLLING -> "Controlled remotely (this app or the web)"
+        ProviderControlPhase.HANDOVER_TO_LOCAL -> "Handing back to the terminal. Not confirmed yet."
+        ProviderControlPhase.COMPLETED -> "Session completed"
+        ProviderControlPhase.FAILED -> "Session failed"
+    }
+
+    /** What the phase does and does not mean, for the Work Room; null when the line says it all. */
+    fun handoverDetail(phase: ProviderControlPhase): String? = when (phase) {
+        ProviderControlPhase.LOCAL_STARTING -> null
+        ProviderControlPhase.LOCAL_OBSERVING -> "The terminal still has control. You can read what happens here."
+        ProviderControlPhase.HANDOVER_TO_REMOTE ->
+            "Control has not moved yet. The Host will confirm it, or report that the handover failed."
+        ProviderControlPhase.REMOTE_CONTROLLING ->
+            "The Host confirmed that a remote client has control. It does not say whether that is this app or the web."
+        ProviderControlPhase.HANDOVER_TO_LOCAL ->
+            "Control has not returned yet. The Host will confirm it when the terminal has the session."
+        ProviderControlPhase.COMPLETED -> null
+        ProviderControlPhase.FAILED -> "The Host reported that the session did not complete."
     }
 
     /** Said for a run that ended while this device was not listening, so no result reached it. */

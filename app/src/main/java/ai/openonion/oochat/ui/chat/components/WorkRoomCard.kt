@@ -1,6 +1,8 @@
 package ai.openonion.oochat.ui.chat.components
 
 import ai.openonion.oochat.domain.model.ChatItem
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.ui.theme.statusColors
@@ -62,6 +64,7 @@ internal fun WorkRoomCard(item: ChatItem.ProviderInvocation, onOpen: () -> Unit)
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            item.control?.let { WorkRoomHandover(it) }
             WorkRoomText.summary(item)?.let { summary ->
                 Text(
                     text = summary,
@@ -85,6 +88,32 @@ internal fun WorkRoomCard(item: ChatItem.ProviderInvocation, onOpen: () -> Unit)
                 TextButton(onClick = onOpen, shape = MaterialTheme.shapes.small) {
                     Text("Open Work Room")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Who holds a Claude Code session and how the handover stands, in the Host's own confirmed
+ * words (W16AAPPLE-40); shared with the Work Room screen, which also gives [showDetail].
+ * Failure is said in words as well as colour.
+ */
+@Composable
+internal fun WorkRoomHandover(control: ProviderControl, showDetail: Boolean = false) {
+    val color = if (control.phase == ProviderControlPhase.FAILED) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xxs)) {
+        Text(
+            text = WorkRoomText.handover(control.phase),
+            style = MaterialTheme.typography.labelMedium,
+            color = color
+        )
+        if (showDetail) {
+            WorkRoomText.handoverDetail(control.phase)?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
