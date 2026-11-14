@@ -576,6 +576,13 @@ would show only its Today sections. A page from an older Host has no detail
 block, and an empty or unreadable one reads as the shell alone, so both keep
 working. The `WIKI_RESULT` frame itself is unchanged.
 
+The Host's own web reader renders the page in its live mode instead: no detail
+block, and `REM.detail_url` pointing at `/rem/data.json`, which the browser
+fetches over HTTP. `WIKI_READ` never asks for that mode (`render(root)` is not
+live), but a Host that switched to it would leave the app with the shell alone:
+every page cut to its Today sections, with no error. The app would then need to
+ask for the full snapshot some other way, since it has no HTTP route to the Host.
+
 Two privacy rules that release relies on are kept in the app as well, though a
 `WIKI_READ` page never carries what they guard against:
 

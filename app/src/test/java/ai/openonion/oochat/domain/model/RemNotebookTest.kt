@@ -405,7 +405,7 @@ class RemNotebookTest {
         """{"path":"projects/apollo.md","category":"projects","title":"Apollo","text":"# Apollo\n\n## Open threads\n\n- Ship it"}]}"""
 
     private val todayDetail = """{"records":[""" +
-        """{"path":"people/sam.md","text":"# Sam Lee\n\n## Facts\n\n- Works at Harbour [1]\n\n## Background\n\nMet at <b>Harbour</b> in 2024."},""" +
+        """{"path":"people/sam.md","text":"# Sam Lee\n\n## Facts\n\n- Works at Harbour [1]\n\n## Background\n\nMet at \u003cb\u003eHarbour\u003c/b\u003e in 2024."},""" +
         """{"path":"projects/apollo.md","text":"# Apollo\n\nThe whole project page.\n\n## Open threads\n\n- Ship it","needs_review":true},""" +
         """{"path":"sessions/codex-1.md","category":"sessions","title":"Codex session","text":"# Codex session\n\nWhat you typed."},""" +
         """{"path":"notes/reflection.md","category":"notes","title":"Reflection","text":"x"}]}"""
@@ -442,6 +442,17 @@ class RemNotebookTest {
             assertEquals(detail, listOf("people/sam.md", "projects/apollo.md"), parsed.pages.map { it.id }.sorted())
             assertFalse(detail, parsed.pages.single { it.id == "people/sam.md" }.markdown.contains("## Background"))
         }
+    }
+
+    @Test
+    fun `a detail block's category order is the one followed`() {
+        // _detail_data carries `categories` only when it differs from the shell's; then it wins,
+        // as loadDetails lets every detail field win.
+        val detail = """{"categories":["projects","people","sessions","notes"],"records":[]}"""
+
+        val parsed = RemNotebook.parse(todayPage(todayShell, detail))!!
+
+        assertEquals(listOf("projects", "people"), parsed.sections.map { it.first })
     }
 
     @Test
