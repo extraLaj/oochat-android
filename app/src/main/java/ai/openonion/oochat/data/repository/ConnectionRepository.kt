@@ -15,6 +15,7 @@ import ai.openonion.oochat.domain.model.OutgoingFileAttachment
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.ProviderInput
 import ai.openonion.oochat.domain.model.ProviderPermissionChange
+import ai.openonion.oochat.domain.model.ProviderStop
 import ai.openonion.oochat.domain.model.RemOutcome
 import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
@@ -203,6 +204,13 @@ interface ConnectionRepository {
      * [observeEvents].
      */
     suspend fun sendProviderInput(input: ProviderInput): Boolean = false
+
+    /**
+     * Send a Work Room's scoped Stop (W16AAPPLE-37). False when it did not go
+     * out; the answer is a [ai.openonion.oochat.domain.model.ChatEvent.ProviderStopAcked]
+     * on [observeEvents].
+     */
+    suspend fun sendProviderStop(stop: ProviderStop): Boolean = false
 
     /**
      * Send a change of a Work Room's provider permission mode (W16AAPPLE-43).

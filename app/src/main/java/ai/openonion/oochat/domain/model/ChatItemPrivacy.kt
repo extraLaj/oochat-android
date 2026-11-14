@@ -73,6 +73,7 @@ object ChatItemPrivacy {
         is ChatItem.ProviderActivityUpdate,
         is ChatItem.ProviderMessageUpdate,
         is ChatItem.ProviderArtifactUpdate,
+        is ChatItem.ProviderSessionUpdate,
         is ChatItem.OnboardRequired,
         is ChatItem.UlwTurnsReachedItem,
         is ChatItem.ModeChangedItem -> item

@@ -2,10 +2,14 @@ package ai.openonion.oochat.network
 
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessageRole
 import ai.openonion.oochat.domain.model.ProviderPermissionAck
+import ai.openonion.oochat.domain.model.ProviderStopAck
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -412,5 +416,111 @@ class ProtocolParserWorkRoomTest {
             ConnectionEvent.Unknown,
             parse("""{"type":"PROVIDER_PERMISSION_ACK","requestId":"","accepted":true}""").event
         )
+    }
+
+    // ── control state (W16AAPPLE-40) ──────────────────────────────────
+
+    private fun session(owner: String = "browser", phase: String = "remote_controlling", revision: String = "3") =
+        """{"type":"provider_session","id":"trace-9","provider":"claude_code","invocationId":"claude_code:call-1",
+        "parentToolCallId":"call-1","sessionId":"abc","owner":"$owner","phase":"$phase","stateRevision":$revision,
+        "protocolVersion":"oip-provider-session/0.1"}"""
+
+    @Test
+    fun `every phase the Host defines is read, with its owner and revision`() {
+        listOf(
+            "local_starting" to ProviderControlPhase.LOCAL_STARTING,
+            "local_observing" to ProviderControlPhase.LOCAL_OBSERVING,
+            "handover_to_remote" to ProviderControlPhase.HANDOVER_TO_REMOTE,
+            "remote_controlling" to ProviderControlPhase.REMOTE_CONTROLLING,
+            "handover_to_local" to ProviderControlPhase.HANDOVER_TO_LOCAL,
+            "completed" to ProviderControlPhase.COMPLETED,
+            "failed" to ProviderControlPhase.FAILED
+        ).forEach { (wire, phase) ->
+            val result = parse(session(owner = "terminal", phase = wire))
+
+            val update = itemOf(result) as ChatItem.ProviderSessionUpdate
+            assertEquals("claude_code:call-1", update.invocationId)
+            assertEquals("call-1", update.parentToolCallId)
+            assertEquals("claude_code", update.provider)
+            assertEquals(ProviderControl(ProviderControlOwner.TERMINAL, phase, 3), update.control)
+            assertEquals("trace-9", result.msgId)
+        }
+    }
+
+    @Test
+    fun `a session frame the Host would not send is dropped, not shown as some state`() {
+        listOf(
+            session(owner = "robot"),
+            session(owner = "Browser"),
+            session(phase = "handover_done"),
+            session(phase = "success"),
+            session(revision = "0"),
+            session(revision = "-1"),
+            """{"type":"provider_session","id":"trace-9","owner":"browser","phase":"completed","stateRevision":1}""",
+            """{"type":"provider_session","id":"trace-9","invocationId":"c","owner":"browser","phase":"completed"}"""
+        ).forEach { frame ->
+            val result = parse(frame)
+
+            assertEquals(ConnectionEvent.Unknown, result.event)
+            assertEquals("trace-9", result.msgId)
+        }
+    }
+
+    @Test
+    fun `a replayed run carries the control state the Host nests on it`() {
+        val run = itemOf(
+            parse(
+                """{"type":"provider_invocation","invocationId":"claude_code:call-1","stateRevision":4,
+                "controlOwner":"terminal","controlPhase":"handover_to_local","controlRevision":6}"""
+            )
+        ) as ChatItem.ProviderInvocation
+
+        assertEquals(
+            ProviderControl(ProviderControlOwner.TERMINAL, ProviderControlPhase.HANDOVER_TO_LOCAL, 6),
+            run.control
+        )
+    }
+
+    @Test
+    fun `a run with no control state, or an odd one, has none and keeps its frame`() {
+        listOf(
+            """{"type":"provider_invocation","invocationId":"c","stateRevision":1}""",
+            """{"type":"provider_invocation","invocationId":"c","stateRevision":1,"controlOwner":"browser"}""",
+            """{"type":"provider_invocation","invocationId":"c","stateRevision":1,"controlOwner":"browser","controlPhase":"remote_controlling"}""",
+            """{"type":"provider_invocation","invocationId":"c","stateRevision":1,"controlOwner":"browser","controlPhase":"done","controlRevision":2}"""
+        ).forEach { frame ->
+            val run = itemOf(parse(frame)) as ChatItem.ProviderInvocation
+
+            assertNull(run.control)
+            assertEquals("c", run.id)
+        }
+    }
+    // Scoped Stop (W16AAPPLE-37)
+
+    @Test
+    fun `a PROVIDER_INTERRUPT_ACK names the request it answers, accepted or not`() {
+        val accepted = parse(
+            """{"type":"PROVIDER_INTERRUPT_ACK","requestId":"req-1","invocationId":"codex:call-1","accepted":true,"stateRevision":4}"""
+        )
+        val refused = parse(
+            """{"type":"PROVIDER_INTERRUPT_ACK","requestId":"req-2","invocationId":"codex:call-1","accepted":false,"reason":"not_active"}"""
+        )
+
+        assertEquals(
+            ProviderStopAck("req-1", "codex:call-1", accepted = true, stateRevision = 4),
+            (accepted.event as ConnectionEvent.ProviderStopAcked).ack
+        )
+        assertEquals(
+            ProviderStopAck("req-2", "codex:call-1", accepted = false, reason = "not_active"),
+            (refused.event as ConnectionEvent.ProviderStopAcked).ack
+        )
+    }
+
+    @Test
+    fun `a PROVIDER_INTERRUPT_ACK that does not say accepted is a refusal, and one naming no request answers nothing`() {
+        val unclear = parse("""{"type":"PROVIDER_INTERRUPT_ACK","requestId":"req-1","invocationId":"codex:call-1"}""")
+
+        assertEquals(false, (unclear.event as ConnectionEvent.ProviderStopAcked).ack.accepted)
+        assertEquals(ConnectionEvent.Unknown, parse("""{"type":"PROVIDER_INTERRUPT_ACK","requestId":"","accepted":true}""").event)
     }
 }

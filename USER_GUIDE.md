@@ -233,10 +233,30 @@ raw commands it ran.
 The room also shows the conversation with the coding agent, your messages and its
 replies, under **Conversation**, with any code in a reply set in a fixed-width
 font. Under the task, **Latest view** is the most recent picture of its workspace
-or browser, when the agent's Host has sent one. A long run keeps only its most
+or browser, when the agent's Host has sent one and it still shows the run as it is now; a
+picture the run has moved past is not shown. A long run keeps only its most
 recent part of the conversation. Passwords and keys are hidden, as elsewhere in
 the app, and a reply that is nothing but the coding agent's raw output is replaced
 by a note that the details are in the agent's logs.
+
+A Claude Code session that was started in a terminal on the agent's computer can
+be handed to the app and back. The card and the room say where it stands, in the
+Host's own words: **Running in the terminal. This app is watching.**, **Handing
+over to a remote client. Not confirmed yet.**, **Controlled remotely (this app or
+the web)**, **Handing back
+to the terminal. Not confirmed yet.**, **Session completed** or **Session
+failed**. The app only shows what the Host has confirmed: a handover that is
+still under way is never described as done, and you cannot take or hand back
+control from the app yet.
+
+To stop the coding agent, tap **Stop run** under the task. Nothing happens
+yet: the room asks **Stop this Codex run?** (or Claude Code) and counts down 15
+seconds. Tap **Stop** within that time to stop it, or **Keep running** to leave
+it. If you do neither, the question closes by itself and the run carries on.
+Only this Work Room stops: the agent keeps going with the rest of its turn, and
+the coding agent keeps any changes it has already made. Once its Host has
+stopped it, the run says **Stopped**. The **Stop** button in the chat is
+different: it ends the agent's whole turn.
 
 To steer the run, type into the field at the bottom of the room and tap Send.
 The message goes to the coding agent itself, not to the agent that started it.

@@ -118,6 +118,47 @@ data class ProviderArtifact(
     val stateRevision: Long
 )
 
+/** Who holds a Claude Code session: the terminal it started in, or the browser it was handed to. */
+enum class ProviderControlOwner {
+    TERMINAL,
+    BROWSER;
+
+    companion object {
+        /** Null for a value the Host does not define, so it is never guessed at. */
+        fun fromWire(value: String?): ProviderControlOwner? = entries.firstOrNull { it.name.lowercase() == value }
+    }
+}
+
+/**
+ * Where a Claude Code session stands between the terminal and the browser, as the Host
+ * confirms it (core/provider_events.py `_CLAUDE_STATION_PHASES`). Only these seven are real.
+ */
+enum class ProviderControlPhase {
+    LOCAL_STARTING,
+    LOCAL_OBSERVING,
+    HANDOVER_TO_REMOTE,
+    REMOTE_CONTROLLING,
+    HANDOVER_TO_LOCAL,
+    COMPLETED,
+    FAILED;
+
+    companion object {
+        /** Null for a value the Host does not define, so it is never guessed at. */
+        fun fromWire(value: String?): ProviderControlPhase? = entries.firstOrNull { it.name.lowercase() == value }
+    }
+}
+
+/**
+ * The control state the Host last confirmed for a run (W16AAPPLE-40): a `provider_session`
+ * frame, or the `controlOwner`/`controlPhase`/`controlRevision` the Host nests on a replayed run.
+ * [revision] orders it against the others for the same run; an older one never replaces a newer.
+ */
+data class ProviderControl(
+    val owner: ProviderControlOwner,
+    val phase: ProviderControlPhase,
+    val revision: Long
+)
+
 /**
  * Folds Work Room frames into the chat list, as the Host's own
  * `_nest_provider_invocations` (network/host/session/ui.py) builds them for
@@ -189,6 +230,15 @@ object WorkRooms {
         card.copy(artifact = newer(card.artifact, update.artifact))
     }
 
+    /** Fold a `provider_session` into its run's card as the control state, unless it is older than the one shown. */
+    fun foldControl(
+        current: List<ChatItem>,
+        update: ChatItem.ProviderSessionUpdate,
+        append: (List<ChatItem>, ChatItem) -> List<ChatItem>
+    ): ReduceResult? = foldIntoCard(current, update.invocationId, update.parentToolCallId, update.provider, append) { card ->
+        card.copy(control = newer(card.control, update.control))
+    }
+
     /** [change] applied to the run's card, which a frame that arrives before its run starts. Null when nothing changed. */
     private fun foldIntoCard(
         current: List<ChatItem>,
@@ -221,7 +271,8 @@ object WorkRooms {
         return base.copy(
             activities = incoming.activities.fold(stored.activities, ::upsert),
             messages = incoming.messages.fold(stored.messages, ::upsert),
-            artifact = newer(stored.artifact, incoming.artifact)
+            artifact = newer(stored.artifact, incoming.artifact),
+            control = newer(stored.control, incoming.control)
         )
     }
 
@@ -263,6 +314,14 @@ object WorkRooms {
         incoming == null -> shown
         shown == null -> incoming
         incoming.stateRevision < shown.stateRevision -> shown
+        else -> incoming
+    }
+
+    /** The control state of the two that is the later: an older revision never replaces a newer, an equal one does (as the Host's). */
+    private fun newer(shown: ProviderControl?, incoming: ProviderControl?): ProviderControl? = when {
+        incoming == null -> shown
+        shown == null -> incoming
+        incoming.revision < shown.revision -> shown
         else -> incoming
     }
 
@@ -316,6 +375,7 @@ object WorkRooms {
         elapsedMs = next.elapsedMs ?: elapsedMs,
         stateRevision = next.stateRevision ?: stateRevision,
         activities = activities,
+        control = newer(control, next.control),
         providerPermission = next.providerPermission ?: providerPermission
     )
 }

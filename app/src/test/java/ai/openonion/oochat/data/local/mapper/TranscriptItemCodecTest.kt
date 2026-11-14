@@ -8,6 +8,9 @@ import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderApprovalPresentation
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
@@ -79,6 +82,36 @@ class TranscriptItemCodecTest {
             artifact = ProviderArtifact("shot-1", "data:image/png;base64,AAAA", "Latest provider browser view", 3L)
         )
         assertEquals(item, roundTrip(item))
+    }
+
+    @Test
+    fun `a Work Room run keeps who holds its session across a round trip (W16AAPPLE-40)`() {
+        ProviderControlPhase.entries.forEach { phase ->
+            val item = ChatItem.ProviderInvocation(
+                id = "claude_code:call-1",
+                provider = "claude_code",
+                stateRevision = 3L,
+                control = ProviderControl(ProviderControlOwner.BROWSER, phase, 9L)
+            )
+
+            assertEquals(item, roundTrip(item))
+        }
+    }
+
+    @Test
+    fun `a row from before control state existed has none, and one this build cannot read has none either`() {
+        val before = """{"kind":"provider_invocation","id":"claude_code:call-1","status":"COMPLETED"}"""
+        val newerBuild = """{"kind":"provider_invocation","id":"claude_code:call-1","status":"COMPLETED",
+            "control":{"owner":"BROWSER","phase":"HANDOVER_DONE","revision":4}}"""
+        val strangeOwner = """{"kind":"provider_invocation","id":"claude_code:call-1","status":"COMPLETED",
+            "control":{"owner":"ROBOT","phase":"COMPLETED","revision":4}}"""
+
+        listOf(before, newerBuild, strangeOwner).forEach { raw ->
+            val decoded = TranscriptItemCodec.decode(raw) as ChatItem.ProviderInvocation
+
+            assertNull(decoded.control)
+            assertEquals("claude_code:call-1", decoded.id)
+        }
     }
 
     @Test

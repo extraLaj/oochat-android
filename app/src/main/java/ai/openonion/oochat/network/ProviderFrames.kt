@@ -4,6 +4,9 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInputAck
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
@@ -11,6 +14,7 @@ import ai.openonion.oochat.domain.model.ProviderMessageRole
 import ai.openonion.oochat.domain.model.ProviderPermissionAck
 import ai.openonion.oochat.domain.model.ProviderPermissionOption
 import ai.openonion.oochat.domain.model.ProviderPermissionState
+import ai.openonion.oochat.domain.model.ProviderStopAck
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
 import kotlinx.serialization.Serializable
@@ -23,7 +27,8 @@ import kotlinx.serialization.json.JsonElement
  * and `provider_activity`, as connectonion's coding-agent plugins send them
  * (`plugins/coding_agents.py`, `useful_tools/codex.py`, and
  * `core/provider_events.py` for the activity copy), and `PROVIDER_INPUT_ACK`,
- * the answer to a message typed into a Work Room (W16AAPPLE-35).
+ * the answer to a message typed into a Work Room (W16AAPPLE-35), and
+ * `PROVIDER_INTERRUPT_ACK`, the answer to a Work Room's scoped Stop (W16AAPPLE-37).
  *
  * `provider_message` and `provider_artifact` (W16AAPPLE-34) are read as the Host
  * writes them and no more loosely: a message is bounded plain text from the user
@@ -39,9 +44,11 @@ internal object ProviderFrames {
     private const val INVOCATION = "provider_invocation"
     private const val ACTIVITY = "provider_activity"
     private const val INPUT_ACK = "PROVIDER_INPUT_ACK"
+    private const val STOP_ACK = "PROVIDER_INTERRUPT_ACK"
     private const val PERMISSION_ACK = "PROVIDER_PERMISSION_ACK"
     private const val MESSAGE = "provider_message"
     private const val ARTIFACT = "provider_artifact"
+    private const val SESSION = "provider_session"
 
     // The writer's limits (core/provider_events.py), held again here: this is the reader.
     private val MESSAGE_ID = Regex("^[A-Za-z0-9._:-]{1,512}\$")
@@ -98,7 +105,13 @@ internal object ProviderFrames {
         val alt: String? = null,
         // Kept raw and read on its own: an odd value then costs only the
         // permission control, never the run's frame (W16AAPPLE-43).
-        val providerPermission: JsonElement? = null
+        val providerPermission: JsonElement? = null,
+        // A provider_session frame's own control state, and the same state the Host nests on a replayed run (W16AAPPLE-40).
+        val owner: String? = null,
+        val phase: String? = null,
+        val controlOwner: String? = null,
+        val controlPhase: String? = null,
+        val controlRevision: Long? = null
     )
 
     @Serializable
@@ -126,7 +139,7 @@ internal object ProviderFrames {
      */
     fun parse(text: String): ParseResult? {
         // Cheap screen first: every other frame type goes straight to the shared decode.
-        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, INPUT_ACK, PERMISSION_ACK).none { text.contains("\"$it\"") }) {
+        if (listOf(INVOCATION, ACTIVITY, MESSAGE, ARTIFACT, SESSION, INPUT_ACK, PERMISSION_ACK, STOP_ACK).none { text.contains("\"$it\"") }) {
             return null
         }
         val wire = try {
@@ -137,12 +150,14 @@ internal object ProviderFrames {
             return null
         }
         if (wire.type == INPUT_ACK) return ParseResult(event = wire.toInputAck())
+        if (wire.type == STOP_ACK) return ParseResult(event = wire.toStopAck())
         if (wire.type == PERMISSION_ACK) return ParseResult(event = wire.toPermissionAck())
         val item = when (wire.type) {
             INVOCATION -> wire.toInvocation()
             ACTIVITY -> wire.toActivityUpdate()
             MESSAGE -> wire.toMessageUpdate()
             ARTIFACT -> wire.toArtifactUpdate()
+            SESSION -> wire.toSessionUpdate()
             else -> return null
         }
         val msgId = wire.id?.takeIf { it.isNotBlank() }
@@ -184,6 +199,26 @@ internal object ProviderFrames {
      * a draft is never cleared on a frame that does not say outright that the
      * provider took the text. One that names no request answers nothing.
      */
+    /**
+     * `PROVIDER_INTERRUPT_ACK` (W16AAPPLE-37), by the same rule as [toInputAck]:
+     * only `accepted: true` is an acceptance, and one naming no request answers nothing.
+     */
+    private fun Wire.toStopAck(): ConnectionEvent {
+        val request = requestId?.takeIf { it.isNotBlank() } ?: run {
+            FileLogger.w(LogTags.PROTOCOL, "PROVIDER_INTERRUPT_ACK without a requestId, ignoring")
+            return ConnectionEvent.Unknown
+        }
+        return ConnectionEvent.ProviderStopAcked(
+            ProviderStopAck(
+                requestId = request,
+                invocationId = invocationId?.takeIf { it.isNotBlank() },
+                accepted = accepted == true,
+                stateRevision = stateRevision?.takeIf { it > 0 },
+                reason = reason?.takeIf { it.isNotBlank() }
+            )
+        )
+    }
+
     private fun Wire.toInputAck(): ConnectionEvent {
         val request = requestId?.takeIf { it.isNotBlank() } ?: run {
             FileLogger.w(LogTags.PROTOCOL, "PROVIDER_INPUT_ACK without a requestId, ignoring")
@@ -216,7 +251,32 @@ internal object ProviderFrames {
             errorSummary = errorSummary,
             elapsedMs = elapsedMs?.toLong(),
             stateRevision = stateRevision?.takeIf { it > 0 },
+            control = control(controlOwner, controlPhase, controlRevision),
             providerPermission = providerPermission?.let(::toPermission)
+        )
+    }
+
+    /**
+     * A `provider_session` frame (core/provider_events.py `provider_session_event`). Read as the
+     * Host writes it: an owner or phase it does not define, or a revision that is not positive,
+     * makes the frame nothing, so a state the Host never confirmed is never shown (W16AAPPLE-40).
+     */
+    private fun Wire.toSessionUpdate(): ChatItem.ProviderSessionUpdate? {
+        val invocation = invocationId?.takeIf { it.isNotBlank() } ?: return null
+        return ChatItem.ProviderSessionUpdate(
+            invocationId = invocation,
+            parentToolCallId = parentToolCallId,
+            provider = provider.orEmpty(),
+            control = control(owner, phase, stateRevision) ?: return null
+        )
+    }
+
+    /** The control state named by [owner], [phase] and [revision], or null unless all three are the Host's. */
+    private fun control(owner: String?, phase: String?, revision: Long?): ProviderControl? {
+        return ProviderControl(
+            owner = ProviderControlOwner.fromWire(owner) ?: return null,
+            phase = ProviderControlPhase.fromWire(phase) ?: return null,
+            revision = revision?.takeIf { it > 0 } ?: return null
         )
     }
 

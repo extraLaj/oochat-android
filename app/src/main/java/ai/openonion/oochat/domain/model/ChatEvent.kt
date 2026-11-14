@@ -85,6 +85,13 @@ sealed class ChatEvent {
     data class ProviderInputAcked(val ack: ProviderInputAck) : ChatEvent()
 
     /**
+     * The Host's answer to a Work Room's scoped Stop (W16AAPPLE-37). Settles
+     * that room's Stop, which the ViewModel owns; the run itself ends by the
+     * `provider_invocation` that follows.
+     */
+    data class ProviderStopAcked(val ack: ProviderStopAck) : ChatEvent()
+
+    /**
      * The Host's answer to a change of a Work Room's provider permission mode
      * (W16AAPPLE-43). Settles that room's control, which the ViewModel owns;
      * the run itself is updated by the `provider_invocation` that follows.

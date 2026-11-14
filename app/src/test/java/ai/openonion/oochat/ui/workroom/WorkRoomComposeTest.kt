@@ -5,6 +5,9 @@ import ai.openonion.oochat.domain.model.ChatItemPrivacy
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderArtifact
+import ai.openonion.oochat.domain.model.ProviderControl
+import ai.openonion.oochat.domain.model.ProviderControlOwner
+import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.ProviderMessage
 import ai.openonion.oochat.domain.model.ProviderMessageRole
@@ -27,6 +30,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
@@ -327,6 +331,8 @@ class WorkRoomComposeTest {
         composeRule.onNodeWithText("You", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("Codex", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("I added it. Run the tests with:", useUnmergedTree = true).assertIsDisplayed()
+        // Below the fold now that a working run has Stop under its header (W16AAPPLE-37).
+        composeRule.onNodeWithTag(WORK_ROOM_TRANSCRIPT_TAG).performScrollToNode(hasText("and tell me what fails.", substring = true))
         composeRule.onNodeWithText("and tell me what fails.", useUnmergedTree = true).assertIsDisplayed()
     }
 
@@ -409,5 +415,69 @@ class WorkRoomComposeTest {
 
         composeRule.onNodeWithText("Codex Work Room").assertIsDisplayed()
         composeRule.onNodeWithText("Update workspace files").assertIsDisplayed()
+    }
+
+    // ── handover states (W16AAPPLE-40) ────────────────────────────────
+
+    private fun held(phase: ProviderControlPhase, owner: ProviderControlOwner = ProviderControlOwner.BROWSER) =
+        running.copy(control = ProviderControl(owner, phase, 3))
+
+    @Test
+    fun `each handover state the Host defines is shown in the card and the room, in its own words`() {
+        var run by mutableStateOf(held(ProviderControlPhase.LOCAL_STARTING))
+        var onCard by mutableStateOf(true)
+        composeRule.setContent {
+            ConnectOnionTheme {
+                if (onCard) WorkRoomCard(run, onOpen = {}) else WorkRoomScreen(run = run, onNavigateBack = {})
+            }
+        }
+
+        mapOf(
+            ProviderControlPhase.LOCAL_STARTING to "Starting in the terminal",
+            ProviderControlPhase.LOCAL_OBSERVING to "Running in the terminal. This app is watching.",
+            ProviderControlPhase.HANDOVER_TO_REMOTE to "Handing over to a remote client. Not confirmed yet.",
+            ProviderControlPhase.REMOTE_CONTROLLING to "Controlled remotely (this app or the web)",
+            ProviderControlPhase.HANDOVER_TO_LOCAL to "Handing back to the terminal. Not confirmed yet.",
+            ProviderControlPhase.COMPLETED to "Session completed",
+            ProviderControlPhase.FAILED to "Session failed"
+        ).forEach { (phase, words) ->
+            composeRule.runOnIdle {
+                run = held(phase)
+                onCard = true
+            }
+            composeRule.onNodeWithText(words).assertIsDisplayed()
+
+            composeRule.runOnIdle { onCard = false }
+            composeRule.onNodeWithText(words).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun `a handover under way is not said to have happened, and says what is still to come`() {
+        composeRule.setContent {
+            ConnectOnionTheme { WorkRoomScreen(run = held(ProviderControlPhase.HANDOVER_TO_REMOTE), onNavigateBack = {}) }
+        }
+
+        composeRule.onNodeWithText("Handing over to a remote client. Not confirmed yet.").assertIsDisplayed()
+        composeRule.onNodeWithText("Control has not moved yet.", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Controlled remotely (this app or the web)").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a run with no confirmed state says nothing about control`() {
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = running, onNavigateBack = {}) } }
+
+        composeRule.onNodeWithText("Controlled remotely (this app or the web)").assertDoesNotExist()
+        composeRule.onNodeWithText("Session completed").assertDoesNotExist()
+        composeRule.onNodeWithText("Not confirmed yet.", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `the handover state is read with the rest of the card`() {
+        composeRule.setContent {
+            ConnectOnionTheme { WorkRoomCard(held(ProviderControlPhase.REMOTE_CONTROLLING), onOpen = {}) }
+        }
+
+        composeRule.onNodeWithText("Controlled remotely (this app or the web)", useUnmergedTree = false).assertIsDisplayed()
     }
 }
