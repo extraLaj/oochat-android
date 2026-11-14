@@ -3,6 +3,7 @@ package ai.openonion.oochat.notification
 import ai.openonion.oochat.MainActivity
 import ai.openonion.oochat.R
 import ai.openonion.oochat.data.local.AgentReplyNotifier
+import ai.openonion.oochat.domain.model.NotificationTarget
 import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.util.SensitiveText
 import android.app.NotificationChannel
@@ -15,12 +16,18 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 /** Shared with SettingsScreen's "Notification sound" row, which opens the OS's own settings for this channel. */
-const val AGENT_REPLY_CHANNEL_ID = "agent_replies"
+const val AGENT_REPLY_CHANNEL_ID = "agent_replies_alerting"
+
+/**
+ * The first reply channel, at default importance, which only shows in the shade.
+ * Android never lets an app raise a channel's importance, so it is replaced.
+ */
+private const val OLD_AGENT_REPLY_CHANNEL_ID = "agent_replies"
 
 /**
  * Approvals the agent is waiting on (W16AAPPLE-44). A channel of its own, so
- * it can interrupt where a reply only waits in the shade, and so the user can
- * silence replies in the system settings and keep these, or the other way round.
+ * the user can silence replies in the system settings and keep these, or the
+ * other way round.
  */
 const val APPROVAL_CHANNEL_ID = "approval_requests"
 
@@ -28,6 +35,9 @@ private const val NOTIFICATION_ID = 2001
 
 /** One id for every approval notification; each is told apart by its tag, the approval's id. */
 private const val APPROVAL_NOTIFICATION_ID = 2002
+
+/** One id for every finished-run notification; each is told apart by its tag, the run's id. */
+private const val RUN_FINISHED_NOTIFICATION_ID = 2003
 
 /** Longer than this reads as noise in a notification's collapsed line, and BigTextStyle already expands it. */
 private const val PREVIEW_MAX_LENGTH = 200
@@ -43,11 +53,13 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
     private val manager = NotificationManagerCompat.from(context)
     private var channelCreated = false
     private var approvalChannelCreated = false
+    private val postedRuns = mutableSetOf<String>()
 
-    override fun notifyAgentReply(agentName: String?, preview: String) {
+    override fun notifyAgentReply(agentName: String?, preview: String, target: NotificationTarget?) {
         ensureChannel()
-        val tapIntent = Intent(context, MainActivity::class.java)
-            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val tapIntent = target?.let { NotificationIntents.open(context, it) }
+            ?: Intent(context, MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val contentIntent = PendingIntent.getActivity(
             context,
             0,
@@ -63,7 +75,7 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
             .setContentTitle(agentName?.takeIf { it.isNotBlank() } ?: "New reply")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .build()
@@ -76,6 +88,35 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
 
     override fun clearReplyNotifications() {
         manager.cancel(NOTIFICATION_ID)
+        synchronized(postedRuns) {
+            postedRuns.forEach { manager.cancel(it, RUN_FINISHED_NOTIFICATION_ID) }
+            postedRuns.clear()
+        }
+    }
+
+    override fun notifyRunFinished(invocationId: String, title: String, summary: String, target: NotificationTarget) {
+        ensureChannel()
+        // Its own request code, so two runs' taps keep their own extras (see notifyApprovalNeeded).
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            invocationId.hashCode(),
+            NotificationIntents.open(context, target),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val text = SensitiveText.redactWithoutPaths(summary).take(PREVIEW_MAX_LENGTH)
+        val notification = NotificationCompat.Builder(context, AGENT_REPLY_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_reply)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .build()
+        synchronized(postedRuns) { postedRuns += invocationId }
+        // Gated on POST_NOTIFICATIONS by the caller, as for a reply.
+        @Suppress("MissingPermission")
+        manager.notify(invocationId, RUN_FINISHED_NOTIFICATION_ID, notification)
     }
 
     override fun notifyApprovalNeeded(approval: PendingApproval) {
@@ -122,15 +163,18 @@ class AndroidAgentReplyNotifier(private val context: Context) : AgentReplyNotifi
 
     private fun ensureChannel() {
         if (channelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(AGENT_REPLY_CHANNEL_ID, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT)
+        // High, so a reply or a finished run pops up: the user left the app waiting for it.
+        val channel = NotificationChannel(AGENT_REPLY_CHANNEL_ID, "Agent replies", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "When an agent replies or a Work Room run finishes while the app is in the background"
+        }
+        context.getSystemService(NotificationManager::class.java).deleteNotificationChannel(OLD_AGENT_REPLY_CHANNEL_ID)
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         channelCreated = true
     }
 
     private fun ensureApprovalChannel() {
         if (approvalChannelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        // High: the agent is stopped until this is answered, so it is worth a
-        // heads-up, where a reply can wait in the shade.
+        // High: the agent is stopped until this is answered, so it is worth a heads-up.
         val channel = NotificationChannel(APPROVAL_CHANNEL_ID, "Approval requests", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "When an agent or a Work Room is waiting for you to allow or deny something"
         }

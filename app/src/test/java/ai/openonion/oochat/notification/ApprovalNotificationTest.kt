@@ -5,6 +5,7 @@ import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.ui.navigation.notificationChatRoute
 import android.app.Application
 import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import androidx.core.app.NotificationCompat
@@ -102,6 +103,38 @@ class ApprovalNotificationTest {
             NotificationTarget(address),
             NotificationIntents.targetOf(NotificationIntents.open(context, NotificationTarget(address)))
         )
+    }
+
+    @Test
+    fun `a finished run pops up on the reply channel and its tap opens its Work Room`() {
+        notifier.notifyRunFinished("codex:inv-1", "Codex finished", "Fix the login test: All tests pass", target)
+
+        val notification = shadowOf(manager).allNotifications.single { it.channelId == AGENT_REPLY_CHANNEL_ID }
+        assertEquals("Codex finished", notification.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, manager.getNotificationChannel(AGENT_REPLY_CHANNEL_ID).importance)
+        assertEquals(target, NotificationIntents.targetOf(shadowOf(notification.contentIntent).savedIntent))
+    }
+
+    @Test
+    fun `coming back to the app clears every finished-run notification and the reply`() {
+        notifier.notifyAgentReply("Harbour", "Done.", target)
+        notifier.notifyRunFinished("codex:inv-1", "Codex finished", "Fix the login test", target)
+        notifier.notifyRunFinished("claude_code:inv-2", "Claude Code failed", "Tidy the build", target)
+        notifier.notifyApprovalNeeded(approval())
+
+        notifier.clearReplyNotifications()
+
+        assertEquals(emptyList<Notification>(), shadowOf(manager).allNotifications.filter { it.channelId == AGENT_REPLY_CHANNEL_ID })
+        assertEquals("an approval is cleared on its own terms", 1, posted().size)
+    }
+
+    @Test
+    fun `the old quiet reply channel is removed, since Android never raises a channel's importance`() {
+        manager.createNotificationChannel(NotificationChannel("agent_replies", "Agent replies", NotificationManager.IMPORTANCE_DEFAULT))
+
+        notifier.notifyAgentReply("Harbour", "Done.", target)
+
+        assertNull(manager.getNotificationChannel("agent_replies"))
     }
 
     @Test

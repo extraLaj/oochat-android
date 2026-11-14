@@ -453,6 +453,10 @@ val regressionSuite = mapOf(
         "ui.rem.RemScreenComposeTest",
         "ui.rem.RemViewModelTest",
     ),
+    "reply and finished-run notifications" to listOf(
+        "notification.BackgroundWorkServiceTest",
+        "ui.navigation.OpenNotificationTargetTest",
+    ),
     "approval notifications" to listOf(
         "notification.ApprovalNotificationTest",
     ),

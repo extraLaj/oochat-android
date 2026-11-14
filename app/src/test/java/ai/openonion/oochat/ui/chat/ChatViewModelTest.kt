@@ -27,6 +27,7 @@ import ai.openonion.oochat.domain.model.ChatSession
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.domain.model.NotificationTarget
 import ai.openonion.oochat.domain.model.PendingApproval
 import ai.openonion.oochat.domain.model.PlanEntry
 import ai.openonion.oochat.domain.model.PlanPriority
@@ -474,14 +475,28 @@ class ChatViewModelTest {
     /** Records every call instead of touching NotificationManager — see the "maybeNotifyAgentReply gating" tests below. */
     private class FakeAgentReplyNotifier : ai.openonion.oochat.data.local.AgentReplyNotifier {
         val posted = mutableListOf<Pair<String?, String>>()
+        val replyTargets = mutableListOf<NotificationTarget?>()
         var clearCalls = 0
-        override fun notifyAgentReply(agentName: String?, preview: String) { posted += agentName to preview }
+        override fun notifyAgentReply(agentName: String?, preview: String, target: NotificationTarget?) {
+            posted += agentName to preview
+            replyTargets += target
+        }
+
+        val runsFinished = mutableListOf<Triple<String, String, NotificationTarget>>()
+        override fun notifyRunFinished(invocationId: String, title: String, summary: String, target: NotificationTarget) {
+            runsFinished += Triple(title, summary, target)
+        }
         override fun clearReplyNotifications() { clearCalls++ }
 
         val approvals = mutableListOf<PendingApproval>()
         val clearedApprovals = mutableListOf<String>()
         override fun notifyApprovalNeeded(approval: PendingApproval) { approvals += approval }
         override fun clearApprovalNotification(approvalId: String) { clearedApprovals += approvalId }
+    }
+
+    private class FakeBackgroundWork : ai.openonion.oochat.data.local.BackgroundWork {
+        val updates = mutableListOf<ai.openonion.oochat.data.local.ActiveWork?>()
+        override fun update(work: ai.openonion.oochat.data.local.ActiveWork?) { updates += work }
     }
 
     private class FakeImageAttachmentStore : ImageAttachmentStore {
@@ -727,6 +742,7 @@ class ChatViewModelTest {
     private lateinit var networkMonitor: FakeNetworkMonitor
     private lateinit var recentChatsSync: FakeRecentChatsSync
     private lateinit var agentReplyNotifier: FakeAgentReplyNotifier
+    private lateinit var backgroundWork: FakeBackgroundWork
 
     // Backing vars for the two gates ChatViewModel reads through lambdas
     // rather than fakeable objects — see maybeNotifyAgentReply's doc. Tests
@@ -755,6 +771,7 @@ class ChatViewModelTest {
         networkMonitor = FakeNetworkMonitor()
         recentChatsSync = FakeRecentChatsSync()
         agentReplyNotifier = FakeAgentReplyNotifier()
+        backgroundWork = FakeBackgroundWork()
         appInForeground = false
         notificationPermissionGranted = true
 
@@ -780,6 +797,7 @@ class ChatViewModelTest {
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
+            backgroundWork = backgroundWork,
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
@@ -3289,6 +3307,20 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `a reply notification opens the conversation it came from`() = runTest(testDispatcher) {
+        val address = connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(ChatItem.Agent(id = "new-1", content = "hello")))
+        testScheduler.runCurrent()
+
+        val target = requireNotNull(agentReplyNotifier.replyTargets.single())
+        assertEquals(address, target.agentAddress)
+        assertEquals(vm.activeSessionId.value, target.sessionId)
+        assertNull(target.invocationId)
+    }
+
+    @Test
     fun `onReturnedToForeground clears any posted reply notification`() = runTest(testDispatcher) {
         vm.onReturnedToForeground()
         assertEquals(1, agentReplyNotifier.clearCalls)
@@ -3434,6 +3466,187 @@ class ChatViewModelTest {
         vm.onReturnedToForeground()
 
         assertEquals(listOf("ap-1"), agentReplyNotifier.clearedApprovals)
+    }
+
+    // ── Finished Work Room runs (W16AAPPLE-45) ──────────────────────────
+
+    private val workingRun = ChatItem.ProviderInvocation(
+        id = "codex:call-1",
+        provider = "codex",
+        taskTitle = "Fix the login test",
+        stateRevision = 1
+    )
+
+    @Test
+    fun `a run that finishes in the background posts a notification that opens its Work Room`() =
+        runTest(testDispatcher) {
+            val address = connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+            testScheduler.runCurrent()
+
+            connectUseCase.emit(
+                ChatEvent.ChatItemUpdated(
+                    workingRun.copy(
+                        status = ProviderInvocationStatus.COMPLETED,
+                        resultSummary = "All tests pass",
+                        stateRevision = 2
+                    )
+                )
+            )
+            testScheduler.runCurrent()
+
+            val (title, summary, target) = agentReplyNotifier.runsFinished.single()
+            assertEquals("Codex finished", title)
+            assertEquals("Fix the login test: All tests pass", summary)
+            assertEquals(NotificationTarget(address, vm.activeSessionId.value, "codex:call-1"), target)
+        }
+
+    @Test
+    fun `a failed or stopped run says so in its title`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        val other = workingRun.copy(id = "claude_code:call-2", provider = "claude_code")
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(other))
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.FAILED, stateRevision = 2)))
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(other.copy(status = ProviderInvocationStatus.CANCELLED, stateRevision = 2)))
+        testScheduler.runCurrent()
+
+        assertEquals(
+            listOf("Codex failed", "Claude Code was stopped"),
+            agentReplyNotifier.runsFinished.map { it.first }
+        )
+    }
+
+    @Test
+    fun `a run already finished, replayed, or still working posts nothing`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        val finished = workingRun.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(id = "codex:call-3")))
+        testScheduler.runCurrent()
+
+        assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
+    }
+
+    @Test
+    fun `a run that finishes in the foreground posts nothing`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        appInForeground = true
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)))
+        testScheduler.runCurrent()
+
+        assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
+    }
+
+    @Test
+    fun `a finished run that gets another frame posts nothing more`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        val finished = workingRun.copy(status = ProviderInvocationStatus.COMPLETED, resultSummary = "Done", stateRevision = 2)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished))
+        testScheduler.runCurrent()
+
+        // A later revision of the same run, or the same run reported failed afterwards.
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished.copy(resultSummary = "Done, with notes", stateRevision = 3)))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished.copy(status = ProviderInvocationStatus.FAILED, stateRevision = 4)))
+        testScheduler.runCurrent()
+
+        assertEquals(1, agentReplyNotifier.runsFinished.size)
+    }
+
+    @Test
+    fun `a run the app itself marks Ended posts nothing`() = runTest(testDispatcher) {
+        // ENDED is this app's guess that a run finished unseen, not the Host saying so.
+        val address = connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.ENDED, stateRevision = 2)))
+        testScheduler.runCurrent()
+        val other = workingRun.copy(id = "codex:call-4")
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(other))
+        testScheduler.runCurrent()
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address, status = ServerSessionStatus.CONNECTED)
+        testScheduler.runCurrent()
+
+        val settled = vm.uiState.value.chatItems.first { it.id == other.id } as ChatItem.ProviderInvocation
+        assertEquals(ProviderInvocationStatus.ENDED, settled.status)
+        assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
+    }
+
+    // ── Background work (W16AAPPLE-45) ──────────────────────────────────
+
+    @Test
+    fun `a running Work Room run is reported as background work for its conversation, until it finishes`() =
+        runTest(testDispatcher) {
+            val address = connectedInBackground()
+            appSettings.setPushNotificationsEnabled(true)
+
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+            testScheduler.runCurrent()
+            val work = requireNotNull(backgroundWork.updates.last())
+            assertEquals(NotificationTarget(address, vm.activeSessionId.value), work.target)
+
+            connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.COMPLETED, stateRevision = 2)))
+            testScheduler.runCurrent()
+            assertNull(backgroundWork.updates.last())
+        }
+
+    @Test
+    fun `background work ends when the chat screen goes away`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        assertNotNull(backgroundWork.updates.last())
+
+        vm.onClearedForTest()
+
+        assertNull(backgroundWork.updates.last())
+    }
+
+    @Test
+    fun `a waiting approval keeps background work going`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+
+        connectUseCase.emit(ChatEvent.ChatItemReceived(approval()))
+        testScheduler.runCurrent()
+
+        assertNotNull(backgroundWork.updates.last())
+    }
+
+    @Test
+    fun `no background work is reported with notifications off or not allowed`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(false)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        assertNull(backgroundWork.updates.lastOrNull())
+
+        notificationPermissionGranted = false
+        appSettings.setPushNotificationsEnabled(true)
+        testScheduler.runCurrent()
+        assertNull(backgroundWork.updates.lastOrNull())
     }
 
     @Test
@@ -3714,6 +3927,7 @@ class ChatViewModelTest {
         initialMyAddress = "0xTEST",
         networkMonitor = networkMonitor,
         agentReplyNotifier = agentReplyNotifier,
+        backgroundWork = backgroundWork,
         requiresNotificationPermission = true,
         hasNotificationPermission = { notificationPermissionGranted },
         isAppInForeground = { appInForeground },
@@ -5174,6 +5388,7 @@ class ChatViewModelTest {
             initialMyAddress = "0xTEST",
             networkMonitor = networkMonitor,
             agentReplyNotifier = agentReplyNotifier,
+            backgroundWork = backgroundWork,
             requiresNotificationPermission = true,
             hasNotificationPermission = { notificationPermissionGranted },
             isAppInForeground = { appInForeground },
