@@ -3551,6 +3551,48 @@ class ChatViewModelTest {
         assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
     }
 
+    @Test
+    fun `a finished run that gets another frame posts nothing more`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        val finished = workingRun.copy(status = ProviderInvocationStatus.COMPLETED, resultSummary = "Done", stateRevision = 2)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished))
+        testScheduler.runCurrent()
+
+        // A later revision of the same run, or the same run reported failed afterwards.
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished.copy(resultSummary = "Done, with notes", stateRevision = 3)))
+        testScheduler.runCurrent()
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(finished.copy(status = ProviderInvocationStatus.FAILED, stateRevision = 4)))
+        testScheduler.runCurrent()
+
+        assertEquals(1, agentReplyNotifier.runsFinished.size)
+    }
+
+    @Test
+    fun `a run the app itself marks Ended posts nothing`() = runTest(testDispatcher) {
+        // ENDED is this app's guess that a run finished unseen, not the Host saying so.
+        val address = connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun.copy(status = ProviderInvocationStatus.ENDED, stateRevision = 2)))
+        testScheduler.runCurrent()
+        val other = workingRun.copy(id = "codex:call-4")
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(other))
+        testScheduler.runCurrent()
+        connectUseCase.forceState(ConnectionState.Disconnected)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address, status = ServerSessionStatus.CONNECTED)
+        testScheduler.runCurrent()
+
+        val settled = vm.uiState.value.chatItems.first { it.id == other.id } as ChatItem.ProviderInvocation
+        assertEquals(ProviderInvocationStatus.ENDED, settled.status)
+        assertEquals(emptyList<Any>(), agentReplyNotifier.runsFinished)
+    }
+
     // ── Background work (W16AAPPLE-45) ──────────────────────────────────
 
     @Test
@@ -3568,6 +3610,19 @@ class ChatViewModelTest {
             testScheduler.runCurrent()
             assertNull(backgroundWork.updates.last())
         }
+
+    @Test
+    fun `background work ends when the chat screen goes away`() = runTest(testDispatcher) {
+        connectedInBackground()
+        appSettings.setPushNotificationsEnabled(true)
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(workingRun))
+        testScheduler.runCurrent()
+        assertNotNull(backgroundWork.updates.last())
+
+        vm.onClearedForTest()
+
+        assertNull(backgroundWork.updates.last())
+    }
 
     @Test
     fun `a waiting approval keeps background work going`() = runTest(testDispatcher) {

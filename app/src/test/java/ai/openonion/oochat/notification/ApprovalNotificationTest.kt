@@ -116,6 +116,19 @@ class ApprovalNotificationTest {
     }
 
     @Test
+    fun `coming back to the app clears every finished-run notification and the reply`() {
+        notifier.notifyAgentReply("Harbour", "Done.", target)
+        notifier.notifyRunFinished("codex:inv-1", "Codex finished", "Fix the login test", target)
+        notifier.notifyRunFinished("claude_code:inv-2", "Claude Code failed", "Tidy the build", target)
+        notifier.notifyApprovalNeeded(approval())
+
+        notifier.clearReplyNotifications()
+
+        assertEquals(emptyList<Notification>(), shadowOf(manager).allNotifications.filter { it.channelId == AGENT_REPLY_CHANNEL_ID })
+        assertEquals("an approval is cleared on its own terms", 1, posted().size)
+    }
+
+    @Test
     fun `the old quiet reply channel is removed, since Android never raises a channel's importance`() {
         manager.createNotificationChannel(NotificationChannel("agent_replies", "Agent replies", NotificationManager.IMPORTANCE_DEFAULT))
 
