@@ -149,13 +149,25 @@ class AgentConnection(
     private val pendingExecs = ConcurrentHashMap<String, CompletableDeferred<ExecOutcome>>()
 
     /**
-     * The EXECs sent since the last other signed command, oldest first. The Host
-     * checks each signed command before it reads the next frame, so a refusal
-     * that names no exec_id answers the newest command it had read: when exactly
-     * one of these is still waiting, the refusal is that one's (W16AAPPLE-101).
+     * The EXECs sent since the last other signed command and still waiting,
+     * oldest first. A refusal from the Host's signed-command gate names no
+     * command, so it is pinned on an EXEC only when it can be no other's
+     * (W16AAPPLE-101, and the review of !90):
+     * - exactly one of these is still waiting, so it is not another EXEC's; and
+     * - no other signed command went out in the [COMMAND_ANSWER_WINDOW_MS]
+     *   before this run of EXECs began. The Host refuses a command as soon as
+     *   it reads it, but that answer can reach the phone after the EXEC has
+     *   gone: an INPUT sent just before the EXEC may be the one refused.
      * Cleared by any other signed command, after which a refusal may be its.
+     * Guards [otherCommandAtMs] and [execRunStartedAtMs] too.
      */
     private val execsSinceOtherCommand = mutableListOf<String>()
+
+    /** When the last signed command other than an EXEC went out; null before any. */
+    private var otherCommandAtMs: Long? = null
+
+    /** When the first EXEC in [execsSinceOtherCommand] went out. */
+    private var execRunStartedAtMs = 0L
 
     /**
      * Rem reads waiting for the WIKI_RESULT carrying the same request_id. Each
@@ -684,7 +696,12 @@ class AgentConnection(
             return null
         }
         // A refusal after this one may be this one's; see execsSinceOtherCommand.
-        if (!isExec) synchronized(execsSinceOtherCommand) { execsSinceOtherCommand.clear() }
+        if (!isExec) {
+            synchronized(execsSinceOtherCommand) {
+                execsSinceOtherCommand.clear()
+                otherCommandAtMs = nowMs()
+            }
+        }
         val frame = SignedCommand.envelope(
             command = json.encodeToJsonElement(command).jsonObject,
             to = to,
@@ -734,7 +751,10 @@ class AgentConnection(
             pendingExecs.remove(execId, result)
             return ExecOutcome.NotSent("The WebSocket rejected the EXEC frame")
         }
-        synchronized(execsSinceOtherCommand) { execsSinceOtherCommand += execId }
+        synchronized(execsSinceOtherCommand) {
+            if (execsSinceOtherCommand.isEmpty()) execRunStartedAtMs = nowMs()
+            execsSinceOtherCommand += execId
+        }
 
         FileLogger.i(LogTags.AGENT_CONN, "EXEC → tool=$tool exec_id=${execId.take(8)}")
         return awaitExecResult(execId, result, timeoutMs)
@@ -756,10 +776,9 @@ class AgentConnection(
         timeoutMs: Long
     ): ExecOutcome =
         try {
-            // Generic signed-command refusals intentionally wait for the
-            // normal timeout. They may belong to an INPUT, so treating every
-            // `unauthorized: ...` frame as an EXEC failure would blame the
-            // wrong card. Known EXEC-only refusals are settled above.
+            // A signed-command refusal that names no command settles this only
+            // when it can be no other command's (failExecForCommandRefusal);
+            // otherwise it may be an INPUT's, and this waits for its own answer.
             withTimeoutOrNull(timeoutMs) {
                 result.await()
             } ?: run {
@@ -768,6 +787,8 @@ class AgentConnection(
             }
         } finally {
             pendingExecs.remove(execId, result)
+            // Done waiting, however it ended: no later refusal can be this one's.
+            synchronized(execsSinceOtherCommand) { execsSinceOtherCommand.remove(execId) }
         }
 
     /** Complete the caller waiting for this result. */
@@ -839,19 +860,22 @@ class AgentConnection(
 
     /**
      * A refusal from the Host's signed-command gate, settled on the one EXEC it
-     * can only belong to (see [execsSinceOtherCommand]). Never while a CONNECT
-     * is outstanding: then the ERROR is that CONNECT's answer.
+     * can only belong to (see [execsSinceOtherCommand]) as [ExecOutcome.Refused],
+     * which the EXEC's own EXEC_RESULT still replaces if one comes. Never while a
+     * CONNECT is outstanding: then the ERROR is that CONNECT's answer.
      */
     private fun failExecForCommandRefusal(event: ConnectionEvent.ConnectionError): Boolean {
         val message = event.message.trimStart().lowercase()
         val commandRefusal = COMMAND_REFUSAL_PREFIXES.any { message.startsWith(it) }
         if (!commandRefusal || awaitingConnected) return false
         val refused = synchronized(execsSinceOtherCommand) {
+            val quietBefore = otherCommandAtMs.let { other -> other == null || execRunStartedAtMs - other >= COMMAND_ANSWER_WINDOW_MS }
+            if (!quietBefore) return false
             execsSinceOtherCommand.filter { pendingExecs.containsKey(it) }.singleOrNull()
         } ?: return false
         val waiter = pendingExecs.remove(refused) ?: return false
         FileLogger.w(LogTags.AGENT_CONN, "EXEC exec_id=${refused.take(8)} refused: ${event.message}")
-        waiter.complete(ExecOutcome.Error(event.message))
+        waiter.complete(ExecOutcome.Refused(event.message))
         return true
     }
 
@@ -2241,6 +2265,13 @@ class AgentConnection(
     companion object {
         /** How the Host's signed-command gate starts a refusal (host/auth.py, ws_router/session.py). */
         private val COMMAND_REFUSAL_PREFIXES = listOf("unauthorized:", "forbidden:", "misconfigured:")
+
+        /**
+         * How long a signed command can take to be refused. The Host's gate answers a command
+         * as soon as it reads it, so a command sent this long before a run of EXECs has had
+         * its refusal, if any, and a later one cannot be its (W16AAPPLE-101).
+         */
+        private const val COMMAND_ANSWER_WINDOW_MS = 10_000L
 
         const val DEFAULT_RELAY = "https://oo.openonion.ai"
 

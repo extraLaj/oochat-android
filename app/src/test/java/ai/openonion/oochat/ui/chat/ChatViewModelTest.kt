@@ -874,6 +874,21 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `a late result replaces a refusal that was pinned on the command`() = runTest(testDispatcher) {
+        // A pinned refusal is the client's reading; the Host's own answer wins (review of !90).
+        vm.connectToAgent(validHexAddress())
+        connectUseCase.executeToolHandler = { ExecOutcome.Refused("unauthorized: signed command already used") }
+        vm.executeTool(tool = "shell", argsJson = """{"command":"pwd"}""")
+        testScheduler.advanceUntilIdle()
+        val execId = vm.execItems.value.single().execId
+
+        connectUseCase.emit(ChatEvent.ExecResultArrived(execId, ExecOutcome.Success("ok")))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(ExecOutcome.Success("ok"), vm.execItems.value.single().outcome)
+    }
+
+    @Test
     fun `a late result never overrides an answer the card already has`() = runTest(testDispatcher) {
         vm.connectToAgent(validHexAddress())
         connectUseCase.executeToolHandler = { ExecOutcome.Success("ok") }

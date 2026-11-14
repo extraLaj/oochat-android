@@ -90,6 +90,10 @@ private fun ExecResultCard(
                     Text("Unknown result")
                     ExecOutputText(outcome.message)
                 }
+                is ExecOutcome.Refused -> {
+                    Text("Refused")
+                    ExecOutputText(outcome.message)
+                }
             }
         }
     }

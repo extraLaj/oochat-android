@@ -582,6 +582,20 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// GitLab CI runs the unit tests in two halves in parallel, so each job fits
+// inside the shared runners' 10-minute limit (.gitlab-ci.yml): `-PtestShard=ui`
+// runs the ui package, `-PtestShard=core` everything else. Between them they run
+// every test once. Unset, as locally, every test runs.
+val testShard = providers.gradleProperty("testShard").orNull
+tasks.withType<Test>().configureEach {
+    when (testShard) {
+        null -> {}
+        "ui" -> filter { includeTestsMatching("ai.openonion.oochat.ui.*") }
+        "core" -> filter { excludeTestsMatching("ai.openonion.oochat.ui.*") }
+        else -> throw GradleException("Unknown testShard \"$testShard\": use ui or core")
+    }
+}
+
 // Roborazzi drives the whole testDebugUnitTest task, so a bare
 // `verifyRoborazziDebug` runs the other Robolectric classes with the native
 // graphics runtime loaded and segfaults the JVM part-way through. No single

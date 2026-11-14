@@ -26,4 +26,14 @@ sealed interface ExecOutcome {
     data class Unknown(
         val message: String
     ) : ExecOutcome
+
+    /**
+     * A refusal from the Host's signed-command gate that names no command, pinned on this
+     * EXEC because nothing else could have drawn it (see AgentConnection's
+     * execsSinceOtherCommand). It is the client's reading, not the Host's word, so the EXEC's
+     * own EXEC_RESULT replaces it if one comes after all (W16AAPPLE-101).
+     */
+    data class Refused(
+        val message: String
+    ) : ExecOutcome
 }

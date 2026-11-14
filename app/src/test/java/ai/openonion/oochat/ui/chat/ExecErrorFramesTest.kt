@@ -51,6 +51,11 @@ class ExecErrorFramesTest : RelayResumeTestBase() {
         (this is ChatItem.Thinking && status == ThinkingStatus.ERROR) ||
             (this is ChatItem.Turn && thinking?.status == ThinkingStatus.ERROR)
 
+    /** A refusal pinned on the EXEC: shown as refused, and replaced if the EXEC's own answer comes after all. */
+    private fun assertRefused(outcome: ExecOutcome, message: String) {
+        assertEquals("refused, with the Host's reason", ExecOutcome.Refused(message), outcome)
+    }
+
     private fun assertError(outcome: ExecOutcome, message: String, durationMs: Double? = null) {
         assertTrue("an Error, with the Host's reason: $outcome", outcome is ExecOutcome.Error)
         outcome as ExecOutcome.Error
@@ -143,7 +148,7 @@ class ExecErrorFramesTest : RelayResumeTestBase() {
 
         relay.reply("""{"type":"ERROR","message":"$reason"}""")
 
-        assertError(app.settled(id), reason)
+        assertRefused(app.settled(id), reason)
         pumpFor(1_000L)
         assertTrue("the connection is still up: ${app.state}", app.state is ConnectionState.Connected)
         assertTrue("and no failed item in the chat repeats it: ${app.items}", app.items.none { it.showsAnError() })
@@ -200,7 +205,36 @@ class ExecErrorFramesTest : RelayResumeTestBase() {
 
         relay.reply("""{"type":"ERROR","message":"forbidden: blacklisted"}""")
 
-        assertError(app.settled(second), "forbidden: blacklisted")
+        assertRefused(app.settled(second), "forbidden: blacklisted")
         assertEquals(ExecOutcome.Success("ok"), app.card(first).outcome)
+    }
+
+    @Test
+    fun `a refusal of a chat message sent just before the EXEC reaches the chat, not the card`() = runBlocking {
+        // The INPUT went first, so the Host read it first, and its refusal can
+        // reach the phone after the EXEC has gone. It is the message's, so the
+        // chat must show it; the EXEC waits for its own answer (review of !90).
+        val app = connectedIdle()
+        app.vm.sendMessage("and what about the logs?")
+        pumpUntil("the message to reach the Host") { relay.inputs.isNotEmpty() }
+        val id = app.exec()
+
+        relay.reply("""{"type":"ERROR","message":"unauthorized: signed command already used"}""")
+        pumpUntil("the refusal to show in the chat") { app.items.any { it.showsAnError() } }
+
+        assertNull("the EXEC is still waiting on its own answer", app.card(id).outcome)
+    }
+
+    @Test
+    fun `an EXEC's own answer after a refusal was pinned on it replaces the refusal`() = runBlocking {
+        // The pin is the client's best reading; the Host's EXEC_RESULT is the truth.
+        val app = connectedIdle()
+        val id = app.exec()
+        relay.reply("""{"type":"ERROR","message":"unauthorized: signed command already used"}""")
+        assertRefused(app.settled(id), "unauthorized: signed command already used")
+
+        relay.reply("""{"type":"EXEC_RESULT","exec_id":"$id","tool":"bash","status":"success","result":"ok"}""")
+
+        pumpUntil("the real answer to replace the refusal") { app.card(id).outcome == ExecOutcome.Success("ok") }
     }
 }

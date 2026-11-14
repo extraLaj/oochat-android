@@ -48,7 +48,7 @@ stages:
   - build
 
 # Gradle's dependency cache, about 27,000 files. Every Gradle job reads it, but
-# only unit-tests writes it, and only on main: zipping and uploading it took
+# only unit-tests-core writes it, and only on main: zipping and uploading it took
 # about a minute, and four jobs used to do it on every push.
 #
 # unprotect: main is a protected branch and merge request refs are not, and
@@ -128,16 +128,14 @@ doc-links:
   script:
     - python3 tools/check-doc-links.py
 
-unit-tests:
+# The unit tests, in two halves that run in parallel (-PtestShard, see
+# app/build.gradle.kts): the ui package, and everything else. As one job they
+# reached the runner's 10-minute limit: pulling the image, compiling and
+# running 2,900 tests took 8 to 10 minutes on a merge request, and on main the
+# minute spent saving the cache pushed every run over (W16AAPPLE-101). Each half
+# still compiles everything, but runs about half the tests.
+.unit-tests:
   stage: test
-  # The one job that writes the cache, on main only (CACHE_POLICY, above). It
-  # resolves the most dependencies: the app's and its tests'. Saved even when
-  # the job fails or times out, so a cold main run still leaves what it
-  # downloaded for the next one instead of nothing.
-  cache:
-    <<: *gradle-cache
-    policy: $CACHE_POLICY
-    when: always
   script:
     # Compile and test in two invocations. In one, the Gradle JVM still holds
     # what it used to compile (about 2.6 GB) while the test JVM runs (about
@@ -147,17 +145,16 @@ unit-tests:
     # invocation is a fresh JVM that only has to run the test task, so it gets a
     # small heap; the test phase peaks at about 2 GB.
     - ./gradlew :app:compileDebugUnitTestKotlin
-    - ./gradlew -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m -XX:+UseSerialGC -Dfile.encoding=UTF-8" :app:testDebugUnitTest
+    - ./gradlew -Dorg.gradle.jvmargs="-Xmx768m -XX:MaxMetaspaceSize=384m -XX:+UseSerialGC -Dfile.encoding=UTF-8" :app:testDebugUnitTest -PtestShard="$TEST_SHARD"
     # testDebugUnitTest and the Roborazzi tasks reconfigure the same Gradle
     # task with a screenshot-only filter; run in one invocation, the filter wins
-    # and most of the suite silently never runs. Same guard as GitHub's.
+    # and most of the suite silently never runs. Same guard as GitHub's, per half.
     - |
-      threshold=800
       count=$(grep -rho 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/*.xml \
         | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
-      echo "Unit tests executed: $count (floor: $threshold)"
-      if [ "$count" -lt "$threshold" ]; then
-        echo "Only $count unit tests executed, expected at least $threshold - see the comment above this check."
+      echo "Unit tests executed ($TEST_SHARD): $count (floor: $UNIT_TEST_FLOOR)"
+      if [ "$count" -lt "$UNIT_TEST_FLOOR" ]; then
+        echo "Only $count unit tests executed, expected at least $UNIT_TEST_FLOOR - see the comment above this check."
         exit 1
       fi
     # Known issues are reported as skipped, which a green pipeline hides; list
@@ -178,6 +175,28 @@ unit-tests:
     expire_in: 1 week
     reports:
       junit: app/build/test-results/testDebugUnitTest/*.xml
+
+# About 1,330 tests. The floor sits below that so a lost half fails loudly.
+unit-tests-ui:
+  extends: .unit-tests
+  variables:
+    TEST_SHARD: ui
+    UNIT_TEST_FLOOR: "1000"
+
+# About 1,550 tests, and the shorter half to run, so it is the one that writes
+# the cache, on main only (CACHE_POLICY, above). It resolves as many
+# dependencies as any job: the app's and its tests'. Saved even when the job
+# fails or times out, so a cold main run still leaves what it downloaded for the
+# next one instead of nothing.
+unit-tests-core:
+  extends: .unit-tests
+  variables:
+    TEST_SHARD: core
+    UNIT_TEST_FLOOR: "1000"
+  cache:
+    <<: *gradle-cache
+    policy: $CACHE_POLICY
+    when: always
 
 instrumented-tests-compile:
   stage: test

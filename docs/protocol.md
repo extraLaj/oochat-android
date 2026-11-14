@@ -517,16 +517,20 @@ waiting EXEC card at once instead of leaving it to time out:
 A refusal from the Host's signed-command gate (`unauthorized: ...`,
 `forbidden: ...`, `misconfigured: ...`, from `host/auth.py` via
 `ws_router/session.py`) names no command either, and could belong to an `INPUT`.
-The Host checks each signed command before it reads the next frame, so the
-client pins it on an EXEC only when it can only be that one: of the EXECs sent
-since the last other signed command, exactly one is still waiting. That card
-shows the refusal as its error at once, and no chat error repeats it. With a
-chat message sent after the EXEC, or two EXECs still waiting, the EXEC is left
-to its own answer or its timeout (W16AAPPLE-101).
+The Host refuses a command as soon as it reads it, but that answer can reach
+the phone after later commands have gone, so the client pins it on an EXEC only
+when it can be no other command's: of the EXECs sent since the last other
+signed command, exactly one is still waiting, and no other signed command went
+out in the 10 seconds before that run of EXECs began
+(`COMMAND_ANSWER_WINDOW_MS`). That card shows "Refused" with the reason at
+once, and no chat error repeats it. A chat message sent just before or after
+the EXEC, or two EXECs still waiting, leaves the refusal to the chat and the
+EXEC to its own answer or its timeout (W16AAPPLE-101).
 
-An `EXEC_RESULT` that arrives after its wait timed out is not dropped: a card
-still showing "Unknown result" takes it (`ConnectionEvent.LateExecResult`). A
-card that already has an answer keeps it.
+A pinned refusal is the client's reading, not the Host's word, so it is its own
+outcome (`ExecOutcome.Refused`). An `EXEC_RESULT` that arrives later is not
+dropped: a card showing "Unknown result" or "Refused" takes it
+(`ConnectionEvent.LateExecResult`). A card with the Host's own answer keeps it.
 
 ### `WIKI_READ` — `RemReadMessage` (Rem)
 
