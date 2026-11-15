@@ -269,14 +269,28 @@ be resumed with one. Claude Code takes a message only once its run has ended.
 
 When the coding agent needs your permission, for example to change files or
 run tests, the run says it is waiting for your decision and a request appears
-at the top of its room (and in the chat). It says what the agent wants to do,
+just above the message field of its room, where it stays in reach however far
+down you have read (and in the chat). It says what the agent wants to do,
 why, and which files. Tap **Allow once**, or **Deny**. Some requests also offer
 **Allow for this session**. A request that would reach outside this Work Room,
 or whose reach the Host could not check, shows only **Deny**: the Host would
 refuse it even if you allowed it. A request still waiting when the connection
-drops is still there when it comes back.
+drops is still there when it comes back. Once you have answered it, it stays
+in the room's list as a record. The requests take at most 40% of the room, so
+when several are waiting they scroll inside that space, and with the keyboard
+open they share the part of the screen the keyboard leaves.
 
-<img src="screenshots/work-room-approval-room.png" alt="A Claude Code Work Room waiting for a decision: a request to make workspace file changes to hello.txt, scoped to this Work Room only, with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
+A Work Room fits the screen it is on. On a phone its text and message field use
+the whole width. On a tablet, or any window wider than about 640 dp, they stay
+in a centred column of that width, so lines stay short enough to read. Turning
+the phone, folding or unfolding it, or resizing the window keeps your place in
+the room, what you have typed and any request waiting for you.
+
+<img src="screenshots/work-room-approval-room.png" alt="A Codex Work Room on a phone waiting for a decision: the request to make workspace file changes to hello.txt, scoped to this Work Room only, sits above the message field with Allow once and Deny" width="300"> <img src="screenshots/work-room-approval-chat.png" alt="The same request shown in the chat under the Work Room card" width="300"> <img src="screenshots/work-room-approval-allowed.png" alt="After Allow once: the request reads Allowed once and the step that updates hello.txt is done" width="300">
+
+On a tablet the same room is one centred column, with the request and the message field in line with the steps:
+
+<img src="screenshots/work-room-tablet.png" alt="A Codex Work Room on a tablet: the steps, the waiting request and the message field form one centred column with blank margins either side" width="600">
 
 ### Choosing how the coding agent works
 
