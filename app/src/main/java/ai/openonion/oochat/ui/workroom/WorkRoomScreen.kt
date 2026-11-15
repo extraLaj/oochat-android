@@ -140,7 +140,12 @@ fun WorkRoomScreen(
             )
         },
         bottomBar = {
-            if (run != null) WorkRoomComposer(run, draft, onDraftChange, onSend)
+            if (run != null) {
+                Column {
+                    WorkRoomApprovalDock(approvals.filter { it.decision == null }, onApprovalDecision)
+                    WorkRoomComposer(run, draft, onDraftChange, onSend)
+                }
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
@@ -158,7 +163,6 @@ fun WorkRoomScreen(
                 scrollPosition,
                 onScrollPositionChanged,
                 approvals,
-                onApprovalDecision,
                 stop = { WorkRoomStopControl(run, stopUi, onStop, onConfirmStop, onCancelStop) },
                 permission = {
                     run.providerPermission?.let { permission ->
@@ -184,11 +188,10 @@ private fun WorkRoomTranscript(
     scrollPosition: WorkRoomScrollPosition,
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit,
     approvals: List<ChatItem.ApprovalNeeded>,
-    onApprovalDecision: (itemId: String, approved: Boolean, scope: String) -> Unit,
     stop: @Composable () -> Unit = {},
     permission: @Composable () -> Unit = {}
 ) {
-    val pendingApprovals = approvals.filter { it.decision == null }
+    // Only the answered ones are here, as a record; one still waiting is in the dock above the field.
     val resolvedApprovals = approvals.filter { it.decision != null }
     // Only a picture of the run as it stands, as the Host's replay keeps: an older one would look current.
     val currentArtifact = run.artifact?.takeIf { it.stateRevision == run.stateRevision }
@@ -197,7 +200,6 @@ private fun WorkRoomTranscript(
         if (!run.status.isTerminal) add("stop")
         if (run.providerPermission != null) add("permission")
         currentArtifact?.let { add("artifact") }
-        pendingApprovals.forEach { add("approval:${it.id}") }
         if (run.messages.isNotEmpty()) {
             add("conversation-heading")
             run.messages.forEach { add("message:${it.id}") }
@@ -241,7 +243,7 @@ private fun WorkRoomTranscript(
         state = listState,
         // Capped for reading on a tablet, as Rem's pages are.
         modifier = Modifier
-            .widthIn(max = 720.dp)
+            .widthIn(max = WORK_ROOM_COLUMN_MAX_WIDTH)
             .fillMaxWidth()
             .testTag(WORK_ROOM_TRANSCRIPT_TAG),
         contentPadding = PaddingValues(MaterialTheme.spacing.lg),
@@ -252,11 +254,6 @@ private fun WorkRoomTranscript(
         if (!run.status.isTerminal) item(key = "stop") { stop() }
         if (run.providerPermission != null) item(key = "permission") { permission() }
         currentArtifact?.let { artifact -> item(key = "artifact") { LatestView(artifact) } }
-        items(pendingApprovals, key = { "approval:${it.id}" }) { approval ->
-            WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { approved, scope ->
-                onApprovalDecision(approval.id, approved, scope)
-            }
-        }
         if (run.messages.isNotEmpty()) {
             item(key = "conversation-heading") {
                 Text(

@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -76,8 +77,9 @@ internal fun WorkRoomComposer(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs),
                 modifier = Modifier
                     // Capped like the room's own column, for a tablet.
-                    .widthIn(max = 720.dp)
+                    .widthIn(max = WORK_ROOM_COLUMN_MAX_WIDTH)
                     .fillMaxWidth()
+                    .testTag(WORK_ROOM_COMPOSER_TAG)
                     .padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.sm)
             ) {
                 // Why it cannot send, or why the last send did not go through. Read out as it appears.
@@ -167,3 +169,5 @@ private fun MessageField(
         }
     }
 }
+
+internal const val WORK_ROOM_COMPOSER_TAG = "work-room-composer"
