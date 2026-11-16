@@ -35,8 +35,9 @@ class ExecResultListTest {
             )
         }
 
-        composeRule.onNodeWithText("read_file").assertExists()
-        composeRule.onNodeWithText("Success").assertExists()
+        composeRule.onNodeWithText("Read File").assertExists()
+        composeRule.onNodeWithText("Completed").assertExists()
+        composeRule.onNodeWithText("View result").performClick()
         composeRule.onNodeWithText("file contents").assertExists()
     }
 
@@ -55,8 +56,9 @@ class ExecResultListTest {
             )
         }
 
-        composeRule.onNodeWithText("delete_file").assertExists()
-        composeRule.onNodeWithText("Error").assertExists()
+        composeRule.onNodeWithText("Delete File").assertExists()
+        composeRule.onNodeWithText("Could not complete this action").assertExists()
+        composeRule.onNodeWithText("View reason").performClick()
         composeRule.onNodeWithText("Permission denied").assertExists()
     }
 
@@ -75,8 +77,9 @@ class ExecResultListTest {
             )
         }
 
-        composeRule.onNodeWithText("delete_file").assertExists()
-        composeRule.onNodeWithText("Refused").assertExists()
+        composeRule.onNodeWithText("Delete File").assertExists()
+        composeRule.onNodeWithText("This action was refused").assertExists()
+        composeRule.onNodeWithText("View reason").performClick()
         composeRule.onNodeWithText("unauthorized: signed command already used").assertExists()
     }
 
@@ -124,6 +127,7 @@ class ExecResultListTest {
             )
         }
 
+        composeRule.onNodeWithText("View result").performClick()
         composeRule.onNodeWithText("output truncated", substring = true).assertExists()
         composeRule.onNodeWithText("hidden-tail").assertDoesNotExist()
     }
@@ -147,5 +151,25 @@ class ExecResultListTest {
         composeRule.onNodeWithText("Dismiss").performClick()
 
         assertEquals("exec-dismiss", dismissedId)
+    }
+
+    @Test
+    fun `result uses the Host supplied display name when available`() {
+        composeRule.setContent {
+            ExecResultList(
+                items = listOf(
+                    ExecUiItem(
+                        execId = "exec-friendly",
+                        tool = "search_records",
+                        outcome = ExecOutcome.Success("12 matches")
+                    )
+                ),
+                toolLabels = mapOf("search_records" to "Search records"),
+                onDismiss = {}
+            )
+        }
+
+        composeRule.onNodeWithText("Search records").assertExists()
+        composeRule.onNodeWithText("search_records").assertDoesNotExist()
     }
 }

@@ -15,6 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,6 +31,7 @@ internal const val MAX_EXEC_RESULT_CHARS = 4_000
 internal fun ExecResultList(
     items: List<ExecUiItem>,
     onDismiss: (String) -> Unit,
+    toolLabels: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
@@ -41,6 +46,7 @@ internal fun ExecResultList(
         items(items, key = { it.execId }) { item ->
             ExecResultCard(
                 item = item,
+                toolLabel = toolLabels[item.tool] ?: item.tool.toReadableToolLabel(),
                 onDismiss = { onDismiss(item.execId) }
             )
         }
@@ -50,8 +56,11 @@ internal fun ExecResultList(
 @Composable
 private fun ExecResultCard(
     item: ExecUiItem,
+    toolLabel: String,
     onDismiss: () -> Unit
 ) {
+    var detailsExpanded by rememberSaveable(item.execId) { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -64,7 +73,7 @@ private fun ExecResultCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = item.tool,
+                    text = toolLabel,
                     style = MaterialTheme.typography.titleMedium
                 )
                 TextButton(onClick = onDismiss) {
@@ -75,24 +84,48 @@ private fun ExecResultCard(
             when (val outcome = item.outcome) {
                 null -> Text("Running…")
                 is ExecOutcome.Success -> {
-                    Text("Success")
-                    ExecOutputText(outcome.result)
+                    Text("Completed")
+                    ExecDetails(
+                        value = outcome.result,
+                        expanded = detailsExpanded,
+                        onToggle = { detailsExpanded = !detailsExpanded }
+                    )
                 }
                 is ExecOutcome.Error -> {
-                    Text("Error")
-                    ExecOutputText(outcome.message)
+                    Text("Could not complete this action")
+                    ExecDetails(
+                        value = outcome.message,
+                        expanded = detailsExpanded,
+                        onToggle = { detailsExpanded = !detailsExpanded },
+                        collapsedLabel = "View reason"
+                    )
                 }
                 is ExecOutcome.NotSent -> {
-                    Text("Not sent")
-                    ExecOutputText(outcome.message)
+                    Text("This action was not sent")
+                    ExecDetails(
+                        value = outcome.message,
+                        expanded = detailsExpanded,
+                        onToggle = { detailsExpanded = !detailsExpanded },
+                        collapsedLabel = "View reason"
+                    )
                 }
                 is ExecOutcome.Unknown -> {
-                    Text("Unknown result")
-                    ExecOutputText(outcome.message)
+                    Text("We could not confirm the result")
+                    ExecDetails(
+                        value = outcome.message,
+                        expanded = detailsExpanded,
+                        onToggle = { detailsExpanded = !detailsExpanded },
+                        collapsedLabel = "View details"
+                    )
                 }
                 is ExecOutcome.Refused -> {
-                    Text("Refused")
-                    ExecOutputText(outcome.message)
+                    Text("This action was refused")
+                    ExecDetails(
+                        value = outcome.message,
+                        expanded = detailsExpanded,
+                        onToggle = { detailsExpanded = !detailsExpanded },
+                        collapsedLabel = "View reason"
+                    )
                 }
             }
         }
@@ -100,12 +133,24 @@ private fun ExecResultCard(
 }
 
 @Composable
-private fun ExecOutputText(value: String) {
-    Text(
-        text = previewExecOutput(value),
-        maxLines = 12,
-        overflow = TextOverflow.Ellipsis
-    )
+private fun ExecDetails(
+    value: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    collapsedLabel: String = "View result"
+) {
+    if (value.isBlank()) return
+
+    TextButton(onClick = onToggle) {
+        Text(if (expanded) "Hide details" else collapsedLabel)
+    }
+    if (expanded) {
+        Text(
+            text = previewExecOutput(value),
+            maxLines = 12,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 private fun previewExecOutput(value: String): String =

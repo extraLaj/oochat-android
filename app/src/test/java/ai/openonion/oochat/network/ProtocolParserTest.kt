@@ -3,8 +3,11 @@ package ai.openonion.oochat.network
 import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ServerSessionStatus
+import ai.openonion.oochat.domain.model.ToolArgumentBuildResult
+import ai.openonion.oochat.domain.model.ToolArgumentBuilder
 import ai.openonion.oochat.domain.model.ToolStatus
 import ai.openonion.oochat.domain.model.stableAssistantId
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -142,6 +145,167 @@ class ProtocolParserTest {
             ev.profile.skills
         )
         assertEquals(4.2, ev.profile.balanceUsd!!, 0.0001)
+    }
+
+    @Test
+    fun `AGENT_PROFILE parses structured tool metadata and keeps legacy names`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","tools":[
+              |"bash",
+              |{"name":"read_file","display_name":"Ignored display name","action_label":"Ignored action","requires_confirmation":true,"destructive":true,"description":"Read a file.","parameters":{"type":"object","properties":{
+              |  "path":{"type":"string","title":"Ignored title","label":"Ignored label","placeholder":"ignored","example":"ignored","description":"File path","default":"README.md"},
+              |  "encoding":{"type":"string","description":"File encoding","enum":["utf-8","ascii"],"choices":["ignored"],"default":"utf-8"},
+              |  "limit":{"type":"integer","default":20},
+              |  "include_hidden":{"type":"boolean","default":false}
+              |},"required":["path"]}},
+              |{"name":"search","parameters":{"type":"object","properties":{
+              |  "query":{"type":"string","description":"Search text"},
+              |  "limit":{"type":"integer"}
+              |},"required":["query"]}}
+              |]}""".trimMargin()
+        )
+
+        val profile = (result.event as ConnectionEvent.AgentProfileReceived).profile
+        assertEquals(listOf("bash", "read_file", "search"), profile.tools)
+        assertEquals(false, profile.toolDefinitions.first { it.name == "bash" }.metadataAvailable)
+
+        val readFile = profile.toolDefinitions.first { it.name == "read_file" }
+        assertNull(readFile.displayName)
+        assertNull(readFile.actionLabel)
+        assertFalse(readFile.requiresConfirmation)
+        assertTrue(readFile.metadataAvailable)
+        assertTrue(readFile.metadataComplete)
+        assertTrue(readFile.isFormAvailable)
+        assertEquals("Read a file.", readFile.description)
+        assertEquals(
+            listOf("path", "encoding", "limit", "include_hidden"),
+            readFile.parameters.map { it.name }
+        )
+        assertEquals("string", readFile.parameters[0].type)
+        assertNull(readFile.parameters[0].label)
+        assertNull(readFile.parameters[0].placeholder)
+        assertNull(readFile.parameters[0].example)
+        assertEquals("README.md", readFile.parameters[0].defaultValue)
+        assertTrue(readFile.parameters[0].required)
+        assertEquals(listOf("utf-8", "ascii"), readFile.parameters[1].choices)
+        assertEquals("20", readFile.parameters[2].defaultValue)
+        assertEquals("false", readFile.parameters[3].defaultValue)
+
+        val search = profile.toolDefinitions.first { it.name == "search" }
+        assertTrue(search.parameters.first { it.name == "query" }.required)
+        assertEquals("integer", search.parameters.first { it.name == "limit" }.type)
+    }
+
+    @Test
+    fun `AGENT_PROFILE excludes the LLM-only summary from executable tool arguments`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","tools":[
+              |{"name":"read_file","description":"Read a file.","parameters":{"type":"object","properties":{
+              |  "path":{"type":"string","description":"File path"},
+              |  "summary":{"type":"string","description":"A short action phrase describing what this call is doing, written for the person watching"}
+              |},"required":["path","summary"]}}
+              |]}""".trimMargin()
+        )
+
+        val tool = (result.event as ConnectionEvent.AgentProfileReceived)
+            .profile
+            .toolDefinitions
+            .single()
+        assertEquals(listOf("path"), tool.parameters.map { it.name })
+        assertTrue(tool.isFormAvailable)
+
+        val arguments = ToolArgumentBuilder.build(tool, mapOf("path" to "README.md"))
+        assertTrue(arguments is ToolArgumentBuildResult.Success)
+        assertEquals(
+            Json.parseToJsonElement("""{"path":"README.md"}"""),
+            (arguments as ToolArgumentBuildResult.Success).arguments
+        )
+    }
+
+    @Test
+    fun `malformed tool entries do not drop the rest of AGENT_PROFILE`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","model":"gpt-5","tools":[
+              |{"name":"good","parameters":{"type":"object","properties":{"path":{"type":"string"}}}},
+              |{"name":"array_shape","parameters":[{"name":"path","type":"string"}]},
+              |{"name":"alternate_schema","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
+              |{"name":"compact","parameters":{"path":{"type":"string"}}},
+              |{"name":"numeric_enum","parameters":{"type":"object","properties":{"level":{"type":"integer","enum":[1,2]}}}},
+              |{"tool":"missing_name","parameters":{"type":"object","properties":{}}},[],null,""
+              |]}""".trimMargin()
+        )
+
+        val profile = (result.event as ConnectionEvent.AgentProfileReceived).profile
+        assertEquals(
+            listOf("good", "array_shape", "alternate_schema", "compact", "numeric_enum"),
+            profile.tools
+        )
+        val tool = profile.toolDefinitions.first { it.name == "good" }
+        assertEquals(listOf("path"), tool.parameters.map { it.name })
+        assertTrue(tool.metadataComplete)
+        profile.toolDefinitions
+            .filterNot { it.name == "good" }
+            .forEach { malformed ->
+                assertFalse(malformed.metadataComplete)
+                assertFalse(malformed.isFormAvailable)
+            }
+    }
+
+    @Test
+    fun `an empty function schema is a usable no argument action`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","tools":[
+              |{"name":"refresh_index","parameters":{"type":"object","properties":{},"required":[]}}
+              |]}""".trimMargin()
+        )
+
+        val tool = (result.event as ConnectionEvent.AgentProfileReceived)
+            .profile
+            .toolDefinitions
+            .single()
+        assertTrue(tool.metadataAvailable)
+        assertTrue(tool.metadataComplete)
+        assertTrue(tool.isFormAvailable)
+        assertTrue(tool.parameters.isEmpty())
+    }
+
+    @Test
+    fun `an LLM-only summary leaves a no argument Host tool usable`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","tools":[
+              |{"name":"refresh_index","parameters":{"type":"object","properties":{
+              |  "summary":{"type":"string","description":"A short action phrase describing what this call is doing, written for the person watching"}
+              |},"required":["summary"]}}
+              |]}""".trimMargin()
+        )
+
+        val tool = (result.event as ConnectionEvent.AgentProfileReceived)
+            .profile
+            .toolDefinitions
+            .single()
+        assertTrue(tool.metadataAvailable)
+        assertTrue(tool.metadataComplete)
+        assertTrue(tool.isFormAvailable)
+        assertTrue(tool.parameters.isEmpty())
+    }
+
+    @Test
+    fun `duplicate JSON Schema required names keep the profile but disable the normal form`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"assistant","tools":[
+              |{"name":"search","parameters":{"type":"object","properties":{
+              |  "query":{"type":"string"}
+              |},"required":["query","query"]}}
+              |]}""".trimMargin()
+        )
+
+        val tool = (result.event as ConnectionEvent.AgentProfileReceived)
+            .profile
+            .toolDefinitions
+            .single()
+        assertEquals(listOf("query"), tool.parameters.map { it.name })
+        assertFalse(tool.metadataComplete)
+        assertFalse(tool.isFormAvailable)
     }
 
     @Test

@@ -2817,6 +2817,41 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
+    fun `executeTool strips the LLM-only summary from raw EXEC arguments`() = runTest {
+        connection.connect("0xAGENT")
+        simulateConnected()
+        factory.lastWebSocket!!.sentMessages.clear()
+
+        val pendingOutcome = async {
+            connection.executeTool(
+                execId = "exec-summary",
+                tool = "read_file",
+                args = Json.parseToJsonElement(
+                    """{"path":"README.md","summary":"Read the project README"}"""
+                ).jsonObject,
+                recipient = "0xAGENT"
+            )
+        }
+        runCurrent()
+
+        val frame = Json.parseToJsonElement(
+            factory.lastWebSocket!!.sentMessages.single()
+        ).jsonObject
+        val args = frame.getValue("args").jsonObject
+        val payloadArgs = frame.getValue("payload").jsonObject.getValue("args").jsonObject
+        assertEquals(json("""{"path":"README.md"}"""), args)
+        assertEquals(args, payloadArgs)
+        assertFalse(args.containsKey("summary"))
+
+        factory.lastListener!!.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"EXEC_RESULT","exec_id":"exec-summary","status":"success","result":"contents"}"""
+        )
+
+        assertEquals(ExecOutcome.Success("contents"), pendingOutcome.await())
+    }
+
+    @Test
     fun `executeTool returns matching error`() = runTest {
         connection.connect("0xAGENT")
         simulateConnected()

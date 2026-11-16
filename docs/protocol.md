@@ -501,7 +501,13 @@ The envelope then adds `timestamp` and `nonce` to the signed `payload`, and
 }
 ```
 
-The Host's `ws_router/exec.py` reads `exec_id`, `tool` and `args`.
+`summary` is reserved for an LLM's description of a tool call, not an argument
+accepted by a direct EXEC tool. The Android client removes a top-level
+`args.summary` before signing an EXEC, including from the developer JSON
+editor. The Host's direct-EXEC router must also discard it before calling the
+tool, so an older client cannot pass it through.
+
+The Host's direct-EXEC router reads `exec_id`, `tool` and `args`.
 
 The Android client waits for the server's `EXEC_RESULT` with the same `exec_id`.
 See [EXEC_RESULT](#exec_result) in the server-to-client section. It does
@@ -524,14 +530,15 @@ the phone after later commands have gone, so the client pins it on an EXEC only
 when it can be no other command's: of the EXECs sent since the last other
 signed command, exactly one is still waiting, and no other signed command went
 out in the 10 seconds before that run of EXECs began
-(`COMMAND_ANSWER_WINDOW_MS`). That card shows "Refused" with the reason at
-once, and no chat error repeats it. A chat message sent just before or after
-the EXEC, or two EXECs still waiting, leaves the refusal to the chat and the
-EXEC to its own answer or its timeout (W16AAPPLE-101).
+(`COMMAND_ANSWER_WINDOW_MS`). That card shows "This action was refused" with
+the reason at once, and no chat error repeats it. A chat message sent just
+before or after the EXEC, or two EXECs still waiting, leaves the refusal to
+the chat and the EXEC to its own answer or its timeout (W16AAPPLE-101).
 
 A pinned refusal is the client's reading, not the Host's word, so it is its own
 outcome (`ExecOutcome.Refused`). An `EXEC_RESULT` that arrives later is not
-dropped: a card showing "Unknown result" or "Refused" takes it
+dropped: a card showing "We could not confirm the result" or "This action was
+refused" takes it
 (`ConnectionEvent.LateExecResult`). A card with the Host's own answer keeps it.
 
 ### `WIKI_READ` — `RemReadMessage` (Rem)
@@ -726,7 +733,7 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | Server `type` | Fields used by this client | Client behaviour |
 | --- | --- | --- |
 | `PING` | — | Emits `Ping`; `AgentConnection` sends `PONG`. |
-| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. The Host sends this only once CONNECT has passed its trust gate, and it is the app's only source of skills: the relay's public profile (`/api/agents/<address>`) lists skills to anyone with the address, so it is never read (W16AAPPLE-71). Skills go through `AgentSkill.cleaned()`: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. |
+| `AGENT_PROFILE` | `session_id`, `name`, `address`, `model`, `tools`, `skills`, `balance_usd` | Emits `AgentProfileReceived` with the agent's connection profile, tools, skills, and optional balance. The Host sends this only once CONNECT has passed its trust gate, and it is the app's only source of skills: the relay's public profile (`/api/agents/<address>`) lists skills to anyone with the address, so it is never read (W16AAPPLE-71). Skills go through `AgentSkill.cleaned()`: nameless entries dropped, one entry per name (the first wins), and a blank or `"No description"` description read as none. Tools accept legacy strings and direct-EXEC JSON Schema entries; only the latter can appear in the normal-user direct-tool form. |
 | `DASHBOARD_SNAPSHOT` | `html` | Emits `DashboardSnapshotReceived` for a non-blank dashboard within the size limit; oversized or blank content is ignored. |
 | `CONTROL_CENTER_APP` | `app.schema`, `app.sdk_version`, `app.revision`, `app.url`, `app.capabilities`, `app.review.status` | Emits `ControlCenterAppReceived`. The app is kept only when it is approved, speaks bridge version 1, is pinned to a `sha256:` revision and is served over `https` with no credentials, query or fragment; anything else, or `app: null`, reads as no app. See [Control Center](#control-center). |
 | `CONTROL_CENTER_STATE` | `state.status`, `state.error.code`, `state.error.message` | Emits `ControlCenterStateReceived`, which is logged: it is what explains an app that is missing. |
@@ -761,6 +768,93 @@ types are returned as `ConnectionEvent.Unknown` and do not alter the chat.
 | `mode_budget_changed` | `mode`, `turns_left` | Emits `ConnectionEvent.ModeBudgetChanged`: full access's turn budget counted down. Not a chat item. |
 | `SESSION_STATUS` | `session_id`, `status` | Emits `SessionStatusReceived`. Settles turns a drop failed, and sets the top bar's status line when it is about the session on screen. See [SESSION_STATUS](#session_status). |
 | `ERROR` | `code`, `protocol`, `retryable`, `session_id`, `request_id`, `message`, `error` | With `code` `-32010`, emits `ProtocolRejected` (see [Incompatible protocol version](#incompatible-protocol-version)). With `code` `"RUNTIME_INPUT_REJECTED"`, emits `RuntimeInputRejected` instead of an error: the socket and the running turn are healthy, and `ConnectionError` could start the reconnect ladder (see [Runtime input](#runtime-input)). With `code` `"STALE_ANSWER"` (the Host was no longer waiting on that request: another device answered first, or the turn ended), emits `AnswerRefused` with `request_id`, for the same reason; the approval or ask_user card with that id then says "No longer waiting for an answer", and nothing is re-sent. With no `request_id`, a card is marked only if it is the one answered card sent without an id. `retryable` is read as true only for a literal boolean `true`. Every other `ERROR` emits `ConnectionError` using `message`, then `error`, then `"Unknown error"`. |
+
+### `AGENT_PROFILE` tool metadata
+
+The `tools` list accepts the existing legacy form, for example:
+
+```json
+"tools": ["bash", "read_file"]
+```
+
+Legacy names remain available to developers through the JSON editor, but are
+never shown as normal-user actions because the client cannot safely infer their
+arguments.
+
+The direct-tool form uses the Host's direct-EXEC JSON Schema:
+
+```json
+"tools": [
+  {
+    "name": "read_file",
+    "description": "Read a file from the agent's workspace.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "The file path to read.",
+          "default": "README.md"
+        },
+        "encoding": {
+          "type": "string",
+          "description": "The file encoding.",
+          "enum": ["utf-8", "ascii"],
+          "default": "utf-8"
+        },
+        "line_limit": {
+          "type": "integer",
+          "description": "Maximum lines to return.",
+          "default": 200
+        }
+      },
+      "required": ["path"]
+    }
+  }
+]
+```
+
+The root schema must be an object with `properties`; `required` is its
+standard top-level list. The client renders `string`, `integer`, `number`, and
+`boolean`, plus string `enum` choices, and sends the property names as the
+`EXEC.args` keys. It humanises the names for the form, shows descriptions and
+primitive defaults, and leaves optional fields behind More options. A schema
+with empty `properties` is a no-argument action. The action panel starts
+collapsed behind Show in every mode.
+
+ConnectOnion 1.9.5 currently sends `sample.tools.names()`, so it supplies only
+legacy names and normal users will not see a form. Before relying on this
+feature, the Host producer must send a direct-EXEC schema for every intended
+user-facing tool. It may start with `t.to_function_schema()`, but must remove
+the LLM-only `summary` property from both `parameters.properties` and
+`parameters.required` before publishing it. `to_function_schema()` adds that
+required property for the LLM's tool-call narration; it is not accepted by
+`tool(**args)` on the direct EXEC route.
+
+For compatibility with an older Host producer, Android also removes an exact
+top-level `summary` property and required entry from an incoming structured
+schema, and removes `args.summary` from every outgoing EXEC. `summary` is
+therefore reserved and cannot be a direct-EXEC tool parameter.
+
+Individual malformed structured entries do not drop the rest of
+`AGENT_PROFILE`; their named tools stay in the developer JSON path but are
+hidden from normal users. The client deliberately does not accept alternate
+keys, parameter arrays, or compact parameter maps: those shapes are not the
+Host contract and guessing them could send the wrong arguments.
+
+The Host must also decide which schemas are safe to expose to normal users.
+Once it sends a schema, the Android client treats that listed tool as an action
+the user may run; it cannot infer that `bash` or another function is
+developer-only from its name. The Host permission gate remains authoritative,
+but the producer should filter this list to tools explicitly intended for the
+normal-user surface.
+
+`display_name`, `action_label`, parameter `label`, `placeholder`, and
+`example`, along with `requires_confirmation`, are proposed presentation and
+safety metadata, not fields ConnectOnion 1.9.5 emits in a direct-EXEC schema.
+The Android client does not read them from
+`AGENT_PROFILE` until the Host and client agree a versioned extension to this
+contract.
 
 ### `EXEC_RESULT`
 

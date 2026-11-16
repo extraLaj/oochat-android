@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.domain.model.AgentSkill
+import ai.openonion.oochat.domain.model.AgentTool
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
@@ -130,7 +131,9 @@ fun ChatScreen(
     val sessionModes by viewModel.sessionModes.collectAsState()
     val sessionActivity by viewModel.sessionActivity.collectAsState()
     val chatComposerDrafts by viewModel.chatComposerDrafts.collectAsState()
-    val availableTools = agentProfile?.tools.orEmpty()
+    val availableTools = agentProfile?.let { profile ->
+        profile.toolDefinitions.ifEmpty { profile.tools.map { AgentTool(it) } }
+    }.orEmpty()
 
     val dashboardHtml by viewModel.dashboardHtml.collectAsState()
     val controlCenterApp by viewModel.controlCenterApp.collectAsState()
@@ -183,6 +186,11 @@ fun ChatScreen(
     val hapticFeedbackEnabled by viewModel.hapticFeedbackEnabled.collectAsState()
     val soundEffectsEnabled by viewModel.soundEffectsEnabled.collectAsState()
     val developerToolsEnabled by viewModel.developerToolsEnabled.collectAsState()
+    val userTools = availableTools.filter { it.isFormAvailable }
+    val toolsForPanel = if (developerToolsEnabled) availableTools else userTools
+    val toolLabels = remember(availableTools) {
+        availableTools.associate { tool -> tool.name to tool.toUserFacingName() }
+    }
     val haptics = LocalHapticFeedback.current
 
     // The user's font-size preference is applied app-wide by ConnectOnionTheme
@@ -459,13 +467,15 @@ fun ChatScreen(
 
             ExecResultList(
                 items = execItems,
-                onDismiss = viewModel::dismissExec
+                onDismiss = viewModel::dismissExec,
+                toolLabels = toolLabels
             )
 
-            if (developerToolsEnabled && availableTools.isNotEmpty()) {
+            if (toolsForPanel.isNotEmpty()) {
                 ExecToolPanel(
-                    tools = availableTools,
-                    onExecute = viewModel::executeTool
+                    tools = toolsForPanel,
+                    onExecute = viewModel::executeTool,
+                    allowRawJson = developerToolsEnabled
                 )
             }
 

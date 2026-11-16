@@ -9,6 +9,7 @@ import ai.openonion.oochat.data.protocol.ExecMessage
 import ai.openonion.oochat.data.protocol.FileAttachment
 import ai.openonion.oochat.data.protocol.InputMsg
 import ai.openonion.oochat.data.protocol.InterruptMessage
+import ai.openonion.oochat.data.protocol.LLM_TOOL_SUMMARY_PARAMETER
 import ai.openonion.oochat.data.protocol.ModeChangeMessage
 import ai.openonion.oochat.data.protocol.OipProtocol
 import ai.openonion.oochat.data.protocol.OnboardSubmitMessage
@@ -739,7 +740,7 @@ class AgentConnection(
         val message = createExecMessage(
             execId = execId,
             tool = tool,
-            args = args,
+            args = JsonObject(args.filterKeys { it != LLM_TOOL_SUMMARY_PARAMETER }),
             recipient = recipient
         ) ?: return ExecOutcome.NotSent("The client identity is unavailable")
 

@@ -126,7 +126,9 @@ data class ServerEvent(
     // own machine and is never in /info. `name`/`model` above are reused
     // (same field names, same meaning) rather than duplicated here.
     val address: String? = null,
-    val tools: List<String>? = null,
+    // A Host may still send bare names. Structured entries use direct-EXEC
+    // schemas, without the LLM-only summary parameter.
+    val tools: List<ToolWire>? = null,
     // Objects, not strings: each entry is {name, description} — see
     // [SkillWire], whose serializer also accepts a bare string. A String-typed
     // list here failed to decode any skills-bearing frame and dropped the

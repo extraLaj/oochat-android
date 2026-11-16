@@ -81,7 +81,7 @@ interface AppSettings {
     val safeModeEnabled: Flow<Boolean>
     suspend fun setSafeModeEnabled(value: Boolean)
 
-    /** Whether the developer-only direct EXEC tool panel is shown in chat. */
+    /** Whether developers may switch the direct EXEC form to raw JSON arguments. */
     val developerToolsEnabled: Flow<Boolean>
     suspend fun setDeveloperToolsEnabled(value: Boolean)
 }

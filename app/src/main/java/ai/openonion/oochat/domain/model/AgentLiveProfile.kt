@@ -29,7 +29,10 @@ data class AgentLiveProfile(
     val name: String?,
     val address: String?,
     val model: String?,
+    /** Legacy names kept for existing profile displays and older Hosts. */
     val tools: List<String> = emptyList(),
+    /** Host direct-EXEC schemas used by the tool form. */
+    val toolDefinitions: List<AgentTool> = emptyList(),
     val skills: List<AgentSkill> = emptyList(),
     val balanceUsd: Double? = null
 )

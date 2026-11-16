@@ -3452,8 +3452,9 @@ open class ChatViewModel @JvmOverloads constructor(
 
     /**
      * The Host's answer to an EXEC whose card stopped waiting for it. Only a
-     * card left at "Unknown result", or holding a refusal the client pinned on
-     * it, takes it: one with the Host's own answer keeps it (W16AAPPLE-101).
+     * card left at "We could not confirm the result", or holding a refusal
+     * the client pinned on it, takes it: one with the Host's own answer keeps
+     * it (W16AAPPLE-101).
      */
     private fun completeLateExec(execId: String, outcome: ExecOutcome) {
         _execItems.update { items ->

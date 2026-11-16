@@ -346,7 +346,8 @@ class ChatScreenRecompositionTest {
 internal class RecompFakeConnectUseCase : ConnectToAgentUseCaseContract {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState
-    override val agentProfile: StateFlow<AgentLiveProfile?> = MutableStateFlow(null)
+    val liveAgentProfile = MutableStateFlow<AgentLiveProfile?>(null)
+    override val agentProfile: StateFlow<AgentLiveProfile?> = liveAgentProfile
     override val approvalMode: StateFlow<ApprovalMode> = MutableStateFlow(ApprovalMode.DEFAULT)
     override val modePending: StateFlow<Boolean> = MutableStateFlow(false)
     val dashboard = MutableStateFlow<String?>(null)

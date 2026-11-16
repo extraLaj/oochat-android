@@ -219,6 +219,16 @@ class ConnectionRepositoryImplTest {
         )
     }
 
+    private fun simulateStructuredAgentProfile() {
+        factory.lastListener?.onMessage(
+            factory.lastWebSocket!!,
+            """{"type":"AGENT_PROFILE","name":"research-assistant","tools":[
+              |{"name":"read_file","description":"Read a file","parameters":{"type":"object","properties":{
+              |  "path":{"type":"string"}
+              |},"required":["path"]}}]}""".trimMargin()
+        )
+    }
+
     private fun simulateDashboard(html: String = "<h1>Home</h1>") {
         factory.lastListener?.onMessage(
             factory.lastWebSocket!!,
@@ -869,6 +879,23 @@ class ConnectionRepositoryImplTest {
             listOf(AgentSkill("web-scraping", "Read a web page and extract structured text from it")),
             profile?.skills
         )
+    }
+
+    @Test
+    fun `an AGENT_PROFILE frame exposes structured tool metadata`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT")
+        awaitUntil(retry = { simulateConnected() }) { repository.connectionState.value is ConnectionState.Connected }
+
+        awaitUntil(retry = { simulateStructuredAgentProfile() }) {
+            repository.agentProfile.value?.toolDefinitions?.isNotEmpty() == true
+        }
+
+        val tool = repository.agentProfile.value!!.toolDefinitions.single()
+        assertEquals("read_file", tool.name)
+        assertEquals("Read a file", tool.description)
+        assertEquals("path", tool.parameters.single().name)
+        assertEquals("string", tool.parameters.single().type)
+        assertTrue(tool.parameters.single().required)
     }
 
     @Test

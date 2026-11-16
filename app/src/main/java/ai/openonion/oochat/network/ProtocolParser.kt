@@ -5,8 +5,11 @@ import ai.openonion.oochat.data.protocol.PlanEntryWire
 import ai.openonion.oochat.data.protocol.ServerEvent
 import ai.openonion.oochat.data.protocol.SessionState
 import ai.openonion.oochat.data.protocol.SkillWire
+import ai.openonion.oochat.data.protocol.ToolWire
 import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentSkill
+import ai.openonion.oochat.domain.model.AgentTool
+import ai.openonion.oochat.domain.model.AgentToolParameter
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
@@ -134,19 +137,23 @@ object ProtocolParser {
             // something that happened in the conversation, so it gets its
             // own ConnectionEvent branch instead of ChatItemReceived/Updated
             // — same treatment as CONNECTED/SessionUpdated above.
-            "AGENT_PROFILE" -> ParseResult(
-                event = ConnectionEvent.AgentProfileReceived(
-                    AgentLiveProfile(
-                        sessionId = event.sessionId,
-                        name = event.name,
-                        address = event.address,
-                        model = event.model,
-                        tools = event.tools ?: emptyList(),
-                        skills = event.skills.toAgentSkills(),
-                        balanceUsd = event.balanceUsd
+            "AGENT_PROFILE" -> {
+                val toolDefinitions = event.tools.toAgentTools()
+                ParseResult(
+                    event = ConnectionEvent.AgentProfileReceived(
+                        AgentLiveProfile(
+                            sessionId = event.sessionId,
+                            name = event.name,
+                            address = event.address,
+                            model = event.model,
+                            tools = toolDefinitions.map { it.name },
+                            toolDefinitions = toolDefinitions,
+                            skills = event.skills.toAgentSkills(),
+                            balanceUsd = event.balanceUsd
+                        )
                     )
                 )
-            )
+            }
 
             // The agent's own dashboard.html, pushed once on connect and
             // again whenever the file changes (ws_router/dashboard.py's
@@ -987,6 +994,45 @@ object ProtocolParser {
             name = { it.name },
             description = { it.description }
         )
+
+    /**
+     * Wire tools to the profile while keeping a name-only fallback for older
+     * Hosts. Duplicate names are collapsed so a future form has stable keys.
+     */
+    private fun List<ToolWire>?.toAgentTools(): List<AgentTool> =
+        this.orEmpty()
+            .keepUsable("tools") { it.name.isNotBlank() }
+            .map { tool ->
+                AgentTool(
+                    name = tool.name.trim(),
+                    description = tool.description?.trim()?.takeIf { it.isNotEmpty() },
+                    displayName = tool.displayName?.trim()?.takeIf { it.isNotEmpty() },
+                    actionLabel = tool.actionLabel?.trim()?.takeIf { it.isNotEmpty() },
+                    requiresConfirmation = tool.requiresConfirmation,
+                    metadataAvailable = tool.metadataAvailable,
+                    metadataComplete = tool.metadataComplete,
+                    parameters = tool.parameters
+                        .filter { it.name.isNotBlank() }
+                        .map { parameter ->
+                            AgentToolParameter(
+                                name = parameter.name.trim(),
+                                type = parameter.type?.trim()?.takeIf { it.isNotEmpty() },
+                                description = parameter.description?.trim()?.takeIf { it.isNotEmpty() },
+                                required = parameter.required,
+                                choices = parameter.choices
+                                    .map(String::trim)
+                                    .filter(String::isNotEmpty)
+                                    .distinct(),
+                                label = parameter.label?.trim()?.takeIf { it.isNotEmpty() },
+                                placeholder = parameter.placeholder?.trim()?.takeIf { it.isNotEmpty() },
+                                example = parameter.example?.trim()?.takeIf { it.isNotEmpty() },
+                                defaultValue = parameter.defaultValue
+                            )
+                        }
+                        .distinctBy { it.name }
+                )
+            }
+            .distinctBy { it.name }
 
     /** A protocol name or version short and plain enough to echo — see [describeProtocol]. */
     private val PROTOCOL_TOKEN = Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,31}")

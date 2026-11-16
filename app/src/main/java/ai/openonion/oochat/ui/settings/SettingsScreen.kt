@@ -315,8 +315,8 @@ fun SettingsScreen(
 
             SettingsSection("Developer") {
                 SwitchRow(
-                    label = "Direct tool execution",
-                    subtitle = "Show the manual EXEC tool panel in chats",
+                    label = "Advanced tool input",
+                    subtitle = "Allow raw JSON arguments for direct tools",
                     checked = developerToolsEnabled,
                     onChange = { viewModel.setDeveloperToolsEnabled(it) }
                 )
