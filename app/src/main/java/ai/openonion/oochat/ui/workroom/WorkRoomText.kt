@@ -91,6 +91,12 @@ internal object WorkRoomText {
     fun steps(count: Int): String = if (count == 1) "1 step" else "$count steps"
 
     /** What the Work Room's message field says while empty. */
+    /** Where a resumed session's new run starts in its room (W16AAPPLE-38). */
+    const val SESSION_RESUMED = "Session resumed"
+
+    fun sessionResumedDetail(providerName: String): String =
+        "$providerName picked up the same session, with what it already knew."
+
     fun inputPlaceholder(run: ChatItem.ProviderInvocation): String = "Message ${providerName(run)}"
 
     // Why a Work Room message did not go through (W16AAPPLE-35). The draft is

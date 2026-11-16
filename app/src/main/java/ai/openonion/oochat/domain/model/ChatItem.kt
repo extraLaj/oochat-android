@@ -331,7 +331,9 @@ sealed class ChatItem {
         val invocationId: String,
         val parentToolCallId: String? = null,
         val provider: String = "",
-        val message: ProviderMessage
+        val message: ProviderMessage,
+        /** The run's Work Room, which a resumed run's messages carry (W16AAPPLE-38). */
+        val workroomId: String? = null
     ) : ChatItem() {
         override val id: String get() = invocationId
     }

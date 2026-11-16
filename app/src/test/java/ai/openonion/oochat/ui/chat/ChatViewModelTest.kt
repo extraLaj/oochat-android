@@ -3019,6 +3019,109 @@ class ChatViewModelTest {
         assertEquals(WorkRoomDraft(), vm.workRoomDraft("codex:call-1"))
     }
 
+    // ── Resumed sessions (W16AAPPLE-38) ─────────────────────────────────
+
+    private val finishedRun = ChatItem.ProviderInvocation(
+        id = "codex:call-1",
+        parentToolCallId = "call-1",
+        workroomId = "codex:call-1",
+        provider = "codex",
+        status = ProviderInvocationStatus.COMPLETED,
+        stateRevision = 3
+    )
+
+    private val resumedRun = ChatItem.ProviderInvocation(
+        id = "codex:call-2",
+        parentToolCallId = "call-2",
+        workroomId = "codex:call-1",
+        provider = "codex",
+        status = ProviderInvocationStatus.COMPLETED,
+        stateRevision = 2
+    )
+
+    private fun TestScope.connectedWithRuns(vararg runs: ChatItem.ProviderInvocation) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        runs.forEach { connectUseCase.emit(ChatEvent.ChatItemUpdated(it)) }
+        testScheduler.runCurrent()
+    }
+
+    @Test
+    fun `a message to a finished run goes to it, so the Host resumes its session`() = runTest(testDispatcher) {
+        connectedWithRuns(finishedRun)
+
+        vm.editWorkRoomDraft("codex:call-1", "Now add a test for logout")
+        vm.sendWorkRoomInput("codex:call-1")
+        testScheduler.runCurrent()
+
+        val sent = connectUseCase.providerInputs.single()
+        assertEquals("codex:call-1", sent.invocationId)
+        assertEquals(3L, sent.stateRevision)
+    }
+
+    @Test
+    fun `once resumed, the room's next message goes to its newest run, whichever run opened the room`() =
+        runTest(testDispatcher) {
+            connectedWithRuns(finishedRun, resumedRun)
+
+            vm.editWorkRoomDraft("codex:call-1", "And one for sign-up")
+            vm.sendWorkRoomInput("codex:call-1")
+            testScheduler.runCurrent()
+
+            val sent = connectUseCase.providerInputs.single()
+            assertEquals("codex:call-2", sent.invocationId)
+            assertEquals(2L, sent.stateRevision)
+            assertEquals("the room has one draft, by either run's id", true, vm.workRoomDraft("codex:call-2").sending)
+        }
+
+    @Test
+    fun `a draft typed before the run resumed is still the room's afterwards`() = runTest(testDispatcher) {
+        connectedWithRuns(finishedRun)
+        vm.editWorkRoomDraft("codex:call-1", "half a thought")
+
+        connectUseCase.emit(ChatEvent.ChatItemUpdated(resumedRun.copy(status = ProviderInvocationStatus.RUNNING)))
+        testScheduler.runCurrent()
+
+        assertEquals("half a thought", vm.workRoomDraft("codex:call-2").text)
+    }
+
+    @Test
+    fun `Stop and the permission control go to the room's newest run`() = runTest(testDispatcher) {
+        val permission = ai.openonion.oochat.domain.model.ProviderPermissionState(
+            provider = "codex",
+            activeOptionId = "codex:workspace-ask",
+            options = listOf(
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:read-only", "Read Only", selectable = true),
+                ai.openonion.oochat.domain.model.ProviderPermissionOption("codex:workspace-ask", "Ask for approval", selectable = true)
+            )
+        )
+        connectedWithRuns(
+            finishedRun.copy(providerPermission = permission),
+            resumedRun.copy(status = ProviderInvocationStatus.RUNNING, providerPermission = permission)
+        )
+
+        vm.requestWorkRoomStop("codex:call-1")
+        vm.confirmWorkRoomStop("codex:call-1")
+        vm.chooseWorkRoomPermission("codex:call-1", "codex:read-only")
+        testScheduler.runCurrent()
+
+        assertEquals("codex:call-2", connectUseCase.providerStops.single().invocationId)
+        assertEquals("codex:call-2", connectUseCase.providerPermissionChanges.single().invocationId)
+    }
+
+    @Test
+    fun `the chat keeps both runs, so each is saved and restored with the room it belongs to`() = runTest(testDispatcher) {
+        connectedWithRuns(finishedRun, resumedRun)
+
+        assertEquals(listOf("codex:call-1", "codex:call-2"), vm.uiState.value.chatItems.map { it.id })
+        assertEquals(
+            listOf("codex:call-1"),
+            ai.openonion.oochat.domain.model.WorkRooms.oneCardPerRoom(vm.uiState.value.chatItems).map { it.id }
+        )
+    }
+
     @Test
     fun `a Work Room permission change goes out at the run's revision, and the Host's answer and new mode land`() = runTest(testDispatcher) {
         // W16AAPPLE-43.

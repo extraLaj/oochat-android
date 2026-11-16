@@ -1528,7 +1528,7 @@ as `plugins/coding_agents.py`, `useful_tools/codex.py` and
 |---|---|---|
 | `provider_invocation` | `invocationId`, `parentToolCallId`, `workroomId`, `provider`, `providerDisplayName`, `taskTitle` (or `taskSummary`), `status`, `currentSummary`, `resultSummary`, `errorSummary`, `elapsedMs`, `stateRevision`, `providerPermission`, `controlOwner`, `controlPhase`, `controlRevision` | The run's card, `ChatItem.ProviderInvocation`, keyed on `invocationId`. `status` is `running`, `awaiting_approval`, `completed`, `failed` or `cancelled`; anything else reads as running, since only the Host ends a run. |
 | `provider_activity` | `invocationId`, `activityId`, `sequence`, `kind`, `status`, `title`, `summary`, `files` | One step of the run, inside its card. `status` is `running`, `completed` or `failed`. `files` is a list of bare names. |
-| `provider_message` | `invocationId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
+| `provider_message` | `invocationId`, `workroomId`, `messageId`, `role`, `text`, `continuationOf` | One line of the conversation with the provider, in its card. `role` is `user` or `assistant`; plain text of at most 16,000 characters. |
 | `provider_artifact` | `invocationId`, `artifactId`, `kind`, `stateRevision`, `thumbnailDataUrl`, `alt` | The run's latest picture, in its card. `kind` is `screenshot`; the picture is an inline PNG or JPEG. |
 | `provider_session` | `invocationId`, `parentToolCallId`, `provider`, `owner`, `phase`, `stateRevision` | Who holds a Claude Code session and how a handover between the terminal and the app stands, on the run's card. See Handover states below. |
 | `tool_call` / `tool_result` carrying `invocationId` | `tool_id`, `status` | A step from a Host that sends no `provider_activity` for it, after the native steps, under the Host's generic title "Use a provider tool". Its `name` is not shown: for Codex it is the raw command or file path. |
@@ -1574,6 +1574,19 @@ A run still working keeps the agent busy: the composer shows Stop and a message
 typed meanwhile waits for the turn, as for any other work in flight. It is not
 "in progress" for the Streaming responses setting, though, which would hide its
 card.
+
+A Work Room is every run that shares a `workroomId` (W16AAPPLE-38); a run that
+names none is its own room. A message to a finished run makes the Host resume
+the same session (Claude Code `--resume`, Codex `thread/resume`, in
+`network/host/provider_workroom.py`) as a new invocation: a new `invocationId`
+carrying the first run's `workroomId`. Its `provider_message` carries
+`workroomId` too, so it joins the room even before its run frame. Each run stays
+its own card and row; the chat shows one card per room, where it started, and
+either run's id opens the same room. The room shows each earlier run as it
+ended, then **Session resumed**, then the newest run. A message the Host echoes
+into the resumed run is shown once; steps are never merged across runs, since an
+`activityId` is unique only within its run. Messages, Stop and permission
+changes go to the newest run.
 
 The card opens the Work Room screen (`WorkRoomScreen`, route `work_room/{invocationId}`),
 which reads the run from the chat's own list, so it follows new frames live.

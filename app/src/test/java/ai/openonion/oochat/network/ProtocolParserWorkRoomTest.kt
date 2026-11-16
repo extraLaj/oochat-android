@@ -225,6 +225,15 @@ class ProtocolParserWorkRoomTest {
     }
 
     @Test
+    fun `a resumed run's message names its Work Room (W16AAPPLE-38)`() {
+        val update = itemOf(parse(message(extra = ",\"workroomId\":\"codex:call-0\""))) as ChatItem.ProviderMessageUpdate
+        assertEquals("codex:call-0", update.workroomId)
+
+        val odd = itemOf(parse(message(extra = ",\"workroomId\":\"has space\""))) as ChatItem.ProviderMessageUpdate
+        assertNull("an id that is not the Host's shape names no room", odd.workroomId)
+    }
+
+    @Test
     fun `both conversation roles are read, and no other`() {
         assertEquals(
             ProviderMessageRole.USER,

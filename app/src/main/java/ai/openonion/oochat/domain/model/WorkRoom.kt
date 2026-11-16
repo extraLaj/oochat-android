@@ -96,7 +96,8 @@ enum class ProviderMessageRole { USER, ASSISTANT }
  * (W16AAPPLE-34): plain text the Host bounded, from the user or the provider.
  * The Host never puts command output, local paths or HTML in one
  * (core/provider_events.py `provider_message_event`), so [text] is drawn as text.
- * [continuationOf] is the message this one carries on, when a reply was split.
+ * [continuationOf] is the run this message's run resumed, as the Host sets it on a
+ * resumed run's messages (W16AAPPLE-38); the room is found by the run's `workroomId`.
  */
 data class ProviderMessage(
     val id: String,
@@ -217,8 +218,10 @@ object WorkRooms {
         current: List<ChatItem>,
         update: ChatItem.ProviderMessageUpdate,
         append: (List<ChatItem>, ChatItem) -> List<ChatItem>
-    ): ReduceResult? = foldIntoCard(current, update.invocationId, update.parentToolCallId, update.provider, append) { card ->
-        card.copy(messages = upsert(card.messages, update.message))
+    ): ReduceResult? = foldIntoCard(
+        current, update.invocationId, update.parentToolCallId, update.provider, append, update.workroomId
+    ) { card ->
+        card.copy(messages = upsert(card.messages, update.message), workroomId = card.workroomId ?: update.workroomId)
     }
 
     /** Fold a `provider_artifact` into its run's card as the latest picture, unless it is older than the one shown. */
@@ -246,12 +249,18 @@ object WorkRooms {
         parentToolCallId: String?,
         provider: String,
         append: (List<ChatItem>, ChatItem) -> List<ChatItem>,
+        workroomId: String? = null,
         change: (ChatItem.ProviderInvocation) -> ChatItem.ProviderInvocation
     ): ReduceResult? {
         val index = current.indexOfFirst { it is ChatItem.ProviderInvocation && it.id == invocationId }
         if (index < 0) {
             val started = change(
-                ChatItem.ProviderInvocation(id = invocationId, parentToolCallId = parentToolCallId, provider = provider)
+                ChatItem.ProviderInvocation(
+                    id = invocationId,
+                    parentToolCallId = parentToolCallId,
+                    workroomId = workroomId,
+                    provider = provider
+                )
             )
             return foldInvocation(current, started, append)
         }
@@ -328,6 +337,67 @@ object WorkRooms {
     /** Every frame is sent twice and a reconnect replays some: an older revision is never newer news. */
     private fun isStale(onScreen: ChatItem.ProviderInvocation, incoming: ChatItem.ProviderInvocation) =
         incoming.stateRevision != null && onScreen.stateRevision != null && incoming.stateRevision < onScreen.stateRevision
+
+    /**
+     * The Work Room [run] belongs to: the Host's `workroomId`. A message sent to a
+     * finished run resumes the same Claude Code or Codex session (`--resume`,
+     * `thread/resume`) as a new run with a new id, and the Host gives it the
+     * `workroomId` of the run it continues (W16AAPPLE-38). The run's own id when
+     * the Host names none, as the Host's own default is.
+     */
+    fun roomOf(run: ChatItem.ProviderInvocation): String = run.workroomId?.takeIf { it.isNotBlank() } ?: run.id
+
+    /** Every run in the room of the run [invocationId], oldest first. Empty when no run has that id. */
+    fun runsInRoom(items: List<ChatItem>, invocationId: String): List<ChatItem.ProviderInvocation> {
+        val runs = items.filterIsInstance<ChatItem.ProviderInvocation>()
+        val run = runs.firstOrNull { it.id == invocationId } ?: return emptyList()
+        val room = roomOf(run)
+        return runs.filter { roomOf(it) == room }
+    }
+
+    /** The newest run in [invocationId]'s room: the one a message, Stop or permission change goes to. */
+    fun latestRun(items: List<ChatItem>, invocationId: String): ChatItem.ProviderInvocation? =
+        runsInRoom(items, invocationId).lastOrNull()
+
+    /**
+     * [invocationId]'s room as one run: the newest run's state, with what was said
+     * and done in every run before it above its own, so a resumed session shows its
+     * history. Null when no run has that id.
+     */
+    fun room(items: List<ChatItem>, invocationId: String): ChatItem.ProviderInvocation? =
+        asOneRun(runsInRoom(items, invocationId))
+
+    private fun asOneRun(runs: List<ChatItem.ProviderInvocation>): ChatItem.ProviderInvocation? {
+        val latest = runs.lastOrNull() ?: return null
+        if (runs.size == 1) return latest
+        return latest.copy(
+            // The Host echoes the message that resumed a run in the new run as well.
+            messages = runs.flatMap { it.messages }.distinctBy { it.id },
+            // Not de-duplicated: a step's id is only unique in its run (Codex passes its own item ids through).
+            activities = runs.flatMap { it.activities }
+        )
+    }
+
+    /**
+     * [items] as the chat shows them: one card per Work Room, where the room
+     * started, standing for the whole room as [room] does. The card keeps the
+     * first run's id, so it holds its place and opens the same room. A list with
+     * no resumed run is returned as it is.
+     */
+    fun oneCardPerRoom(items: List<ChatItem>): List<ChatItem> {
+        val rooms = items.filterIsInstance<ChatItem.ProviderInvocation>().groupBy(::roomOf)
+        if (rooms.values.none { it.size > 1 }) return items
+        val shown = mutableSetOf<String>()
+        return items.mapNotNull { item ->
+            if (item !is ChatItem.ProviderInvocation) return@mapNotNull item
+            val runs = rooms.getValue(roomOf(item))
+            when {
+                runs.size == 1 -> item
+                !shown.add(roomOf(item)) -> null
+                else -> asOneRun(runs)?.copy(id = item.id, parentToolCallId = item.parentToolCallId)
+            }
+        }
+    }
 
     /** True for the outer agent's tool card of a run already shown as a Work Room. */
     fun isParentOfShownRun(current: List<ChatItem>, item: ChatItem): Boolean =

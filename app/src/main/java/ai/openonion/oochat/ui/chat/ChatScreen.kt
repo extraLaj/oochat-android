@@ -4,6 +4,7 @@ import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
+import ai.openonion.oochat.domain.model.WorkRooms
 import ai.openonion.oochat.ui.chat.components.ApprovalNotificationOffer
 import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.chat.components.ChatTopBar
@@ -426,8 +427,10 @@ fun ChatScreen(
                         .fillMaxWidth()
                 ) { composer(true) }
             } else {
+                // One card per Work Room: a resumed session is a new run in the same room (W16AAPPLE-38).
+                val shownItems = remember(uiState.chatItems) { WorkRooms.oneCardPerRoom(uiState.chatItems) }
                 MessageList(
-                    items = uiState.chatItems,
+                    items = shownItems,
                     timestamps = itemTimestamps,
                     wasCleared = wasCleared,
                     onRespond = viewModel::respondWithOption,

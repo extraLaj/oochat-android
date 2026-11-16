@@ -390,8 +390,16 @@ open class ChatViewModel @JvmOverloads constructor(
         stops: Map<String, WorkRoomStopUi> = workRoomStopStates.value
     ): WorkRoomStopUi = stops[workRoomKey(invocationId)] ?: WorkRoomStopUi()
 
-    private fun workRoomKey(invocationId: String): String =
-        "${activeSessionId.value.orEmpty()}\u0000$invocationId"
+    /**
+     * A room's drafts, Stop and permission control are the room's, not one run's: a
+     * resumed run is a new run in the same room (W16AAPPLE-38), and the room may be
+     * opened by either run's id (its card, or a notification).
+     */
+    private fun workRoomKey(invocationId: String): String {
+        val room = WorkRooms.runsInRoom(_uiState.value.chatItems, invocationId).firstOrNull()
+            ?.let(WorkRooms::roomOf) ?: invocationId
+        return "${activeSessionId.value.orEmpty()}\u0000$room"
+    }
 
     // The streaming toggle only filters in-progress items from what's
     // exposed; the wire protocol has no token-level streaming to actually
@@ -3300,14 +3308,13 @@ open class ChatViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Send the Work Room draft for [invocationId] as `PROVIDER_INPUT`, at the
-     * run's revision as this screen holds it. Nothing happens once the run has
+     * Send the Work Room draft for [invocationId] as `PROVIDER_INPUT` to the room's
+     * newest run, at its revision as this screen holds it. A finished run resumes its
+     * session on the Host as a new run in the same room (W16AAPPLE-38). Nothing happens once the run has
      * left the chat: the room says so, and there is nothing to steer.
      */
     fun sendWorkRoomInput(invocationId: String) {
-        val run = _uiState.value.chatItems
-            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
-            ?: return
+        val run = WorkRooms.latestRun(_uiState.value.chatItems, invocationId) ?: return
         workRoomInputs.send(run, workRoomKey(invocationId))
     }
 
@@ -3328,9 +3335,9 @@ open class ChatViewModel @JvmOverloads constructor(
         workRoomStops.cancel(workRoomKey(invocationId))
     }
 
+    /** The run a room's Stop goes to: its newest. */
     private fun workRoomRunFor(invocationId: String): ChatItem.ProviderInvocation? =
-        _uiState.value.chatItems
-            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+        WorkRooms.latestRun(_uiState.value.chatItems, invocationId)
 
     /**
      * The user picked [optionId] as [invocationId]'s provider permission mode
@@ -3359,9 +3366,9 @@ open class ChatViewModel @JvmOverloads constructor(
         workRoomPermissions.dismissError(workRoomKey(invocationId))
     }
 
+    /** The run a room's permission change goes to: its newest. */
     private fun workRoomRun(invocationId: String): ChatItem.ProviderInvocation? =
-        _uiState.value.chatItems
-            .firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId } as ChatItem.ProviderInvocation?
+        WorkRooms.latestRun(_uiState.value.chatItems, invocationId)
 
     fun respond(itemId: String, answer: String) {
         val question = _uiState.value.chatItems

@@ -25,6 +25,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -479,5 +480,85 @@ class WorkRoomComposeTest {
         }
 
         composeRule.onNodeWithText("Controlled remotely (this app or the web)", useUnmergedTree = false).assertIsDisplayed()
+    }
+
+    // ── A resumed session (W16AAPPLE-38) ────────────────────────────────
+
+    private val firstRun = running.copy(
+        workroomId = "codex:call-1",
+        status = ProviderInvocationStatus.COMPLETED,
+        resultSummary = "Added the login page",
+        stateRevision = 3,
+        messages = listOf(
+            ProviderMessage("user:1", ProviderMessageRole.USER, "Add a login page"),
+            ProviderMessage("agent:1", ProviderMessageRole.ASSISTANT, "Added the login page")
+        )
+    )
+
+    private val resumedRun = ChatItem.ProviderInvocation(
+        id = "codex:call-2",
+        parentToolCallId = "call-2",
+        workroomId = "codex:call-1",
+        provider = "codex",
+        taskTitle = "Remember the user",
+        status = ProviderInvocationStatus.RUNNING,
+        stateRevision = 1,
+        messages = listOf(ProviderMessage("user:2", ProviderMessageRole.USER, "Now remember the user")),
+        activities = listOf(ProviderActivity("c", 1, "file_change", ProviderActivityStatus.RUNNING, "Change the session store", ""))
+    )
+
+    @Test
+    fun `a resumed session's room shows the earlier run as it ended, where the session resumed, then the new run`() {
+        composeRule.setContent {
+            ConnectOnionTheme { WorkRoomScreen(run = resumedRun, earlierRuns = listOf(firstRun), onNavigateBack = {}) }
+        }
+
+        composeRule.onNodeWithText("Remember the user").assertIsDisplayed()
+        val inOrder = listOf(
+            "Add a login page",
+            "Update workspace files",
+            "Added the login page",
+            WorkRoomText.SESSION_RESUMED,
+            "Now remember the user",
+            "Change the session store"
+        )
+        val tops = inOrder.map {
+            composeRule.onNodeWithTag(WORK_ROOM_TRANSCRIPT_TAG).performScrollToNode(hasText(it))
+            composeRule.onNodeWithText(it, useUnmergedTree = true).assertIsDisplayed()
+        }
+        assertEquals(inOrder.size, tops.size)
+        composeRule.onNodeWithText(WorkRoomText.sessionResumedDetail("Codex"), useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the resumed run's echo of the message that resumed it is shown once`() {
+        val echoed = resumedRun.copy(messages = firstRun.messages.take(1) + resumedRun.messages)
+        composeRule.setContent {
+            ConnectOnionTheme { WorkRoomScreen(run = echoed, earlierRuns = listOf(firstRun), onNavigateBack = {}) }
+        }
+
+        composeRule.onNodeWithTag(WORK_ROOM_TRANSCRIPT_TAG).performScrollToNode(hasText("Add a login page"))
+        assertEquals(1, composeRule.onAllNodesWithText("Add a login page", useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `a room of one run has no resume divider`() {
+        composeRule.setContent { ConnectOnionTheme { WorkRoomScreen(run = firstRun, onNavigateBack = {}) } }
+
+        composeRule.onNodeWithText(WorkRoomText.SESSION_RESUMED).assertDoesNotExist()
+    }
+
+    @Test
+    fun `an approval asked by the resumed run is shown in the room, however it was opened`() {
+        val approval = ChatItem.ApprovalNeeded(
+            id = "ap-1",
+            tool = "codex",
+            arguments = emptyMap(),
+            workRoom = ai.openonion.oochat.domain.model.WorkRoomApproval("codex", "codex:call-2", "call-2")
+        )
+        val items = listOf(firstRun, resumedRun, approval)
+
+        assertEquals(listOf("ap-1"), items.workRoomApprovals("codex:call-1").map { it.id })
+        assertEquals(listOf("ap-1"), items.workRoomApprovals("codex:call-2").map { it.id })
     }
 }

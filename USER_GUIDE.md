@@ -266,6 +266,12 @@ within a minute, your text stays where it is with the reason above it, so you
 can send it again. Each room keeps its own draft, even if you go back to the
 chat. Codex takes a message while it works, and a finished run of either can
 be resumed with one. Claude Code takes a message only once its run has ended.
+A resumed run picks up the same Claude Code or Codex session, with what it
+already knows, and stays in the same room: the chat keeps one card for it. The
+room shows the earlier run as it ended, then **Session resumed** where the
+coding agent picked the session back up, then the new run.
+
+<img src="screenshots/work-room-resume-send.png" alt="A finished Claude Code Work Room with a follow-up typed in its field: Now add a subtract function next to it with the same style of docstring" width="260"> <img src="screenshots/work-room-resume-working.png" alt="Right after sending: the same room says Working, with Stop run, as Claude Code resumes the session" width="260"> <img src="screenshots/work-room-resume-done.png" alt="The room once it is done: the first run as it ended, Session resumed, then the follow-up, Claude Code's reply in the same docstring style, and its step" width="260">
 
 When the coding agent needs your permission, for example to change files or
 run tests, the run says it is waiting for your decision and a request appears

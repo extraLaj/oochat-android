@@ -381,7 +381,8 @@ internal object ProviderFrames {
                 role = speaker,
                 text = if (body.length > MAX_MESSAGE_LENGTH) body.take(MAX_MESSAGE_LENGTH - 1) + "\u2026" else body,
                 continuationOf = continuationOf?.takeIf { MESSAGE_ID.matches(it) }
-            )
+            ),
+            workroomId = workroomId?.takeIf { MESSAGE_ID.matches(it) }
         )
     }
 

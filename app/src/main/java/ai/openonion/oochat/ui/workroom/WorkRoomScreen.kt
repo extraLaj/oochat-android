@@ -4,6 +4,8 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderActivity
 import ai.openonion.oochat.domain.model.ProviderActivityStatus
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.domain.model.ProviderMessage
+import ai.openonion.oochat.domain.model.WorkRooms
 import ai.openonion.oochat.ui.chat.ChatViewModel
 import ai.openonion.oochat.ui.chat.components.WorkRoomHandover
 import ai.openonion.oochat.ui.chat.components.WorkRoomStatus
@@ -74,10 +76,11 @@ fun WorkRoomScreenWrapper(
     val drafts by viewModel.workRoomDrafts.collectAsState()
     val permissionControls by viewModel.workRoomPermissionControls.collectAsState()
     val stops by viewModel.workRoomStopStates.collectAsState()
-    val run = state.chatItems.firstOrNull { it is ChatItem.ProviderInvocation && it.id == invocationId }
-        as ChatItem.ProviderInvocation?
+    // A resumed session is a new run in the same room (W16AAPPLE-38): the newest run, and the ones it resumed.
+    val runs = WorkRooms.runsInRoom(state.chatItems, invocationId)
     WorkRoomScreen(
-        run = run,
+        run = runs.lastOrNull(),
+        earlierRuns = runs.dropLast(1),
         onNavigateBack = onNavigateBack,
         draft = viewModel.workRoomDraft(invocationId, drafts),
         onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
@@ -100,8 +103,11 @@ fun WorkRoomScreenWrapper(
     )
 }
 
-internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatItem.ApprovalNeeded> =
-    filterIsInstance<ChatItem.ApprovalNeeded>().filter { it.workRoom?.invocationId == invocationId }
+/** The approvals asked by any run in [invocationId]'s room. */
+internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatItem.ApprovalNeeded> {
+    val runs = WorkRooms.runsInRoom(this, invocationId).mapTo(mutableSetOf()) { it.id } + invocationId
+    return filterIsInstance<ChatItem.ApprovalNeeded>().filter { it.workRoom?.invocationId in runs }
+}
 
 /**
  * A Claude Code or Codex run's Work Room (W16AAPPLE-33), O Chat's Work Room on
@@ -116,6 +122,8 @@ internal fun List<ChatItem>.workRoomApprovals(invocationId: String): List<ChatIt
 fun WorkRoomScreen(
     run: ChatItem.ProviderInvocation?,
     onNavigateBack: () -> Unit,
+    /** The runs this one resumed, oldest first (W16AAPPLE-38); shown above it, each as it ended. */
+    earlierRuns: List<ChatItem.ProviderInvocation> = emptyList(),
     draft: WorkRoomDraft = WorkRoomDraft(),
     onDraftChange: (String) -> Unit = {},
     onSend: () -> Unit = {},
@@ -160,6 +168,7 @@ fun WorkRoomScreen(
             }
             WorkRoomTranscript(
                 run,
+                earlierRuns,
                 scrollPosition,
                 onScrollPositionChanged,
                 approvals,
@@ -185,6 +194,7 @@ fun WorkRoomScreen(
 @Composable
 private fun WorkRoomTranscript(
     run: ChatItem.ProviderInvocation,
+    earlierRuns: List<ChatItem.ProviderInvocation>,
     scrollPosition: WorkRoomScrollPosition,
     onScrollPositionChanged: (WorkRoomScrollPosition) -> Unit,
     approvals: List<ChatItem.ApprovalNeeded>,
@@ -195,19 +205,13 @@ private fun WorkRoomTranscript(
     val resolvedApprovals = approvals.filter { it.decision != null }
     // Only a picture of the run as it stands, as the Host's replay keeps: an older one would look current.
     val currentArtifact = run.artifact?.takeIf { it.stateRevision == run.stateRevision }
+    val rows = transcriptRows(run, earlierRuns, resolvedApprovals)
     val itemKeys = buildList {
         add("header")
         if (!run.status.isTerminal) add("stop")
         if (run.providerPermission != null) add("permission")
         currentArtifact?.let { add("artifact") }
-        if (run.messages.isNotEmpty()) {
-            add("conversation-heading")
-            run.messages.forEach { add("message:${it.id}") }
-        }
-        add("steps-heading")
-        run.activities.forEach { add("step:${it.id}") }
-        resolvedApprovals.forEach { add("approval:${it.id}") }
-        if (run.status.isTerminal) add("outcome")
+        rows.forEach { add(it.key) }
     }
     val itemCount = itemKeys.size
     val keyIndex = scrollPosition.firstVisibleItemKey?.let(itemKeys::indexOf)?.takeIf { it >= 0 }
@@ -239,6 +243,7 @@ private fun WorkRoomTranscript(
             .collect(onScrollPositionChanged)
     }
 
+    val providerName = WorkRoomText.providerName(run)
     LazyColumn(
         state = listState,
         // Capped for reading on a tablet, as Rem's pages are.
@@ -254,44 +259,109 @@ private fun WorkRoomTranscript(
         if (!run.status.isTerminal) item(key = "stop") { stop() }
         if (run.providerPermission != null) item(key = "permission") { permission() }
         currentArtifact?.let { artifact -> item(key = "artifact") { LatestView(artifact) } }
-        if (run.messages.isNotEmpty()) {
-            item(key = "conversation-heading") {
-                Text(
-                    text = "Conversation",
+        items(rows, key = { it.key }) { row ->
+            when (row) {
+                is TranscriptRow.Heading -> Text(
+                    text = row.text,
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.semantics { heading() }
                 )
-            }
-            items(run.messages, key = { "message:${it.id}" }) { message ->
-                ConversationMessage(message, WorkRoomText.providerName(run))
-            }
-        }
-        item(key = "steps-heading") {
-            Text(
-                text = if (run.activities.isEmpty()) "No steps yet" else "Steps",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.semantics { heading() }
-            )
-        }
-        items(run.activities, key = { "step:${it.id}" }) { step -> Step(step) }
-        items(resolvedApprovals, key = { "approval:${it.id}" }) { approval ->
-            WorkRoomApprovalCard(approval, approval.workRoom ?: return@items) { _, _ -> }
-        }
-        run.outcome()?.let { outcome ->
-            item(key = "outcome") {
-                HorizontalDivider()
-                Text(
-                    text = outcome,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (run.status == ProviderInvocationStatus.FAILED) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier.padding(top = MaterialTheme.spacing.sm)
-                )
+                is TranscriptRow.Message -> ConversationMessage(row.message, providerName)
+                is TranscriptRow.StepRow -> Step(row.step)
+                is TranscriptRow.Resolved -> WorkRoomApprovalCard(row.approval, row.approval.workRoom ?: return@items) { _, _ -> }
+                is TranscriptRow.Outcome -> Outcome(row.run)
+                is TranscriptRow.Resumed -> Resumed(providerName)
             }
         }
+    }
+}
+
+/** One item of a room's transcript below its header, keyed so a room keeps its place. */
+private sealed interface TranscriptRow {
+    val key: String
+
+    data class Heading(override val key: String, val text: String) : TranscriptRow
+    data class Message(override val key: String, val message: ProviderMessage) : TranscriptRow
+    data class StepRow(override val key: String, val step: ProviderActivity) : TranscriptRow
+    data class Resolved(override val key: String, val approval: ChatItem.ApprovalNeeded) : TranscriptRow
+    data class Outcome(override val key: String, val run: ChatItem.ProviderInvocation) : TranscriptRow
+    data class Resumed(override val key: String) : TranscriptRow
+}
+
+/**
+ * What was said and done, run by run: each run the room resumed (W16AAPPLE-38), as it
+ * ended, then where the session was resumed, then the newest run. A room of one run
+ * reads as it always has. A message the Host echoes into the resumed run is shown once.
+ */
+private fun transcriptRows(
+    run: ChatItem.ProviderInvocation,
+    earlierRuns: List<ChatItem.ProviderInvocation>,
+    resolvedApprovals: List<ChatItem.ApprovalNeeded>
+): List<TranscriptRow> = buildList {
+    val shown = mutableSetOf<String>()
+    earlierRuns.forEach { earlier ->
+        val prefix = "${earlier.id}:"
+        val messages = earlier.messages.filter { shown.add(it.id) }
+        if (messages.isNotEmpty()) {
+            add(TranscriptRow.Heading("conversation-heading:$prefix", "Conversation"))
+            messages.forEach { add(TranscriptRow.Message("message:$prefix${it.id}", it)) }
+        }
+        if (earlier.activities.isNotEmpty()) {
+            add(TranscriptRow.Heading("steps-heading:$prefix", "Steps"))
+            earlier.activities.forEach { add(TranscriptRow.StepRow("step:$prefix${it.id}", it)) }
+        }
+        add(TranscriptRow.Outcome("outcome:$prefix", earlier))
+    }
+    if (earlierRuns.isNotEmpty()) add(TranscriptRow.Resumed("resumed:${run.id}"))
+    val messages = run.messages.filter { shown.add(it.id) }
+    if (messages.isNotEmpty()) {
+        add(TranscriptRow.Heading("conversation-heading", "Conversation"))
+        messages.forEach { add(TranscriptRow.Message("message:${it.id}", it)) }
+    }
+    add(TranscriptRow.Heading("steps-heading", if (run.activities.isEmpty()) "No steps yet" else "Steps"))
+    run.activities.forEach { add(TranscriptRow.StepRow("step:${it.id}", it)) }
+    resolvedApprovals.forEach { add(TranscriptRow.Resolved("approval:${it.id}", it)) }
+    if (run.status.isTerminal) add(TranscriptRow.Outcome("outcome", run))
+}
+
+/** How [run] ended, under a rule. */
+@Composable
+private fun Outcome(run: ChatItem.ProviderInvocation) {
+    val outcome = run.outcome() ?: return
+    Column {
+        HorizontalDivider()
+        Text(
+            text = outcome,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (run.status == ProviderInvocationStatus.FAILED) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.padding(top = MaterialTheme.spacing.sm)
+        )
+    }
+}
+
+/** Where a message resumed the session (W16AAPPLE-38): the provider carried on with what it already knew. */
+@Composable
+private fun Resumed(providerName: String) {
+    Column(
+        modifier = Modifier.semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xxs)
+    ) {
+        Text(
+            text = WorkRoomText.SESSION_RESUMED,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = WorkRoomText.sessionResumedDetail(providerName),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.primary)
     }
 }
 
