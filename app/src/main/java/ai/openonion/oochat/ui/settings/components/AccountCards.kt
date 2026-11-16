@@ -150,7 +150,9 @@ internal fun AccountSection(
     identityWarning: String? = null
 ) {
     Column(modifier = Modifier.padding(horizontal = MaterialTheme.spacing.lg)) {
-        Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = MaterialTheme.spacing.sm)) {
+        // No inset of its own: every other section label sits at the screen's own gutter, so
+        // this one did not line up with APPEARANCE, RESPONSES and the rest below it.
+        Column(modifier = Modifier.padding(bottom = MaterialTheme.spacing.sm)) {
             Text(
                 text = "ACCOUNT",
                 style = MaterialTheme.typography.sectionLabel,

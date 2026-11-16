@@ -6,6 +6,7 @@ import ai.openonion.oochat.ui.common.FontSizeOption
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.BackTopAppBar
+import ai.openonion.oochat.ui.components.formWidth
 import ai.openonion.oochat.ui.settings.components.AccountSection
 import ai.openonion.oochat.ui.settings.components.BackupSeedSheet
 import ai.openonion.oochat.ui.settings.components.CustomInstructionsSheet
@@ -242,6 +243,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
+                .formWidth()
                 .padding(bottom = MaterialTheme.spacing.xl)
         ) {
             // The identity variant stays put: it is not dismissible, so it does

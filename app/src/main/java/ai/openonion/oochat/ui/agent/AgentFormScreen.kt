@@ -15,6 +15,7 @@ import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
+import ai.openonion.oochat.ui.components.formWidth
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.util.truncateMiddle
@@ -183,6 +184,7 @@ fun AgentFormScreen(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
+                        .formWidth()
                         .padding(MaterialTheme.spacing.lg),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg)
                 ) {
@@ -287,6 +289,7 @@ fun AgentFormScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
+                .formWidth()
                 .padding(MaterialTheme.spacing.lg),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg)
         ) {
@@ -509,7 +512,7 @@ private fun PinnedSaveFooter(label: String, helper: String, enabled: Boolean, on
         )
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .formWidth()
                 .background(MaterialTheme.colorScheme.surface)
                 .padding(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.md)
         ) {

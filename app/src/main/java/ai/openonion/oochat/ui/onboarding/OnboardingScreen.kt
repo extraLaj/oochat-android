@@ -8,6 +8,7 @@ import ai.openonion.oochat.ui.agent.components.AgentFormState
 import ai.openonion.oochat.ui.agent.components.EmbeddedDiscoveryPanel
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.common.rememberPermissionGate
+import ai.openonion.oochat.ui.components.formWidth
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.spacing
 import android.Manifest
@@ -170,6 +171,7 @@ fun OnboardingScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
+                .formWidth()
                 .padding(MaterialTheme.spacing.lg),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg)
         ) {
