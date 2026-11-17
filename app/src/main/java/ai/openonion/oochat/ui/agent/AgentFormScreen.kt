@@ -6,8 +6,8 @@ import ai.openonion.oochat.domain.model.AppError
 import ai.openonion.oochat.ui.agent.components.AgentFormContent
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import ai.openonion.oochat.ui.agent.components.EmbeddedDiscoveryPanel
-import ai.openonion.oochat.ui.agent.components.FieldLabel
 import ai.openonion.oochat.ui.agent.components.FormFieldShape
+import ai.openonion.oochat.ui.agent.components.LabeledField
 import ai.openonion.oochat.ui.chat.components.ExpandChevron
 import ai.openonion.oochat.ui.chat.components.ExpandableSection
 import ai.openonion.oochat.ui.components.AppSnackbarHost
@@ -206,8 +206,7 @@ fun AgentFormScreen(
                         onNavigateToDiscover = onNavigateToDiscover
                     )
 
-                    Column {
-                        FieldLabel("Description (optional)")
+                    LabeledField(label = "Description (optional)") {
                         PillTextField(
                             value = description,
                             onValueChange = { description = it },
@@ -325,25 +324,20 @@ fun AgentFormScreen(
  */
 @Composable
 private fun AgentNameField(name: String, onValueChange: (String) -> Unit) {
-    Column {
-        FieldLabel("Agent Name (optional)")
+    val hint = "Left blank, the agent is named after its address."
+    LabeledField(label = "Agent Name (optional)", hint = hint) {
         PillTextField(
             value = name,
             onValueChange = onValueChange,
             placeholder = "My AI Agent",
             label = "Agent Name (optional)",
+            hint = hint,
             shape = FormFieldShape,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Words,
                 imeAction = ImeAction.Next
             ),
             modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Left blank, the agent is named after its address.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(top = MaterialTheme.spacing.xs)
         )
     }
 }

@@ -35,9 +35,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Single-line bordered pill text field: fixed-height box, hand-drawn
- * placeholder, border that turns primary on focus, optional leading/trailing
- * slots.
+ * Bordered pill text field: one line by default ([maxLines] lets it wrap), a
+ * 52dp minimum height, hand-drawn placeholder, border that turns primary on
+ * focus, optional leading/trailing slots.
  *
  * Material3's OutlinedTextField was tried first for these fields, but its
  * floating label reserves extra height that varies with focus state, and its
@@ -65,6 +65,12 @@ fun PillTextField(
      * default) leaves the field unnamed for call sites with no such label.
      */
     label: String? = null,
+    /**
+     * Help shown under the field by its caller, such as "Left blank, ..." or an
+     * error. Read with [label] as the field's name, so TalkBack says it on the
+     * field, where the user is; the caller hides its own copy of the text.
+     */
+    hint: String? = null,
     shape: Shape = MaterialTheme.shapes.medium,
     monospace: Boolean = false,
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
@@ -80,6 +86,7 @@ fun PillTextField(
     /** Fires on the inner field's own focus, not the pill's — see [onFocusChanged]. */
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
+    require(maxLines >= 1) { "maxLines must be at least 1, was $maxLines" }
     var focused by remember { mutableStateOf(false) }
     val borderColor = if (focused) MaterialTheme.colorScheme.primary else unfocusedBorderColor
     // Null when not monospace, so the field takes the theme's face (Inter) like all other text.
@@ -114,8 +121,9 @@ fun PillTextField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics {
-                        if (label != null) {
-                            contentDescription = label
+                        val name = listOfNotNull(label, hint).joinToString(". ")
+                        if (name.isNotEmpty()) {
+                            contentDescription = name
                         }
                     }
                     .onFocusChanged {

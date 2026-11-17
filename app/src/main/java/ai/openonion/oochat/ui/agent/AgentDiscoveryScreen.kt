@@ -1,8 +1,8 @@
 package ai.openonion.oochat.ui.agent
 
 import ai.openonion.oochat.domain.model.AgentProfile
-import ai.openonion.oochat.ui.agent.components.FieldLabel
 import ai.openonion.oochat.ui.agent.components.FormFieldShape
+import ai.openonion.oochat.ui.agent.components.LabeledField
 import ai.openonion.oochat.ui.components.AgentInitialsAvatar
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.EmptyStateMessage
@@ -124,7 +124,10 @@ fun AgentDiscoveryScreen(
     var hasSearched by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // The keyboard's Done reaches this too, so it applies the Discover button's own checks: no
+    // search of an empty URL, and none on top of one already running (W16AAPPLE-124).
     fun runDiscover() {
+        if (serverUrl.isBlank() || isLoading) return
         hasSearched = true
         onDiscover(serverUrl)
     }
@@ -170,23 +173,24 @@ fun AgentDiscoveryScreen(
                 // Server URL + Discover button — the form's one field style
                 // (label above, bordered field, W16AAPPLE-124) with a leading
                 // search icon and clear button, beside a labeled pill button.
-                FieldLabel("Server URL")
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
-                ) {
-                    ServerUrlField(
-                        value = serverUrl,
-                        onValueChange = { serverUrl = it },
-                        onSubmit = { runDiscover() },
-                        modifier = Modifier.weight(1f)
-                    )
+                LabeledField(label = "Server URL") {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
+                    ) {
+                        ServerUrlField(
+                            value = serverUrl,
+                            onValueChange = { serverUrl = it },
+                            onSubmit = { runDiscover() },
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    DiscoverButton(
-                        isLoading = isLoading,
-                        enabled = serverUrl.isNotBlank() && !isLoading,
-                        onClick = { runDiscover() }
-                    )
+                        DiscoverButton(
+                            isLoading = isLoading,
+                            enabled = serverUrl.isNotBlank() && !isLoading,
+                            onClick = { runDiscover() }
+                        )
+                    }
                 }
 
                 Text(
@@ -295,7 +299,8 @@ private fun ServerUrlField(
     PillTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = "https://oo.openonion.ai",
+        // Not a URL: an empty field showing one looked as if it were filled in.
+        placeholder = "Relay server to search",
         label = "Server URL",
         modifier = modifier,
         shape = FormFieldShape,

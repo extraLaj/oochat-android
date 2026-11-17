@@ -80,6 +80,43 @@ internal fun FieldLabel(text: String) {
 }
 
 /**
+ * The forms' one field layout (W16AAPPLE-124): [label] above the [field], and [hint], if any,
+ * under it. The label and hint are hidden from TalkBack here; pass the same strings to the
+ * [PillTextField] as `label` and `hint` so they are read once, on the field itself. A [hintIsError]
+ * hint is drawn in the error colour.
+ */
+@Composable
+internal fun LabeledField(
+    label: String,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+    hintIsError: Boolean = false,
+    field: @Composable () -> Unit
+) {
+    Column(modifier = modifier) {
+        FieldLabel(label)
+        field()
+        if (hint != null) {
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (hintIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                modifier = Modifier
+                    .padding(top = MaterialTheme.spacing.xs)
+                    .semantics { hideFromAccessibility() }
+            )
+        }
+    }
+}
+
+/** The longest Server URL a form saves; Setup and Add/Edit Agent refuse a longer one. */
+internal const val SERVER_URL_MAX_LENGTH = 500
+
+/** What the Server URL field says once its text is over [SERVER_URL_MAX_LENGTH], or null. */
+internal fun serverUrlTooLongHint(url: String): String? =
+    if (url.length > SERVER_URL_MAX_LENGTH) "Too long: ${url.length} of $SERVER_URL_MAX_LENGTH characters" else null
+
+/**
  * Form state holder for agent configuration.
  */
 data class AgentFormState(
@@ -160,23 +197,20 @@ fun AgentFormContent(
         )
 
         // Server URL — static label above a fixed-height bordered box,
-        // matching Figma's OutlinedField exactly (see PillTextField doc). Still
-        // capped at 500 characters, now silently: with the counter gone
-        // (W16AAPPLE-124; no other field had one), a longer paste is cut off at
-        // 500 with nothing on screen saying so. A real URL never comes near it.
-        Column {
-            FieldLabel("Server URL")
+        // matching Figma's OutlinedField exactly (see PillTextField doc). No
+        // character counter (W16AAPPLE-124; no other field had one), and no
+        // silent cap either: a paste over 500 characters is kept, the field says
+        // it is too long, and Save refuses it with the same reason.
+        val tooLong = serverUrlTooLongHint(formState.serverUrl)
+        LabeledField(label = "Server URL", hint = tooLong, hintIsError = true) {
             PillTextField(
                 shape = FormFieldShape,
                 value = formState.serverUrl,
-                onValueChange = {
-                    if (it.length <= 500) {
-                        onFormStateChange(formState.copy(serverUrl = it))
-                    }
-                },
+                onValueChange = { onFormStateChange(formState.copy(serverUrl = it)) },
                 placeholder = if (formState.useDirectConnection) "https://your-server.com"
                     else "https://oo.openonion.ai",
                 label = "Server URL",
+                hint = tooLong,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
                     imeAction = ImeAction.Next
@@ -248,8 +282,7 @@ internal fun AgentAddressField(
     var dropdownExpanded by remember { mutableStateOf(false) }
     val showDropdown = enableDropdown && !useDirectConnection
 
-    Column(modifier = modifier) {
-        FieldLabel(label)
+    LabeledField(label = label, modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)

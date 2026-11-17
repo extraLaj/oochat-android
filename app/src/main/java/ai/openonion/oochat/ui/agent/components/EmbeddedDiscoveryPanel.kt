@@ -153,73 +153,74 @@ fun EmbeddedDiscoveryPanel(
         // 2. Server URL — single unified field: relay mode pairs it with a
         // Rescan button (this field IS the scan input); direct mode is a
         // plain field holding the final connection URL.
-        FieldLabel("Server URL")
-        if (!isDirect) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
-            ) {
+        LabeledField(label = "Server URL") {
+            if (!isDirect) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
+                ) {
+                    PillTextField(
+                        shape = FormFieldShape,
+                        value = formState.serverUrl,
+                        onValueChange = { onFormStateChange(formState.copy(serverUrl = it)) },
+                        placeholder = "https://oo.openonion.ai",
+                        label = "Server URL",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        trailingContent = if (
+                            formState.serverUrl.isNotEmpty() && formState.serverUrl != ConnectionConfig.DEFAULT_RELAY_URL
+                        ) {
+                            {
+                                // Outer 48dp box carries the touch target; the
+                                // 16dp icon is unchanged, just centered inside it.
+                                // The pill's own heightIn(min = 52.dp) already
+                                // has room for it.
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clickable {
+                                            onFormStateChange(formState.copy(serverUrl = ConnectionConfig.DEFAULT_RELAY_URL))
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Reset to default relay",
+                                        tint = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    RescanButton(
+                        isLoading = isScanning,
+                        enabled = formState.serverUrl.isNotBlank() && !isScanning,
+                        onClick = { onDiscover(formState.serverUrl) }
+                    )
+                }
+            } else {
                 PillTextField(
                     shape = FormFieldShape,
                     value = formState.serverUrl,
                     onValueChange = { onFormStateChange(formState.copy(serverUrl = it)) },
-                    placeholder = "https://oo.openonion.ai",
+                    placeholder = "https://your-server.com",
                     label = "Server URL",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    trailingContent = if (
-                        formState.serverUrl.isNotEmpty() && formState.serverUrl != ConnectionConfig.DEFAULT_RELAY_URL
-                    ) {
-                        {
-                            // Outer 48dp box carries the touch target; the
-                            // 16dp icon is unchanged, just centered inside it.
-                            // The pill's own heightIn(min = 52.dp) already
-                            // has room for it.
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clickable {
-                                        onFormStateChange(formState.copy(serverUrl = ConnectionConfig.DEFAULT_RELAY_URL))
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Reset to default relay",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-
-                RescanButton(
-                    isLoading = isScanning,
-                    enabled = formState.serverUrl.isNotBlank() && !isScanning,
-                    onClick = { onDiscover(formState.serverUrl) }
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
-        } else {
-            PillTextField(
-                shape = FormFieldShape,
-                value = formState.serverUrl,
-                onValueChange = { onFormStateChange(formState.copy(serverUrl = it)) },
-                placeholder = "https://your-server.com",
-                label = "Server URL",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth()
-            )
         }
 
         Text(

@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.height
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -203,7 +204,7 @@ class AgentFormScreenComposeTest {
 
         // Each field found by its own name, so a field added to the form later cannot shift them.
         listOf("Agent Name (optional)", "Server URL", "Agent Address", "Description (optional)").forEach { label ->
-            val field = composeRule.onNode(hasSetTextAction() and hasContentDescription(label))
+            val field = composeRule.onNode(hasSetTextAction() and hasContentDescription(label, substring = true))
                 .performScrollTo()
                 .getBoundsInRoot()
             val shown = composeRule.onNodeWithText(label).getBoundsInRoot()
@@ -216,7 +217,7 @@ class AgentFormScreenComposeTest {
         setScreen(existingAgent = saved)
 
         listOf("Agent Name (optional)", "Server URL", "Agent Address", "Description (optional)").forEach { label ->
-            composeRule.onNode(hasSetTextAction() and hasContentDescription(label)).assertExists()
+            composeRule.onNode(hasSetTextAction() and hasContentDescription(label, substring = true)).assertExists()
             composeRule.onNodeWithText(label)
                 .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.HideFromAccessibility))
         }
@@ -225,7 +226,7 @@ class AgentFormScreenComposeTest {
     @Test
     fun `Description grows to three lines and then scrolls inside itself`() {
         setScreen(existingAgent = saved)
-        val description = composeRule.onNode(hasSetTextAction() and hasContentDescription("Description (optional)"))
+        val description = composeRule.onNode(hasSetTextAction() and hasContentDescription("Description (optional)", substring = true))
             .performScrollTo()
         val oneLine = description.getBoundsInRoot().height
 
@@ -247,5 +248,28 @@ class AgentFormScreenComposeTest {
         composeRule.onNodeWithText("Modify the agent settings below.").assertDoesNotExist()
         composeRule.onNodeWithText("Changes will be saved", substring = true).assertDoesNotExist()
         composeRule.onNodeWithText("/500", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `TalkBack reads the Name field's help with the field, not as a separate line`() {
+        setScreen(existingAgent = saved)
+
+        composeRule.onNode(
+            hasSetTextAction() and
+                hasContentDescription("Agent Name (optional). Left blank, the agent is named after its address.")
+        ).assertExists()
+        composeRule.onNodeWithText("Left blank, the agent is named after its address.")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.HideFromAccessibility))
+    }
+
+    @Test
+    fun `a Server URL over 500 characters is kept and the field says it is too long`() {
+        setScreen(existingAgent = saved)
+        val long = "https://relay.example.com/" + "a".repeat(475)
+
+        serverUrlField().performTextReplacement(long)
+
+        composeRule.onNodeWithText(long).assertExists()
+        composeRule.onNodeWithText("Too long: 501 of 500 characters").assertExists()
     }
 }
