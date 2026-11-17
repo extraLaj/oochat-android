@@ -143,23 +143,10 @@ fun EmbeddedDiscoveryPanel(
 
     Column(modifier = modifier) {
         // 1. Mode toggle — top-level first decision, drives everything below.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
-        ) {
-            ModeToggleButton(
-                label = "Relay Server",
-                selected = !isDirect,
-                onClick = { onFormStateChange(formState.copy(useDirectConnection = false)) },
-                modifier = Modifier.weight(1f)
-            )
-            ModeToggleButton(
-                label = "Direct Connection",
-                selected = isDirect,
-                onClick = { onFormStateChange(formState.copy(useDirectConnection = true)) },
-                modifier = Modifier.weight(1f)
-            )
-        }
+        ConnectionModeChoice(
+            useDirect = isDirect,
+            onChange = { onFormStateChange(formState.copy(useDirectConnection = it)) }
+        )
 
         Spacer(modifier = Modifier.height(MaterialTheme.spacing.lg))
 

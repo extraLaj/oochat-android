@@ -4,7 +4,7 @@ import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.ThemeMode
 import ai.openonion.oochat.ui.agent.AgentItem
-import ai.openonion.oochat.ui.agent.components.ModeToggleButton
+import ai.openonion.oochat.ui.agent.components.ConnectionModeChoice
 import ai.openonion.oochat.ui.chat.components.ApprovalModeSheet
 import ai.openonion.oochat.ui.settings.components.ThemeModeRow
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.isNotSelected
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import org.junit.Rule
 import org.junit.Test
@@ -49,11 +48,10 @@ class SelectedSemanticsComposeTest {
     }
 
     @Test
-    fun `ModeToggleButton exposes selected on the active toggle only`() {
+    fun `ConnectionModeChoice exposes selected on the active segment only`() {
         composeRule.setContent {
             ConnectOnionTheme {
-                ModeToggleButton(label = "Relay Server", selected = true, onClick = {})
-                ModeToggleButton(label = "Direct Connection", selected = false, onClick = {})
+                ConnectionModeChoice(useDirect = false, onChange = {})
             }
         }
 
@@ -69,12 +67,9 @@ class SelectedSemanticsComposeTest {
             }
         }
 
-        // clearAndSetSemantics replaces the OutlinedButton's own merged
-        // "Text" property with an explicit contentDescription — see the
-        // production comment on why a plain merging ancestor isn't enough.
-        composeRule.onNodeWithContentDescription("Dark").assert(isSelected())
-        composeRule.onNodeWithContentDescription("Light").assert(isNotSelected())
-        composeRule.onNodeWithContentDescription("System").assert(isNotSelected())
+        composeRule.onNodeWithText("Dark").assert(isSelected())
+        composeRule.onNodeWithText("Light").assert(isNotSelected())
+        composeRule.onNodeWithText("System").assert(isNotSelected())
     }
 
     @Test

@@ -584,6 +584,7 @@ val regressionSuite = mapOf(
         "ui.components.AgentStatusColorComposeTest",
         "ui.components.AppSnackbarHostComposeTest",
         "ui.components.FormWidthComposeTest",
+        "ui.components.SegmentedChoiceComposeTest",
         "ui.controlcenter.ControlCenterWebViewTest",
         "ui.controlcenter.ControlCenterPageTest",
         "ui.dashboard.DashboardWebViewTest",

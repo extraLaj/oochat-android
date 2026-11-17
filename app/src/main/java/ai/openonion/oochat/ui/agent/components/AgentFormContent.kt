@@ -4,6 +4,8 @@ import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.ui.components.AgentInitialsAvatar
 import ai.openonion.oochat.ui.components.PillTextField
+import ai.openonion.oochat.ui.components.SegmentOption
+import ai.openonion.oochat.ui.components.SegmentedChoice
 import ai.openonion.oochat.ui.theme.AppShapes
 import ai.openonion.oochat.ui.theme.Elevation
 import ai.openonion.oochat.ui.theme.hairline
@@ -18,10 +20,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -44,8 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -174,26 +172,10 @@ fun AgentFormContent(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg)
     ) {
-        // Connection type toggle — custom pill pair (Figma spec: 20dp radius,
-        // primary-tinted 14% fill + 1.5dp primary border when selected)
-        // replacing the stock FilterChip pair.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
-        ) {
-            ModeToggleButton(
-                label = "Relay Server",
-                selected = !formState.useDirectConnection,
-                onClick = { onFormStateChange(formState.copy(useDirectConnection = false)) },
-                modifier = Modifier.weight(1f)
-            )
-            ModeToggleButton(
-                label = "Direct Connection",
-                selected = formState.useDirectConnection,
-                onClick = { onFormStateChange(formState.copy(useDirectConnection = true)) },
-                modifier = Modifier.weight(1f)
-            )
-        }
+        ConnectionModeChoice(
+            useDirect = formState.useDirectConnection,
+            onChange = { onFormStateChange(formState.copy(useDirectConnection = it)) }
+        )
 
         // Server URL — static label above a fixed-height bordered box,
         // matching Figma's OutlinedField exactly (see PillTextField doc).
@@ -483,44 +465,25 @@ internal fun DiscoverTriggerIcon(onClick: () -> Unit, modifier: Modifier = Modif
 }
 
 /**
- * Custom pill toggle button (20dp radius, primary-tinted 14% fill + 1.5dp
- * primary border when selected) used for the Relay/Direct connection-mode
- * choice, replacing the stock [FilterChip] pair to match the Figma design's
- * mode toggle.
+ * The Relay/Direct connection-mode choice, as Material's segmented button row.
+ *
+ * Shared by the agent form and the discovery panel so the two cannot drift.
+ * It was a pair of hand-drawn pills; the stock row carries the radio-button
+ * role and the selected state itself; [SegmentedChoice] adds the 48dp touch target.
  */
 @Composable
-internal fun ModeToggleButton(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
+internal fun ConnectionModeChoice(
+    useDirect: Boolean,
+    onChange: (useDirect: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val containerColor = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-    } else {
-        Color.Transparent
-    }
-    val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-    val contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-
-    Box(
+    SegmentedChoice(
+        options = listOf(
+            SegmentOption(value = false, label = "Relay Server"),
+            SegmentOption(value = true, label = "Direct Connection")
+        ),
+        selected = useDirect,
+        onSelect = onChange,
         modifier = modifier
-            .heightIn(min = 48.dp)
-            .clip(MaterialTheme.shapes.large)
-            .background(containerColor)
-            .border(BorderStroke(1.5.dp, borderColor), MaterialTheme.shapes.large)
-            // Relay/Direct is a mutually exclusive pair, so RadioButton — not
-            // Role.Tab, since picking one doesn't switch panels within this
-            // control, it drives the rest of the form below.
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor
-        )
-    }
+    )
 }

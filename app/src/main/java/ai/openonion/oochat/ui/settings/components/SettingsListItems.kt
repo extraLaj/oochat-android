@@ -1,15 +1,13 @@
 package ai.openonion.oochat.ui.settings.components
 
 import ai.openonion.oochat.domain.model.ThemeMode
+import ai.openonion.oochat.ui.components.SegmentOption
+import ai.openonion.oochat.ui.components.SegmentedChoice
 import ai.openonion.oochat.ui.theme.sectionLabel
 import ai.openonion.oochat.ui.theme.spacing
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,11 +20,9 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -34,11 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -199,64 +192,14 @@ internal fun SwitchRow(
 
 @Composable
 internal fun ThemeModeRow(current: ThemeMode, onChange: (ThemeMode) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.md),
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
-    ) {
-        ThemeMode.entries.forEach { mode ->
-            val selected = mode == current
-            val label = when (mode) {
-                ThemeMode.LIGHT -> "Light"
-                ThemeMode.DARK -> "Dark"
-                ThemeMode.SYSTEM -> "System"
-            }
-            val icon = when (mode) {
-                ThemeMode.LIGHT -> Icons.Default.LightMode
-                ThemeMode.DARK -> Icons.Default.DarkMode
-                ThemeMode.SYSTEM -> Icons.Default.PhoneAndroid
-            }
-            // OutlinedButton is itself an accessibility merge boundary
-            // (Role.Button, no `selected`), so a plain merging ancestor
-            // stands next to it rather than absorbing it — TalkBack would
-            // see two stops. clearAndSetSemantics replaces the button's own
-            // node outright with the one RadioButton node this option needs,
-            // re-declaring the click action clearAndSetSemantics discards.
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clearAndSetSemantics {
-                        contentDescription = label
-                        role = Role.RadioButton
-                        this.selected = selected
-                        onClick(label = null) {
-                            onChange(mode)
-                            true
-                        }
-                    }
-            ) {
-                OutlinedButton(
-                    onClick = { onChange(mode) },
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    border = if (selected) {
-                        BorderStroke(width = 1.5.dp, color = MaterialTheme.colorScheme.primary)
-                    } else {
-                        null
-                    },
-                    contentPadding = PaddingValues(horizontal = MaterialTheme.spacing.sm, vertical = MaterialTheme.spacing.xs),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.xxs))
-                    // labelLarge, like every other button/toggle label in the app.
-                    Text(label, style = MaterialTheme.typography.labelLarge)
-                }
-            }
-        }
-    }
+    SegmentedChoice(
+        options = listOf(
+            SegmentOption(ThemeMode.SYSTEM, "System", Icons.Default.PhoneAndroid),
+            SegmentOption(ThemeMode.LIGHT, "Light", Icons.Default.LightMode),
+            SegmentOption(ThemeMode.DARK, "Dark", Icons.Default.DarkMode)
+        ),
+        selected = current,
+        onSelect = onChange,
+        modifier = Modifier.padding(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.md)
+    )
 }
