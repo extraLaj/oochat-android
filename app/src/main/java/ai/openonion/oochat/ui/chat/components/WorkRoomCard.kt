@@ -4,18 +4,16 @@ import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.ProviderControl
 import ai.openonion.oochat.domain.model.ProviderControlPhase
 import ai.openonion.oochat.domain.model.ProviderInvocationStatus
+import ai.openonion.oochat.ui.components.AppCard
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.ui.theme.statusColors
 import ai.openonion.oochat.ui.workroom.WorkRoomText
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,14 +34,11 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 internal fun WorkRoomCard(item: ChatItem.ProviderInvocation, onOpen: () -> Unit) {
-    Card(
+    AppCard(
         // Read as one item, its texts in order; the Open button stays a control of its own.
         modifier = Modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) {},
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            .semantics(mergeDescendants = true) {}
     ) {
         Column(
             modifier = Modifier.padding(MaterialTheme.spacing.md2),

@@ -79,4 +79,20 @@ class ShapesTest {
 
         assertTrue("buttons on Material's default pill shape: $pills", pills.isEmpty())
     }
+
+    @Test
+    fun `a chip with a label is not drawn as a circle`() {
+        // A circle is for things of one fixed size: dots, avatars, badges, round icon buttons. A chip or
+        // pill that grows with its label takes the scale, as the approval-mode chips do, so the chips on
+        // Chat share one shape (W16AAPPLE-125).
+        val containers = SourceScan.calls(Regex("""(?<![A-Za-z])(?:Surface|Card|Box|Row)\("""))
+        assertTrue("found no containers to check", containers.isNotEmpty())
+
+        val circle = Regex("""\bshape\s*=\s*CircleShape\b|\.clip\(CircleShape\)""")
+        val pills = containers
+            .filter { circle in it.text && "Text(" in it.block && Regex("""\.size\(""") !in it.text }
+            .map { it.where }
+
+        assertTrue("chips with a label drawn as a circle: $pills", pills.isEmpty())
+    }
 }

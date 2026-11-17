@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -127,7 +126,7 @@ private fun AgentPill(name: String) {
     Row(
         modifier = Modifier
             .height(32.dp)
-            .clip(CircleShape)
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
             .padding(start = 4.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -154,7 +153,8 @@ private fun AgentPill(name: String) {
 private fun StarterChip(starter: ChatStarter, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        shape = CircleShape,
+        // The scale's 8dp, as the approval-mode chips are (W16AAPPLE-125); a circle is for dots and icons.
+        shape = MaterialTheme.shapes.large,
         color = Color.Transparent,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {

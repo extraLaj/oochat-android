@@ -2,17 +2,15 @@ package ai.openonion.oochat.ui.workroom
 
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.WorkRoomApproval
+import ai.openonion.oochat.ui.components.AppCard
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.spacing
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -24,7 +22,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 
 internal const val WORK_ROOM_DENY_MODE = "reject_soft"
 
@@ -36,16 +33,9 @@ internal fun WorkRoomApprovalCard(
     onDecide: (approved: Boolean, scope: String) -> Unit
 ) {
     val presentation = approval.presentation
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        border = if (item.decision == null) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-        } else {
-            null
-        }
-    ) {
+    // The same card as the Work Room's above it (W16AAPPLE-125). Only its border says it is waiting
+    // on you, so a request in a long chat still stands out from an answered one.
+    AppCard(modifier = Modifier.fillMaxWidth(), highlighted = item.decision == null) {
         Column(
             modifier = Modifier.padding(MaterialTheme.spacing.md2),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)
