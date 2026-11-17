@@ -173,7 +173,7 @@ class UserGuideScreenshotTest {
     }
 
     @Test
-    fun `work room approval in the chat`() = capture("work-room-approval-chat") {
+    fun `work room approval in the chat`() = capture("chat-work-room-approval") {
         ChatScreenParts(
             title = "Use Claude Code to create a file hello.txt",
             items = WORK_ROOM,

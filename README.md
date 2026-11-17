@@ -20,6 +20,15 @@ answer; this exists for when the default is not enough.
 
 ## What it does
 
+### Start from one clear question
+
+A new chat opens on a single, prominent box, with a few suggestions to start
+from. The approval mode and the session's settings sit right in it, and the
+agent's own Home page is a tab away. Light and dark themes both follow one
+design system.
+
+<img src="screenshots/new-chat-after.png" alt="A new chat: the agent's name, the question What would you like to get done?, a large message box with the approval mode, and four suggested starts" width="320"> <img src="screenshots/new-chat-after-dark.png" alt="The same new chat in the dark theme" width="320">
+
 ### Slash-command palette
 
 Type `/` in the composer and the agent's published skills appear as a list, each
@@ -49,36 +58,86 @@ mid-run message and queues it, and nothing drains the queue.
 
 <img src="screenshots/keep-typing-while-working.png" alt="The agent is working, its newest steps showing, and a follow-up is already typed with Send beside the Stop button" width="320">
 
+### See what the agent did, without wading through it
+
+While the agent works, its thinking and tool calls appear as steps. Once the
+turn is over they fold into one line (how long it worked, how many steps, and
+how many failed), with the reply, its tokens and its cost below. Tap the line
+to see the steps again.
+
+<img src="screenshots/turn-steps-summary.png" alt="A finished turn: Worked for 16s, 7 steps, 1 failed, opened to show each step and how long it took, then the agent's reply with its tokens and cost" width="320">
+
 ### A message that did not send says so
 
-Failed sends are marked and can be retried, rather than disappearing into the
-transcript as though they had gone.
+A message typed while offline waits in the app, survives the app being closed,
+and goes out once the connection is back. One that failed is marked, and a tap
+sends it again, rather than it disappearing into the transcript as though it
+had gone.
 
-<img src="screenshots/send-states.png" alt="A message marked as failed to send, with a retry affordance" width="320">
+<img src="screenshots/send-states.png" alt="One message marked Not sent, Tap to try again, and a later one Waiting to send" width="320">
 
-### Replies reach you when you are elsewhere
+### Claude Code and Codex Work Rooms
 
-A notification arrives when a reply lands and the app is in the background.
+When the agent hands a task to Claude Code or Codex, the run gets a Work Room
+of its own: its task, its steps, the conversation with the coding agent, and a
+Stop that asks you to confirm first. You can type into it, change the coding
+agent's permission mode, and resume a finished run with a follow-up, in the
+same Claude Code or Codex session. A Claude Code session started in a terminal
+says where it stands as it is handed to the app and back. The chat shows a card
+for each run, so the conversation stays readable.
 
-<img src="screenshots/notification.png" alt="An Android notification carrying the agent's reply" width="420">
+When the coding agent asks for permission, the request appears in its room and
+in the chat, and answering it in either place settles it.
+
+<img src="screenshots/chat-work-room-approval.png" alt="The chat with a Claude Code Work Room card waiting for a decision, and its approval request with Allow once and Deny" width="320"> <img src="screenshots/work-room-resume-working.png" alt="A Claude Code Work Room: the task, Working, Stop run, the permission mode, the conversation and the steps" width="320">
+
+On a tablet the room uses the width:
+
+<img src="screenshots/work-room-tablet.png" alt="A Codex Work Room on a tablet in landscape, its steps and an approval centred on the screen with the message box below" width="640">
+
+### Told when something needs you
+
+With notifications on, the app tells you when an agent replies, when an
+approval is waiting for you, and when a Claude Code or Codex run finishes,
+fails or is stopped while you are in another app. Tapping one opens the
+conversation, or the Work Room. While a run is going, a quiet notification
+keeps the connection open so that these still arrive.
+
+<img src="screenshots/notification-run-finished.png" alt="A notification over the home screen: Claude Code finished, with the task it was given" width="420">
+
+### The agent's own Home page
+
+An agent can publish a Home page: a Dashboard, or a Control Center app whose
+buttons start chat turns. On a phone it is a tab beside the chat; on a tablet
+or an unfolded foldable it sits next to the chat. The Control Center runs
+sandboxed, with no access to the device.
 
 ### And the rest
 
-- Multiple sessions per agent, in a drawer, renameable
-- Agent discovery and invite-code onboarding
+- Multiple sessions per agent, in a drawer, renameable, and the Recent Chat
+  list kept in step with the agent's other devices
+- Agent discovery, pairing by scanning the website's QR code, and invite codes
+- Approval modes for the agent, and for each Claude Code or Codex run
 - The agent owner's **Rem** notebook, read-only, as readable Markdown on phone
   and tablet
+- Run one of the agent's tools directly, from a form of plain-language fields
+  built from the tool's own parameters (needs a Host that sends them), or as
+  raw JSON in the developer tools
+- Credentials, home folders and raw provider payloads masked wherever they
+  would reach the screen, a notification or the logs
+- Chat, composer and approval controls labelled for TalkBack
 - **BIP39 recovery phrase**, derived with SLIP-0010 the way the connectonion
   SDK does, so a phrase gives the same identity on the phone as in the `co` CLI
   (see [Identity](docs/architecture.md#identity))
-- Ed25519 signing via lazysodium; credentials in EncryptedSharedPreferences
-  (AES256-GCM)
+- Ed25519 signing via lazysodium, of every command after connecting;
+  credentials in EncryptedSharedPreferences (AES256-GCM)
 - Room-backed history: agents, sessions, messages, session state
 
 ### What it does not do
 
-- No tablet-specific layout — it runs on tablets, but the layout is the phone one
 - Mid-run input needs the agent to opt in (see above)
+- A Control Center app gets no device capabilities, and cannot start a new
+  conversation
 - Instrumented UI tests need an attached device; CI does not run them
 
 ## Requirements
@@ -119,13 +178,12 @@ Screenshot baselines are checked with
 ./gradlew :app:verifyRoborazziDebug
 ```
 
-> **The committed baselines are stale and CI does not check them.** A fixture in
-> `SettingsScreenshotTest` was changed during the rebrand, so the baseline images
-> no longer match what the test renders, and `verifyRoborazziDebug` is not run in
-> CI. Nothing else covers this either — baselines are PNGs, and the
-> pre-publication audit does not read images. Regenerate them with
-> `./gradlew :app:recordRoborazziDebug` on a machine with the Android SDK before
-> relying on screenshot coverage.
+> **CI does not check the baselines**, so re-record them after changing the
+> UI: `./gradlew :app:recordRoborazziDebug`. They live in
+> `app/src/test/screenshots/`. The same run renders the chat screenshots in
+> `screenshots/` that this README and the user guide show
+> (`UserGuideScreenshotTest`), so those follow the design too. The rest of
+> `screenshots/` were captured on a phone or tablet and are updated by hand.
 
 See [INSTALL.md](INSTALL.md) for a clean-machine walkthrough and
 [USER_GUIDE.md](USER_GUIDE.md) for the app itself.
@@ -158,7 +216,9 @@ cannot import repository implementations, DAOs, or the WebSocket factory
 directly. If you restructure, that test is where the rules are written down.
 
 See [docs/architecture.md](docs/architecture.md) and
-[docs/protocol.md](docs/protocol.md).
+[docs/protocol.md](docs/protocol.md). [docs/HANDOVER.md](docs/HANDOVER.md)
+lists what changed in the 2026 capstone term, how to add a new protocol frame,
+and the known gaps.
 
 ## Releases
 
@@ -166,6 +226,11 @@ Installable debug-signed APKs are published from semantic version tags. See
 [the release guide](docs/RELEASE.md) for the version bump, dry-run and tagging
 procedure, and [INSTALL.md](INSTALL.md) for installation and checksum
 verification.
+
+A signed release build for internal testers (Google Play internal testing,
+Firebase App Distribution, or a direct install) is made with
+`scripts/build_internal_release.sh`; see
+[docs/internal-testing.md](docs/internal-testing.md).
 
 ## Contributing
 
