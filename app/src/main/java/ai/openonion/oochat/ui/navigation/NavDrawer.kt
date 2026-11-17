@@ -7,8 +7,11 @@ import ai.openonion.oochat.ui.components.AgentInitialsAvatar
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.components.agentStatusColor
+import ai.openonion.oochat.ui.components.agentStatusLabel
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import ai.openonion.oochat.ui.theme.Elevation
+import ai.openonion.oochat.ui.theme.hairline
 import ai.openonion.oochat.ui.theme.sectionLabel
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.util.truncateMiddle
@@ -24,6 +27,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,8 +59,10 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -70,7 +76,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -318,7 +328,7 @@ fun NavDrawer(
 
         HorizontalDividerThin()
 
-        // ── Footer: Add Agent + Settings + mini account card ──
+        // ── Footer: Add agent, Settings and the connected agent, one list of rows (W16AAPPLE-126) ──
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -327,64 +337,20 @@ fun NavDrawer(
                     vertical = MaterialTheme.spacing.sm
                 )
         ) {
-            // "Add agent" — dashed ghost button; new chat is now a per-agent "+" action
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .border(
-                        BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
-                        MaterialTheme.shapes.medium
-                    )
-                    .clickable(onClick = onOpenAgentList)
-                    .padding(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.sm2),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(MaterialTheme.spacing.sm))
+            DrawerFooterRow(icon = Icons.Filled.Add, label = "Add agent", onClick = onOpenAgentList)
+            DrawerFooterRow(icon = Icons.Filled.Settings, label = "Settings", onClick = onOpenSettings)
+            // The address this session is connected to, or an em dash before any connection. No
+            // balance: a low one is said beside the composer (see LowBalanceBar).
+            DrawerFooterRow(icon = Icons.Filled.Link, label = "Agent") {
                 Text(
-                    text = "Add agent",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = connectedAgentAddress?.truncateMiddle(6, 4) ?: "—",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-
-            Spacer(modifier = Modifier.height(MaterialTheme.spacing.xs))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable(onClick = onOpenSettings)
-                    .padding(horizontal = MaterialTheme.spacing.sm2, vertical = MaterialTheme.spacing.sm2),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm2)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(MaterialTheme.spacing.xs))
-
-            MiniAccountCard(agentAddress = connectedAgentAddress)
         }
     }
 
@@ -567,7 +533,19 @@ private fun AgentSectionRow(
 
             Spacer(modifier = Modifier.width(MaterialTheme.spacing.xs))
 
-            StatusDot(status = section.status, modifier = Modifier.padding(end = MaterialTheme.spacing.sm))
+            // The dot's colour is not the only signal: its word sits beside it (W16AAPPLE-126).
+            Row(
+                modifier = Modifier.padding(end = MaterialTheme.spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)
+            ) {
+                StatusDot(status = section.status)
+                Text(
+                    text = agentStatusLabel(section.status),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         if (expanded) {
@@ -632,10 +610,9 @@ private fun StatusDot(status: AgentStatus, modifier: Modifier = Modifier) {
 }
 
 /**
- * A single tappable session row with a selected highlight (primary tint +
- * border) and a trailing trash icon. Always visible (not hover-revealed —
- * the reference web client only reserves that for desktop; touch has no
- * hover state to reveal on), same as its mobile behavior.
+ * A single tappable session row with a selected highlight (primary tint + border). Rename and
+ * Delete sit behind a long press, in a small menu, so the list is just its titles (W16AAPPLE-126).
+ * A long press has no visible hint, so the row also offers both to TalkBack as actions of its own.
  */
 @Composable
 private fun DrawerEntryRow(
@@ -645,13 +622,10 @@ private fun DrawerEntryRow(
     onRenameClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val rowModifier = Modifier
         .fillMaxWidth()
-        // 48dp touch target (WCAG 2.5.5 / Material minimum) — was 40dp.
-        // This drawer body is a plain scrolling Column (not a LazyColumn, as
-        // in the upstream fix this is ported from), but the effect is the
-        // same: rows stack vertically, so the extra 8dp just reflows the
-        // list taller; nothing to overlap.
+        // 48dp touch target (WCAG 2.5.5 / Material minimum).
         .heightIn(min = 48.dp)
         .clip(MaterialTheme.shapes.small)
         .then(
@@ -667,41 +641,63 @@ private fun DrawerEntryRow(
                 Modifier
             }
         )
-        .clickable(onClick = onClick)
-        .padding(start = MaterialTheme.spacing.sm2, end = MaterialTheme.spacing.xs, top = MaterialTheme.spacing.xs, bottom = MaterialTheme.spacing.xs)
-
-    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.Chat,
-            contentDescription = null,
-            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(16.dp)
+        .combinedClickable(
+            onClick = onClick,
+            onLongClick = { menuOpen = true },
+            onLongClickLabel = "Rename or delete"
         )
-        Text(
-            text = entry.title,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        // No explicit size: default 48dp touch target, now that the row
-        // itself is also heightIn(min = 48.dp) so this no longer overflows it.
-        IconButton(onClick = onRenameClick) {
-            Icon(
-                imageVector = Icons.Filled.Edit,
-                contentDescription = "Rename \"${entry.title}\"",
-                tint = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(16.dp)
+        .semantics {
+            customActions = listOf(
+                CustomAccessibilityAction("Rename") { onRenameClick(); true },
+                CustomAccessibilityAction("Delete") { onDeleteClick(); true }
             )
         }
-        IconButton(onClick = onDeleteClick) {
+        .padding(horizontal = MaterialTheme.spacing.sm2, vertical = MaterialTheme.spacing.xs)
+
+    Box {
+        Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
             Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "Delete \"${entry.title}\"",
-                tint = MaterialTheme.colorScheme.outline,
+                imageVector = Icons.AutoMirrored.Filled.Chat,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        // The same items as the Agents screen's menu: Delete last, after a divider. Not red: it only
+        // opens the confirmation, whose Delete is the red one (W16AAPPLE-128).
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            // See ChatTopBar's menu: flat, set apart by a hairline.
+            containerColor = MaterialTheme.colorScheme.surface,
+            shadowElevation = Elevation.hairline,
+            border = MaterialTheme.hairline
+        ) {
+            DropdownMenuItem(
+                text = { Text("Rename") },
+                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRenameClick()
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onDeleteClick()
+                }
             )
         }
     }
@@ -759,59 +755,39 @@ private fun ThemeCycleButton(mode: ThemeMode, onChange: (ThemeMode) -> Unit) {
 }
 
 /**
- * Compact account preview in the drawer footer: the address this session is
- * connected to, or an em dash before any connection is established.
- *
- * No balance row. A balance is only worth saying when it is low enough to act
- * on, and by then it needs to be beside the composer rather than behind a
- * drawer — see [ai.openonion.oochat.ui.chat.components.LowBalanceBar].
+ * One drawer footer row: an icon, a label, and an optional value at the end. Add agent, Settings
+ * and the connected agent all use it, so the footer reads as one list (W16AAPPLE-126).
  */
 @Composable
-private fun MiniAccountCard(agentAddress: String?) {
-    Column(
+private fun DrawerFooterRow(
+    icon: ImageVector,
+    label: String,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = MaterialTheme.shapes.medium
-            )
+            .heightIn(min = 48.dp)
+            .clip(MaterialTheme.shapes.small)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = MaterialTheme.spacing.sm2, vertical = MaterialTheme.spacing.sm2),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm2)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = MaterialTheme.spacing.sm2, vertical = MaterialTheme.spacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Link,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "Agent",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-            Text(
-                text = agentAddress?.truncateMiddle(6, 4) ?: "—",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        trailing?.invoke()
     }
 }
 

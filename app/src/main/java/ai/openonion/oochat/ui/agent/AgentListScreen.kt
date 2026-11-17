@@ -7,6 +7,7 @@ import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.components.EmptyStateMessage
 import ai.openonion.oochat.ui.components.agentStatusColor
+import ai.openonion.oochat.ui.components.agentStatusLabel
 import ai.openonion.oochat.ui.theme.Elevation
 import ai.openonion.oochat.ui.theme.hairline
 import ai.openonion.oochat.ui.theme.sectionOverline
@@ -550,12 +551,13 @@ private fun AgentOverflowMenu(
 @Composable
 private fun StatusBadge(agentStatus: AgentStatus, modifier: Modifier = Modifier) {
     val statusColor = agentStatusColor(agentStatus)
-    val (statusIcon, statusText) = when (agentStatus) {
-        AgentStatus.Active -> Icons.Default.PanoramaFishEye to "Active"
-        AgentStatus.Connecting -> Icons.Default.Sync to "Connecting…"
-        AgentStatus.Connected -> Icons.Default.Circle to "Connected"
-        is AgentStatus.Error -> Icons.Default.Error to "Error"
-        AgentStatus.Disabled -> Icons.Default.Block to "Disabled"
+    val statusText = agentStatusLabel(agentStatus)
+    val statusIcon = when (agentStatus) {
+        AgentStatus.Active -> Icons.Default.PanoramaFishEye
+        AgentStatus.Connecting -> Icons.Default.Sync
+        AgentStatus.Connected -> Icons.Default.Circle
+        is AgentStatus.Error -> Icons.Default.Error
+        AgentStatus.Disabled -> Icons.Default.Block
     }
 
     val rotation = if (agentStatus == AgentStatus.Connecting) {

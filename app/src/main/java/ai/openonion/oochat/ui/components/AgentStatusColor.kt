@@ -17,3 +17,15 @@ fun agentStatusColor(status: AgentStatus): Color = when (status) {
     is AgentStatus.Error -> MaterialTheme.colorScheme.error
     AgentStatus.Disabled -> MaterialTheme.colorScheme.outline
 }
+
+/**
+ * The word for a status, shared by the agent list and nav drawer like the colour above, so a
+ * status is never told by colour alone (W16AAPPLE-126).
+ */
+fun agentStatusLabel(status: AgentStatus): String = when (status) {
+    AgentStatus.Active -> "Active"
+    AgentStatus.Connecting -> "Connecting…"
+    AgentStatus.Connected -> "Connected"
+    is AgentStatus.Error -> "Error"
+    AgentStatus.Disabled -> "Disabled"
+}

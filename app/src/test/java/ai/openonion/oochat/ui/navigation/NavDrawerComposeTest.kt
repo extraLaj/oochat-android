@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -80,5 +81,25 @@ class NavDrawerComposeTest {
 
         composeRule.onNodeWithText("2").assertExists()
         composeRule.onAllNodesWithText("0 of 2 online").assertCountEquals(0)
+    }
+
+    @Test
+    fun `each agent's status is said in words, not by its dot's colour alone`() {
+        setDrawer(listOf(section("a", AgentStatus.Active), section("b", AgentStatus.Connected), section("c", AgentStatus.Disabled)))
+
+        // The Agents screen's words, so the two screens agree (W16AAPPLE-126).
+        listOf("Active", "Connected", "Disabled").forEach { composeRule.onNodeWithText(it).assertExists() }
+    }
+
+    @Test
+    fun `the footer is one list of rows, its labels lined up`() {
+        setDrawer()
+
+        // Add agent, Settings and the connected agent share one row style (W16AAPPLE-126), so their
+        // labels start at the same edge, where a centred button or an indented card would not.
+        val lefts = listOf("Add agent", "Settings", "Agent").map {
+            composeRule.onNodeWithText(it, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        }
+        assertEquals("label lefts $lefts", 1, lefts.distinct().size)
     }
 }
