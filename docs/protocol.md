@@ -236,7 +236,7 @@ They are `@Serializable` Kotlin data classes and are encoded with
 | `from` | The local Ed25519 address. |
 | `signature` | Hex Ed25519 signature over the canonical payload JSON. |
 | `timestamp` | Unix time in seconds. The same value is used in `payload`. |
-| `to` | Target agent address for relay mode; absent for direct mode. |
+| `to` | Target agent address for relay mode; absent for direct mode. The signed `payload.to` is sent in both: the Host refuses a CONNECT whose signed payload does not name it (`unauthorized: wrong recipient`, `network/host/auth.py`), as the Python client signs it. |
 | `session_id` | Optional persisted server-session identifier. |
 | `last_msg_id` | Optional. The Host's id for the last agent-log frame this connection handled on `session_id`; sent on a `CONNECT` for that same session (a reconnect, or a switch back) and ignored by the Host unless the session is still running. Unsigned, like `session_id`. See [Reconnect and replay](#reconnect-and-replay). |
 | `session` | Optional `SessionState` snapshot. |

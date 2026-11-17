@@ -612,7 +612,9 @@ class AgentConnection(
         val sessionId = _currentSession?.sessionId
         val payload = ConnectPayload(
             timestamp = timestamp,
-            to = if (!directNow) capturedAgentAddress else null,
+            // Signed on a direct socket too: the Host refuses a CONNECT whose signed
+            // payload does not name it ("wrong recipient"). Only the envelope's is relay-only.
+            to = capturedAgentAddress,
             nonce = SignedCommand.newNonce()
         )
 

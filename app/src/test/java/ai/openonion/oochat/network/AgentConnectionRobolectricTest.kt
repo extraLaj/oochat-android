@@ -2276,7 +2276,8 @@ class AgentConnectionRobolectricTest {
     //
     // Two ways to reach an agent. Through the relay, the socket is the relay's
     // shared /ws/input and every frame has to say which agent it is for; direct,
-    // the socket *is* the agent's /ws and naming it is meaningless. A frame
+    // the socket *is* the agent's /ws and only what is signed names it, since the
+    // Host refuses a signed payload that is not for it. A frame
     // routed the wrong way is not an error anyone sees — the relay just never
     // delivers it — so the endpoint and the `to` field are pinned here.
     //
@@ -2368,7 +2369,7 @@ class AgentConnectionRobolectricTest {
     }
 
     @Test
-    fun `a direct CONNECT names no agent anywhere, signed or not`() {
+    fun `a direct CONNECT signs the agent it is for, and names none in the envelope`() {
         val signed = mutableListOf<String>()
         val conn = recordingConnection(signed = signed)
         conn.connect(agent, directUrl = "https://agent.example.com")
@@ -2376,7 +2377,7 @@ class AgentConnectionRobolectricTest {
         val connect = openAndReadConnect()
         val payload = connect["payload"]!!.jsonObject
 
-        assertFalse("payload: $payload", payload.containsKey("to"))
+        assertEquals(agent, payload["to"]?.jsonPrimitive?.content)
         assertFalse("envelope: $connect", connect.containsKey("to"))
         assertEquals(1, payload["signed_commands"]?.jsonPrimitive?.intOrNull)
         assertTrue("CONNECT needs a nonce", !payload["nonce"]?.jsonPrimitive?.content.isNullOrEmpty())

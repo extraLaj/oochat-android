@@ -167,6 +167,9 @@ fun ChatScreen(
     val execItems by viewModel.execItems.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
+
+    /** For the banner's Edit agent, which looks the agent up before navigating. */
+    val bannerScope = rememberCoroutineScope()
     // ModalNavigationDrawer composes its drawerContent whether or not the
     // drawer is open, so the ~800-line panel — every agent's session rows (a
     // plain Column, not a LazyColumn, so all of them are realized), the theme
@@ -418,7 +421,7 @@ fun ChatScreen(
                 onStop = { viewModel.disconnect() },
                 // The agent's own Edit screen, or the list when it was only ever set up in Setup.
                 onEditAgent = {
-                    drawerScope.launch {
+                    bannerScope.launch {
                         viewModel.targetSavedAgentId()?.let(onNavigateToAgentEdit) ?: onNavigateToAgentList()
                     }
                 },

@@ -45,6 +45,9 @@ object CleartextPolicy {
             (a == 172 && b in 16..31) ||
             (a == 192 && b == 168) ||
             (a == 169 && b == 254) ||
+            // Shared address space (RFC 6598): Tailscale's, but also mobile carriers' own
+            // networks, so on mobile data an http://100.x address can be inside the carrier.
+            // Accepted: almost nobody types one except for Tailscale.
             (a == 100 && b in 64..127)
     }
 
