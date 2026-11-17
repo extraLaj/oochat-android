@@ -24,12 +24,12 @@ import androidx.compose.ui.graphics.Color
 data class StatusColors(
     val warning: Color = Stone300,
     val warningContainer: Color = Stone500.copy(alpha = 0.16f),
-    val success: Color = Green500,
-    val successContainer: Color = Green500.copy(alpha = 0.12f),
+    val success: Color = Sage,
+    val successContainer: Color = Sage.copy(alpha = 0.12f),
     // The tiny connection-status indicator, where the text-weight success
     // colour reads too dark at 8dp. A connection still on its way is this same
     // dot pulsing, since the palette has no second accent to spare for it.
-    val successDot: Color = Green500,
+    val successDot: Color = Sage,
     // The logs console background. Same value in both instances below — it's
     // a monospace panel meant to stay dark regardless of app theme, tuned to
     // surfaceContainerLowestDark rather than a neutral black so it reads as
@@ -37,7 +37,10 @@ data class StatusColors(
     val logSurface: Color = surfaceContainerLowestDark
 )
 
-/** Green 500 and the pale warm greys, 7.7:1 and up against the dark surfaces. */
+/**
+ * Sage and the pale warm greys, 7.8:1 and up against the dark surfaces. Sage, not Green 500, so
+ * the connected dot and a success line match the dark primary beside them (W16AAPPLE-128).
+ */
 val DarkStatusColors = StatusColors()
 
 /**

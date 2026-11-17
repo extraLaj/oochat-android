@@ -34,10 +34,10 @@ class ColorSchemePaletteTest {
     private fun hex(color: Color) = argb(color).let { (r, g, b) -> "#%02X%02X%02X".format(r, g, b) }
 
     @Test
-    fun `the brand ramp is the primary colour, 900 on white and 500 on dark`() {
+    fun `the brand ramp is the primary colour, 900 on white and sage on dark`() {
         assertEquals("#14532D", hex(LightColorScheme.primary))
         assertEquals("#F0FDF4", hex(LightColorScheme.primaryContainer))
-        assertEquals("#22C55E", hex(DarkColorScheme.primary))
+        assertEquals("#6BBF85", hex(DarkColorScheme.primary))
         assertEquals("#14532D", hex(DarkColorScheme.primaryContainer))
         assertEquals("#F0FDF4", hex(DarkColorScheme.onPrimaryContainer))
     }
@@ -53,6 +53,30 @@ class ColorSchemePaletteTest {
                 val (r, g, b) = argb(color)
                 assertTrue("$name $role ${hex(color)} is not green", g > r && g > b)
             }
+        }
+    }
+
+    /** HSL saturation, 0 to 1. */
+    private fun saturation(color: Color): Float {
+        val max = maxOf(color.red, color.green, color.blue)
+        val min = minOf(color.red, color.green, color.blue)
+        val lightness = (max + min) / 2
+        return if (max == min) 0f else (max - min) / (1 - kotlin.math.abs(2 * lightness - 1))
+    }
+
+    @Test
+    fun `the green on dark surfaces is muted, not neon`() {
+        // Green 500 is 71% saturated and read as neon on dark buttons and links (W16AAPPLE-128).
+        listOf(
+            "dark primary" to DarkColorScheme.primary,
+            "light inversePrimary, drawn on a dark snackbar" to LightColorScheme.inversePrimary,
+            "dark success" to DarkStatusColors.success,
+            "dark successDot, the connected dot" to DarkStatusColors.successDot,
+            "dark successContainer" to DarkStatusColors.successContainer.copy(alpha = 1f),
+            "the log console's INFO, on its dark panel in both themes" to LogColors.info
+        ).forEach { (role, color) ->
+            val s = saturation(color)
+            assertTrue("$role ${hex(color)} is %.0f%% saturated, over 50%%".format(s * 100), s <= 0.5f)
         }
     }
 

@@ -532,14 +532,11 @@ private fun AgentOverflowMenu(
                 }
             )
             HorizontalDivider()
+            // Not red: it only opens the confirmation, whose Delete is the red one (W16AAPPLE-128).
             DropdownMenuItem(
-                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                text = { Text("Delete") },
                 leadingIcon = {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                    Icon(Icons.Default.Delete, contentDescription = null)
                 },
                 onClick = {
                     menuExpanded = false

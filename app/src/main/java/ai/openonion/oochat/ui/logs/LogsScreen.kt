@@ -134,11 +134,10 @@ fun LogsScreen(
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy logs")
                     }
                     IconButton(onClick = { showClearSheet = true }) {
-                        Icon(
-                            Icons.Default.DeleteSweep,
-                            contentDescription = "Clear logs",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        // The top bar's own icon colour, like Refresh and Copy beside it: red is
+                        // for errors only (W16AAPPLE-49), and the sheet this opens already
+                        // says the logs will be gone (W16AAPPLE-128).
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear logs")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

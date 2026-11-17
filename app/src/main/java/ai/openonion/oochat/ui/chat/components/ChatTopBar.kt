@@ -217,14 +217,12 @@ fun ChatTopBar(
                     // space is what stops a reach-through.
                     Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider()
+                    // Not red: it only opens the confirmation, whose Clear is the red one
+                    // (W16AAPPLE-128). The gap and rule above still set it apart.
                     DropdownMenuItem(
-                        text = { Text("Clear chat", color = MaterialTheme.colorScheme.error) },
+                        text = { Text("Clear chat") },
                         leadingIcon = {
-                            Icon(
-                                Icons.Default.DeleteSweep,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null)
                         },
                         onClick = {
                             menuExpanded = false

@@ -12,7 +12,8 @@ import androidx.compose.ui.graphics.Color
 internal object LogColors {
     val error = errorDark
     val warning = Stone100
-    val info = Green500
+    // Sage, not Green 500: the console is a dark surface, where the neon green is not used (W16AAPPLE-128).
+    val info = Sage
     val debug = Stone300
     val verbose = Stone400
 

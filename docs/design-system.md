@@ -11,17 +11,24 @@ at a screen, so [the checklist at the end](#verifying-a-screen-in-light-and-dark
 
 ## Palette
 
-The brand ramp is `#F0FDF4` (50), `#22C55E` (500) and `#14532D` (900). The greys are Tailwind's
-warm `stone` scale. Light mode is white; dark mode is stone 900.
+The brand ramp is `#F0FDF4` (50), `#22C55E` (500) and `#14532D` (900), plus sage `#6BBF85`, the
+brand green muted for dark surfaces. The greys are Tailwind's warm `stone` scale. Light mode is
+white; dark mode is stone 900.
 
 `#22C55E` is only 2.3:1 on white, so it cannot carry text or a button label in light mode. Light
-mode therefore puts the dark end of the ramp on the primary role and the pale end on its container,
-and dark mode, where 500 is 7.7:1, puts the mid step on the primary role.
+mode therefore puts the dark end of the ramp on the primary role and the pale end on its container.
+Dark mode puts sage on the primary role (W16AAPPLE-128). It has about 500's relative luminance (0.42
+against 0.41), so the same contrast (7.8:1), at about half its HSL saturation (40% against 71%): 500
+read as neon on buttons and links against the muted greys around it. Every other green drawn on a dark
+surface is sage for the same reason: the light theme's `inversePrimary` (a snackbar action on its dark
+bar), the dark status colours (`success`, `successDot`, the connected dot, and `successContainer`) and
+the log console's INFO lines, whose panel is dark in both themes. `ColorSchemePaletteTest` keeps each of
+them at or under 50% saturation.
 
 | Role | Light | Dark | Used for |
 |---|---|---|---|
-| `primary` | `#14532D` (9.1:1) | `#22C55E` (7.7:1) | Buttons, links, the active tab, connected dots |
-| `onPrimary` | `#FFFFFF` | `#052E16` | Text on `primary` (9.1:1, 6.5:1) |
+| `primary` | `#14532D` (9.1:1) | `#6BBF85` (7.8:1) | Buttons, links, the active tab |
+| `onPrimary` | `#FFFFFF` | `#052E16` | Text on `primary` (9.1:1, 6.7:1) |
 | `primaryContainer` | `#F0FDF4` | `#14532D` | Tints and selected states; text on it is 8.7:1 in both |
 | `surface` | `#FFFFFF` | `#1C1917` | The page |
 | `surfaceContainer` | `#F5F5F4` | `#292524` | Cards, fields, raised areas |
@@ -29,7 +36,7 @@ and dark mode, where 500 is 7.7:1, puts the mid step on the primary role.
 | `onSurfaceVariant` | `#57534E` (7.6:1) | `#D6D3D1` (11.7:1) | Secondary text |
 | `outline` | `#6B655F` (5.8:1) | `#A8A29E` (6.9:1) | Captions and labels |
 | `outlineVariant` | `#8F8883` (3.5:1) | `#78716C` (3.6:1) | Dividers and borders |
-| `error` | `#BA1A1A` (6.5:1) | `#FFB4AB` (10.3:1) | Failures and destructive actions only |
+| `error` | `#BA1A1A` (6.5:1) | `#FFB4AB` (10.3:1) | Failures, and the button that confirms a destructive action. Not the icon or menu item that only opens that confirmation: Logs' Clear logs, the chat menu's Clear chat and the agent list's Delete are the surface's own grey (W16AAPPLE-128) |
 
 The ratios are against `surface`. Text roles are held to 4.5:1 on every surface they are read on, and
 dividers to 3:1.

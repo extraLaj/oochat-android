@@ -7,15 +7,21 @@ import androidx.compose.ui.graphics.Color
 // steps are Tailwind's `green` and `stone`; only the ones a role uses are listed.
 //
 // Green 500 is too light to carry text on white (2.3:1), so light mode puts the dark end of
-// the ramp on the primary role and the pale end on its container, and dark mode, where 500
-// is 7.7:1, puts the mid step on the primary role. ColorSchemePaletteTest holds every pair
-// that is read as text to 4.5:1 and every divider to 3:1.
+// the ramp on the primary role and the pale end on its container. Dark mode puts Sage on it
+// (W16AAPPLE-128): about Green 500's relative luminance (0.42 against 0.41), so the same
+// contrast on the dark background, at about half its HSL saturation (40% against 71%). Green 500
+// itself read as neon on buttons and links against the warm greys around it. The status and log
+// greens on dark surfaces are Sage too. ColorSchemePaletteTest holds every pair that is read as
+// text to 4.5:1 and every divider to 3:1, and every green on a dark surface to a muted saturation.
 
 internal val Green50 = Color(0xFFF0FDF4)
 internal val Green500 = Color(0xFF22C55E)
 internal val Green600 = Color(0xFF16A34A)
 internal val Green900 = Color(0xFF14532D)
 internal val Green950 = Color(0xFF052E16)
+
+/** The brand green, muted for dark surfaces: Green 500's relative luminance at about half its saturation. */
+internal val Sage = Color(0xFF6BBF85)
 
 internal val Stone50 = Color(0xFFFAFAF9)
 internal val Stone100 = Color(0xFFF5F5F4)
@@ -63,7 +69,7 @@ val outlineVariantLight = Color(0xFF8F8883)
 val scrimLight = Black
 val inverseSurfaceLight = Stone800
 val inverseOnSurfaceLight = Stone100
-val inversePrimaryLight = Green500
+val inversePrimaryLight = Sage
 val surfaceDimLight = Stone200
 val surfaceBrightLight = White
 val surfaceContainerLowestLight = White
@@ -72,7 +78,7 @@ val surfaceContainerLight = Stone100
 val surfaceContainerHighLight = Stone200
 val surfaceContainerHighestLight = Stone300
 
-val primaryDark = Green500
+val primaryDark = Sage
 val onPrimaryDark = Green950
 val primaryContainerDark = Green900
 val onPrimaryContainerDark = Green50
