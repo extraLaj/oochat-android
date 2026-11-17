@@ -72,4 +72,5 @@ object InputBarToken {
 object ButtonToken {
     val Compact = 48.dp // card/row/dialog-scoped actions
     val FullWidth = 56.dp // page-level primary actions
+    val Sheet = 52.dp // a confirmation sheet's pair of actions
 }

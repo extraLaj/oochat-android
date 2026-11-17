@@ -8,8 +8,9 @@ import kotlin.math.pow
 
 /**
  * The status roles stay inside the palette (W16AAPPLE-49): success is the brand green, a warning
- * is a warm grey told apart by its icon and title, and there is no amber or other accent. Each
- * is still legible on the surface it is drawn on, in both themes.
+ * is a warm grey told apart by its icon and title, and there is no amber or other accent on a
+ * card. The agent status chip alone has a blue and an amber (W16AAPPLE-114). Each is still
+ * legible on the surface it is drawn on, in both themes.
  */
 class StatusColorsPaletteTest {
 
@@ -66,6 +67,26 @@ class StatusColorsPaletteTest {
         for ((name, status, surface) in themes) {
             val ratio = contrast(status.successDot, surface)
             assertTrue("$name successDot is %.2f:1, under 3:1".format(ratio), ratio >= 3.0)
+        }
+    }
+
+    @Test
+    fun `the status chip's blue and amber are legible on their own containers`() {
+        // The chip sits on the page or on the drawer, which is surfaceContainer.
+        val pages = listOf(
+            Triple("light", LightStatusColors, listOf(LightColorScheme.surface, LightColorScheme.surfaceContainer)),
+            Triple("dark", DarkStatusColors, listOf(DarkColorScheme.surface, DarkColorScheme.surfaceContainer))
+        )
+        for ((name, status, surfaces) in pages) {
+            for (surface in surfaces) {
+                listOf(
+                    "active on activeContainer" to contrast(status.active, status.activeContainer.compositeOver(surface)),
+                    "connecting on connectingContainer" to contrast(status.connecting, status.connectingContainer.compositeOver(surface)),
+                    "success on successContainer" to contrast(status.success, status.successContainer.compositeOver(surface))
+                ).forEach { (pair, ratio) ->
+                    assertTrue("$name $pair is %.2f:1, under 4.5:1".format(ratio), ratio >= 4.5)
+                }
+            }
         }
     }
 }

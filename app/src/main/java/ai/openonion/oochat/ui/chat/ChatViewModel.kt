@@ -2310,7 +2310,35 @@ open class ChatViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Renames a persisted session — the drawer row's pencil action. */
+    /**
+     * When each saved chat, of every agent, was last used, by session id. Read once, as the drawer
+     * opens: it is deliberately not part of [drawerAgents], which must stay still through a turn.
+     */
+    suspend fun sessionLastUsed(): Map<String, Long> =
+        conversationHistory.observeAllAgentSessions().first()
+            .flatMap { (_, sessions) -> sessions }
+            .associate { it.id to it.updatedAt }
+
+    /**
+     * Deletes a chat's messages and keeps the chat: Clear chat on a drawer row (W16AAPPLE-114).
+     * The open chat is cleared as the top bar's Clear chat clears it. Any other, of this agent or
+     * another, has only its saved messages and what the screen kept for it to remove.
+     */
+    fun clearSession(sessionId: String) {
+        if (sessionId == activeSessionId.value) {
+            clearChat()
+            return
+        }
+        launchScoped {
+            conversationHistory.clearSession(sessionId)
+            _chatComposerDrafts.update { it - sessionId }
+            synchronized(messageListScrollPositions) {
+                messageListScrollPositions.remove(sessionId)
+            }
+        }
+    }
+
+    /** Renames a persisted session — the drawer row's Rename action. */
     fun renameSession(sessionId: String, newTitle: String) {
         launchScoped {
             conversationHistory.renameSession(sessionId, newTitle)

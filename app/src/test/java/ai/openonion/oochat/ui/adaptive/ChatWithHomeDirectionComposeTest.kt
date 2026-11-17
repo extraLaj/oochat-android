@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -47,7 +48,9 @@ class ChatWithHomeDirectionComposeTest {
                     tab = tab,
                     onTabChange = { tab = it },
                     homeLabel = "Home",
-                    chat = { modifier -> Box(modifier.fillMaxSize().testTag("chat").clickable { chatTaps++ }) },
+                    chat = { modifier ->
+                        WithChatTabs(modifier) { Box(Modifier.fillMaxSize().testTag("chat").clickable { chatTaps++ }) }
+                    },
                     home = { modifier -> Box(modifier.fillMaxSize().testTag("home").clickable { homeTaps++ }) }
                 )
             }

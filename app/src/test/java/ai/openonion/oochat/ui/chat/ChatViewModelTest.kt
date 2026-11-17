@@ -5881,6 +5881,44 @@ class ChatViewModelTest {
         assertEquals(activeId, vm.activeSessionId.value)
     }
 
+    // ── clearSession (the drawer row's Clear chat, W16AAPPLE-114) ─────
+
+    @Test
+    fun `clearSession on the open chat empties it and keeps the chat`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        vm.sendMessage("hello")
+        testScheduler.runCurrent()
+        val activeId = vm.activeSessionId.value!!
+
+        vm.clearSession(activeId)
+        testScheduler.runCurrent()
+
+        assertTrue("the open chat's messages must be gone", vm.uiState.value.chatItems.isEmpty())
+        assertEquals("clearing keeps the chat itself", activeId, vm.activeSessionId.value)
+    }
+
+    @Test
+    fun `clearSession on another chat leaves the open one untouched`() = runTest(testDispatcher) {
+        val address = validHexAddress()
+        vm.connectToAgent(address)
+        testScheduler.runCurrent()
+        connectUseCase.markConnected(address)
+        testScheduler.runCurrent()
+        vm.sendMessage("hello")
+        testScheduler.runCurrent()
+        val activeId = vm.activeSessionId.value!!
+
+        vm.clearSession("some-other-session-id-not-open-here")
+        testScheduler.runCurrent()
+
+        assertTrue("current conversation must be untouched", vm.uiState.value.chatItems.isNotEmpty())
+        assertEquals(activeId, vm.activeSessionId.value)
+    }
+
     // ── renameSession ──────────────────────────────────────────────────
 
     @Test

@@ -10,6 +10,7 @@ import ai.openonion.oochat.ui.home.AgentDashboardScreen
 import ai.openonion.oochat.ui.home.AgentDashboardState
 import ai.openonion.oochat.ui.home.DashboardChat
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import org.junit.Rule
@@ -53,8 +54,8 @@ class AgentDashboardScreenshotTest {
     private fun capture(name: String, palette: Palette, state: AgentDashboardState) =
         composeRule.captureThemed(name, palette) {
             Column {
+                AgentDashboardScreen(state, AgentDashboardActions(), modifier = Modifier.weight(1f))
                 HomeTabs(tab = HomeTab.HOME, homeLabel = "Dashboard", onTabChange = {})
-                AgentDashboardScreen(state, AgentDashboardActions())
             }
         }
 

@@ -28,7 +28,29 @@ object Radii {
     // in it take the first, the tiles and rows under it the second.
     val dashboardHero = 20.dp
     val dashboardTile = 16.dp
+
+    // The navigation drawer and what opens from it, measured off its design
+    // (W16AAPPLE-114): the panel's trailing corners and a sheet's top corners take the
+    // first, a menu the second.
+    val drawer = 28.dp
+    val menu = 20.dp
 }
+
+/**
+ * A pill: the ends are half the height, whatever the height is. For the controls the drawer
+ * design draws fully round (W16AAPPLE-114): the status chip, New chat on the chat's bar, and a
+ * confirmation sheet's two buttons.
+ */
+val PillShape = RoundedCornerShape(percent = 50)
+
+/** A menu opened from the drawer or the chat's bar. */
+val MenuShape = RoundedCornerShape(Radii.menu)
+
+/** A bottom sheet: round at the top, square where it meets the screen's edge. */
+val SheetShape = RoundedCornerShape(topStart = Radii.drawer, topEnd = Radii.drawer)
+
+/** The drawer panel: round on the side it opens towards. */
+val DrawerShape = RoundedCornerShape(topEnd = Radii.drawer, bottomEnd = Radii.drawer)
 
 /**
  * Central corner-radius scale for the app. Component code should reference these via

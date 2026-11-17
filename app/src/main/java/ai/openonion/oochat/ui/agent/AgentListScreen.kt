@@ -614,8 +614,7 @@ private fun DeleteAgentSheet(agentName: String, onConfirm: () -> Unit, onDismiss
             DangerConfirmActions(
                 confirmLabel = "Delete",
                 onConfirm = onConfirm,
-                onDismiss = onDismiss,
-                confirmBorder = true
+                onDismiss = onDismiss
             )
         }
     )

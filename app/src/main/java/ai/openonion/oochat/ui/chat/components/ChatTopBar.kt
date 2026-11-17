@@ -2,13 +2,15 @@ package ai.openonion.oochat.ui.chat.components
 
 import ai.openonion.oochat.domain.model.ConnectionState
 import ai.openonion.oochat.domain.model.SessionActivity
+import ai.openonion.oochat.ui.components.AppIcons
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.ConnectionStatusDot
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.theme.Elevation
+import ai.openonion.oochat.ui.theme.MenuShape
+import ai.openonion.oochat.ui.theme.PillShape
 import ai.openonion.oochat.ui.theme.hairline
 import ai.openonion.oochat.ui.theme.spacing
-import ai.openonion.oochat.ui.theme.statusColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,15 +49,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Header mirrors Figma: hamburger opens the drawer, title row (status dot +
- * title) with the session status and model name quietly underneath, agent-home button, overflow
- * menu for logs/clear. Settings only lives in the drawer footer — don't
- * duplicate it here.
+ * Header mirrors the design: hamburger opens the drawer, the title with the agent's name, the
+ * session status and the model quietly underneath, New chat, agent-home button, overflow menu
+ * for logs/clear. Settings only lives in the drawer footer — don't duplicate it here.
+ *
+ * New chat is on the bar itself, labelled, so the thing a user most often does next is one tap
+ * from the conversation rather than inside the drawer (W16AAPPLE-114).
  *
  * Fixed 64dp and never wraps: title and model name are each one line with an
  * ellipsis, and there is nothing else left in the row that can grow it — the
@@ -89,6 +97,14 @@ fun ChatTopBar(
     onOpenRem: () -> Unit = {},
     // False on the agent's Dashboard, which has this bar but no conversation to clear.
     showClearChat: Boolean = true,
+    // The agent this conversation is with, leading the line under the title.
+    agentName: String? = null,
+    // Starts a new conversation with this agent. Null leaves the button out: the
+    // Dashboard has none, and with no agent there is nothing to start a chat with.
+    onNewChat: (() -> Unit)? = null,
+    // False while this conversation is still empty: it already is a new chat,
+    // and starting another would only mint a session nobody used.
+    newChatEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -155,16 +171,19 @@ fun ChatTopBar(
                 // connection, and once connected, whether the agent is working.
                 // One line: the status leads, so a long model name is what the
                 // ellipsis eats.
-                val subtitle = listOfNotNull(sessionActivity?.label, modelName).joinToString(" · ")
+                val subtitle = listOfNotNull(agentName, sessionActivity?.label, modelName).joinToString(" · ")
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    ConnectionStatusDot(
-                        connectionState = connectionState,
-                        awaitingOnboardCode = awaitingOnboardCode,
-                        connectedColor = if (sessionActivity == null) MaterialTheme.statusColors.successDot else statusColor
-                    )
+                    // Once the line says what the session is doing the dot has nothing to add.
+                    // Until then it is the only word on the connection up here.
+                    if (sessionActivity == null) {
+                        ConnectionStatusDot(
+                            connectionState = connectionState,
+                            awaitingOnboardCode = awaitingOnboardCode
+                        )
+                    }
                     if (subtitle.isNotEmpty()) {
                         Text(
                             text = subtitle,
@@ -177,6 +196,10 @@ fun ChatTopBar(
                         )
                     }
                 }
+            }
+
+            if (onNewChat != null) {
+                NewChatButton(onClick = onNewChat, enabled = newChatEnabled)
             }
 
             if (hasDashboard) {
@@ -198,6 +221,7 @@ fun ChatTopBar(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
+                    shape = MenuShape,
                     // A flat surface set apart by a hairline, not a shadow or a tint.
                     containerColor = MaterialTheme.colorScheme.surface,
                     shadowElevation = Elevation.hairline,
@@ -246,6 +270,36 @@ fun ChatTopBar(
     }
 }
 
+/**
+ * New chat, as a tinted pill with its name on it. It is drawn 40dp tall and takes 48dp to touch.
+ */
+@Composable
+private fun NewChatButton(onClick: () -> Unit, enabled: Boolean) {
+    val content = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f)
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = PillShape,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 0.12f else 0.06f),
+        contentColor = content,
+        modifier = Modifier.padding(horizontal = 4.dp).semantics { role = Role.Button }
+    ) {
+        Row(
+            modifier = Modifier.height(40.dp).padding(start = 12.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(imageVector = AppIcons.NewChat, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(
+                text = "New chat",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
 /** The top bar's words for a [SessionActivity]. */
 internal val SessionActivity.label: String
     get() = when (this) {
@@ -258,12 +312,12 @@ internal val SessionActivity.label: String
 @Composable
 private fun ClearChatSheet(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     ConfirmationSheet(
-        title = "Clear chat?",
-        body = "All messages in this conversation will be permanently deleted.",
+        title = "Clear this chat?",
+        body = "All the messages in this chat will be deleted. This can't be undone.",
         onDismiss = onDismiss,
         actions = {
             DangerConfirmActions(
-                confirmLabel = "Clear",
+                confirmLabel = "Clear chat",
                 onConfirm = onConfirm,
                 onDismiss = onDismiss
             )

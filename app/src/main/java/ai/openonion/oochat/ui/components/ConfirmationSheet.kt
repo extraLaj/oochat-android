@@ -1,5 +1,8 @@
 package ai.openonion.oochat.ui.components
 
+import ai.openonion.oochat.ui.theme.ButtonToken
+import ai.openonion.oochat.ui.theme.PillShape
+import ai.openonion.oochat.ui.theme.SheetShape
 import ai.openonion.oochat.ui.theme.spacing
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -16,8 +19,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,7 +57,9 @@ internal fun ConfirmationSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        // The design's sheet (W16AAPPLE-114): the page's own white, round at the top.
+        shape = SheetShape,
+        containerColor = MaterialTheme.colorScheme.surface,
         // 1.4 draws the handle at full onSurfaceVariant. It is a grab affordance,
         // not content — kept at the muted weight it had, so it reads as chrome.
         dragHandle = {
@@ -66,7 +71,7 @@ internal fun ConfirmationSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = MaterialTheme.spacing.lg, vertical = columnVerticalPadding),
+                .padding(horizontal = MaterialTheme.spacing.xl, vertical = columnVerticalPadding),
             horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start
         ) {
             if (icon != null) {
@@ -92,7 +97,7 @@ internal fun ConfirmationSheet(
                 Spacer(modifier = Modifier.height(titleToBodySpacing))
                 Text(
                     text = it,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = if (centered) TextAlign.Center else TextAlign.Start
                 )
@@ -108,42 +113,42 @@ internal fun ConfirmationSheet(
     }
 }
 
+/**
+ * Cancel and the destructive action, side by side as two pills of one size (W16AAPPLE-114).
+ * Cancel is an outline and the action is filled with the error red, so the one that cannot be
+ * undone is the one that stands out.
+ */
 @Composable
 internal fun DangerConfirmActions(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    cancelLabel: String = "Cancel",
-    confirmBorder: Boolean = false
+    cancelLabel: String = "Cancel"
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
-        // Text, not outlined: an outline weighs too close to the filled confirm
-        // beside it, and a destructive sheet needs those two to differ.
-        TextButton(
+    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)) {
+        OutlinedButton(
             onClick = onDismiss,
+            shape = PillShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             modifier = Modifier
                 .weight(1f)
-                .padding(vertical = MaterialTheme.spacing.xs)
+                .height(ButtonToken.Sheet)
         ) {
-            Text(cancelLabel)
+            Text(cancelLabel, fontWeight = FontWeight.SemiBold)
         }
         Button(
             onClick = onConfirm,
-            shape = MaterialTheme.shapes.large,
+            shape = PillShape,
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                contentColor = MaterialTheme.colorScheme.error
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
             ),
-            border = if (confirmBorder) {
-                BorderStroke(1.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
-            } else {
-                null
-            },
             modifier = Modifier
                 .weight(1f)
-                .padding(vertical = MaterialTheme.spacing.xs)
+                .height(ButtonToken.Sheet)
         ) {
-            Text(confirmLabel)
+            Text(confirmLabel, fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -3,22 +3,17 @@ package ai.openonion.oochat.ui.navigation
 import ai.openonion.oochat.domain.model.AgentStatus
 import ai.openonion.oochat.ui.chat.ChatNavDrawerContent
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.text.TextLayoutResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -29,7 +24,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * The drawer as the chat screen wires it: new chat, switch, rename, delete.
+ * The drawer as the chat screen wires it: new chat, switch, and the rename, clear and delete
+ * behind each chat's three dots (W16AAPPLE-114).
  * Storage is covered by [ai.openonion.oochat.domain.usecase.ConversationHistoryUseCaseTest].
  */
 @RunWith(RobolectricTestRunner::class)
@@ -59,6 +55,7 @@ class SessionDrawerComposeTest {
         val switchedTo = mutableListOf<String>()
         val navigated = mutableListOf<Triple<String, String?, Boolean>>()
         val deleted = mutableListOf<String>()
+        val cleared = mutableListOf<String>()
         val renamed = mutableListOf<Pair<String, String>>()
         var closes = 0
     }
@@ -75,6 +72,7 @@ class SessionDrawerComposeTest {
                     onStartNewSession = { calls.newChats++ },
                     onSwitchToSession = { calls.switchedTo += it },
                     onDeleteSession = { calls.deleted += it },
+                    onClearSession = { calls.cleared += it },
                     onRenameSession = { id, title -> calls.renamed += id to title },
                     onNavigateToAgentList = {},
                     onNavigateToSettings = {},
@@ -139,14 +137,14 @@ class SessionDrawerComposeTest {
                 NavDrawer(
                     agentSections = sections + DrawerAgentSection("agent-3", "0x" + "ef".repeat(32), "Fresh", AgentStatus.Active, emptyList()),
                     activeEntryId = "conv-1",
-                    themeMode = ai.openonion.oochat.domain.model.ThemeMode.SYSTEM,
                     onNewChatForAgent = {},
                     onSelectAgentSession = { _, _ -> },
                     onDeleteSession = {},
                     onRenameSession = { _, _ -> },
                     onOpenAgentList = {},
                     onOpenSettings = {},
-                    onThemeModeChange = {}
+                    onClearSession = {},
+                    onClose = {}
                 )
             }
         }
@@ -156,61 +154,16 @@ class SessionDrawerComposeTest {
         }
     }
 
-    // ── long press ──────────────────────────────────────────────────────
-
-    /** Rename and Delete sit behind a long press on the chat's row (W16AAPPLE-126). */
-    private fun chatAction(title: String, action: String) {
-        composeRule.onNodeWithText(title).performScrollTo().performTouchInput { longClick() }
-        composeRule.onNodeWithText(action).performClick()
-    }
-
-    @Test
-    fun `a chat row shows only its title until it is long-pressed`() {
-        setDrawer()
-
-        composeRule.onNodeWithContentDescription("Rename \"Logs\"").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Delete \"Logs\"").assertDoesNotExist()
-        composeRule.onNodeWithText("Rename").assertDoesNotExist()
-
-        composeRule.onNodeWithText("Logs").performScrollTo().performTouchInput { longClick() }
-
-        composeRule.onNodeWithText("Rename").assertExists()
-        composeRule.onNodeWithText("Delete").assertExists()
-    }
-
-    @Test
-    fun `Delete in the menu is plain, since the confirmation it opens is the red one`() {
-        setDrawer()
-
-        composeRule.onNodeWithText("Logs").performScrollTo().performTouchInput { longClick() }
-
-        // Drawn like Rename (W16AAPPLE-128): red is kept for the confirmation's own Delete.
-        assertEquals(textColor("Rename"), textColor("Delete"))
-    }
-
-    private fun textColor(text: String): Color {
-        val results = mutableListOf<TextLayoutResult>()
-        composeRule.onNodeWithText(text).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
-        return results.single().layoutInput.style.color
-    }
-
-    @Test
-    fun `TalkBack offers Rename and Delete on the row, since a long press has no visible hint`() {
-        val calls = setDrawer()
-        val row = composeRule.onNodeWithText("Release").performScrollTo().fetchSemanticsNode()
-
-        val actions = row.config[SemanticsActions.CustomActions]
-        assertEquals(listOf("Rename", "Delete"), actions.map { it.label })
-
-        composeRule.runOnUiThread { actions.single { it.label == "Delete" }.action() }
-        composeRule.onNodeWithText("Delete this chat?").assertExists()
-        assertTrue(calls.deleted.isEmpty())
-    }
-
     // ── rename ──────────────────────────────────────────────────────────
 
+    /** Opens the three-dot menu on a chat's row and taps one of its items. */
+    private fun chooseFromMenu(title: String, item: String) {
+        composeRule.onNodeWithContentDescription("More options for \"$title\"").performScrollTo().performClick()
+        composeRule.onNodeWithText(item).performClick()
+    }
+
     private fun openRename(title: String) {
-        chatAction(title, "Rename")
+        chooseFromMenu(title, "Rename")
         composeRule.onNodeWithText("Rename chat").assertExists()
     }
 
@@ -271,16 +224,30 @@ class SessionDrawerComposeTest {
         composeRule.onNodeWithText("Rename chat").assertDoesNotExist()
     }
 
+    // ── the three-dot menu ──────────────────────────────────────────────
+
+    @Test
+    fun `a chat's row shows no Rename or Delete of its own, only the three dots`() {
+        setDrawer()
+
+        composeRule.onNodeWithText("Rename").assertDoesNotExist()
+        composeRule.onNodeWithText("Delete…").assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription("More options for \"Logs\"").performScrollTo().performClick()
+
+        listOf("Rename", "Clear chat", "Delete…").forEach { composeRule.onNodeWithText(it).assertIsDisplayed() }
+    }
+
     // ── delete ──────────────────────────────────────────────────────────
 
     @Test
     fun `delete asks first, naming the chat, and deletes nothing until confirmed`() {
         val calls = setDrawer()
 
-        chatAction("Release", "Delete")
+        chooseFromMenu("Release", "Delete…")
 
         composeRule.onNodeWithText("Delete this chat?").assertExists()
-        composeRule.onNodeWithText("\"Release\" and all its messages will be permanently deleted.").assertExists()
+        composeRule.onNodeWithText("“Release” and all its messages will be deleted. This can't be undone.").assertExists()
         assertTrue("nothing is deleted by the menu item alone", calls.deleted.isEmpty())
     }
 
@@ -288,10 +255,11 @@ class SessionDrawerComposeTest {
     fun `confirming deletes that chat and nothing else`() {
         val calls = setDrawer()
 
-        chatAction("Warnings", "Delete")
-        composeRule.onNodeWithText("Delete").performClick()
+        chooseFromMenu("Warnings", "Delete…")
+        composeRule.onNodeWithText("Delete chat").performClick()
 
         assertEquals(listOf("conv-2"), calls.deleted)
+        assertTrue(calls.cleared.isEmpty())
         composeRule.onNodeWithText("Delete this chat?").assertDoesNotExist()
     }
 
@@ -299,10 +267,40 @@ class SessionDrawerComposeTest {
     fun `cancelling the confirmation keeps the chat`() {
         val calls = setDrawer()
 
-        chatAction("Logs", "Delete")
+        chooseFromMenu("Logs", "Delete…")
         composeRule.onNodeWithText("Cancel").performClick()
 
         assertTrue(calls.deleted.isEmpty())
         composeRule.onNodeWithText("Delete this chat?").assertDoesNotExist()
+    }
+
+    // ── clear ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `clear chat asks first, and clears that chat only once confirmed`() {
+        val calls = setDrawer()
+
+        chooseFromMenu("Warnings", "Clear chat")
+
+        composeRule.onNodeWithText("Clear this chat?").assertExists()
+        assertTrue("nothing is cleared by the menu item alone", calls.cleared.isEmpty())
+
+        // The sheet's button, not the menu item of the same name, which has closed.
+        composeRule.onNodeWithText("Clear chat").performClick()
+
+        assertEquals(listOf("conv-2"), calls.cleared)
+        assertTrue("clearing keeps the chat", calls.deleted.isEmpty())
+        composeRule.onNodeWithText("Clear this chat?").assertDoesNotExist()
+    }
+
+    @Test
+    fun `cancelling Clear chat keeps the messages`() {
+        val calls = setDrawer()
+
+        chooseFromMenu("Logs", "Clear chat")
+        composeRule.onNodeWithText("Cancel").performClick()
+
+        assertTrue(calls.cleared.isEmpty())
+        composeRule.onNodeWithText("Clear this chat?").assertDoesNotExist()
     }
 }

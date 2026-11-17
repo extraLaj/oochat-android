@@ -6,6 +6,7 @@ import ai.openonion.oochat.domain.model.ApprovalMode
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.model.SessionUsageTotals
 import ai.openonion.oochat.domain.model.WorkRooms
+import ai.openonion.oochat.ui.adaptive.LocalChatBottomBar
 import ai.openonion.oochat.ui.chat.components.ApprovalNotificationOffer
 import ai.openonion.oochat.ui.chat.components.ChatComposerDraft
 import ai.openonion.oochat.ui.chat.components.ChatTopBar
@@ -21,10 +22,10 @@ import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.ConnectionBanner
 import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
 import ai.openonion.oochat.ui.home.AgentHome
+import ai.openonion.oochat.ui.home.relativeAge
 import ai.openonion.oochat.ui.navigation.DrawerAgentSection
 import ai.openonion.oochat.ui.navigation.NavDrawer
 import ai.openonion.oochat.ui.navigation.NavDrawerWidth
-import ai.openonion.oochat.ui.theme.LocalThemeController
 import ai.openonion.oochat.util.SoundEffectPlayer
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,10 +40,12 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -190,6 +193,19 @@ fun ChatScreen(
         snapshotFlow { drawerState.isOpen || drawerState.isAnimationRunning }.first { it }
         drawerEverOpened = true
     }
+    // When each chat was last used, for the drawer's rows. Read as the drawer opens rather than
+    // observed: every message moves a chat's time, and a drawer that followed it would rebuild
+    // through each turn, open or not (see ChatViewModel.drawerAgents). The list of chats is read
+    // inside the flow, not as a key, so a new chat refreshes the times without this body running.
+    var drawerSessionTimes by remember { mutableStateOf(emptyMap<String, String>()) }
+    LaunchedEffect(drawerState) {
+        snapshotFlow { (drawerState.targetValue == DrawerValue.Open) to drawerAgents }.collect { (opening, _) ->
+            if (opening) {
+                val now = System.currentTimeMillis()
+                drawerSessionTimes = viewModel.sessionLastUsed().mapValues { (_, usedAt) -> relativeAge(now, usedAt) }
+            }
+        }
+    }
     LaunchedEffect(openDrawerRequest) {
         if (openDrawerRequest > 0) {
             drawerEverOpened = true
@@ -321,18 +337,26 @@ fun ChatScreen(
             onStartNewSession = viewModel::startNewSession,
             onSwitchToSession = viewModel::switchToSession,
             onDeleteSession = viewModel::deleteSession,
+            onClearSession = viewModel::clearSession,
             onRenameSession = viewModel::renameSession,
+            sessionTimes = drawerSessionTimes,
             onNavigateToAgentList = onNavigateToAgentList,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToAgentChat = onNavigateToAgentChat
         )
     }
-    // Everything but the drawer: the top bar, the transcript and the composer.
+    // The Chat and Dashboard tabs, when this chat is one of the two (W16AAPPLE-114). They sit
+    // inside the drawer's content so the drawer and its scrim cover them.
+    val bottomBar = LocalChatBottomBar.current
+    // Everything but the drawer: the top bar, the transcript, the composer and the tabs.
     val screen: @Composable (permanentDrawer: Boolean) -> Unit = { permanentDrawer ->
+        Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                // The bar takes the navigation bar's inset when it is there.
+                .then(if (bottomBar != null) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier)
                 // Edge-to-edge: the background above still paints the full
                 // window (including behind the transparent bars), but the
                 // content is inset here. Bottom takes safeDrawing, whose ime
@@ -420,7 +444,11 @@ fun ChatScreen(
                 // Home is in the layout.
                 hasDashboard = !homeInLayout && agentHome.opensControlCenter,
                 onOpenDashboard = onNavigateToControlCenter,
-                onOpenRem = onNavigateToRem
+                onOpenRem = onNavigateToRem,
+                agentName = drawerAgents.firstOrNull { it.agentAddress == targetAgentAddress }?.name,
+                // W16AAPPLE-114: New chat from the conversation itself, not only from the drawer.
+                onNewChat = if (targetAgentAddress != null) viewModel::startNewSession else null,
+                newChatEnabled = !emptyChat
             )
 
             ConnectionBanner(
@@ -532,6 +560,8 @@ fun ChatScreen(
             }
             AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
         }
+        if (bottomBar != null) Box(modifier = Modifier.blur(contentBlur)) { bottomBar() }
+        }
     }
 
     // On a window where the chat itself is at least [PermanentDrawerMinWidth] wide (a tablet in
@@ -581,16 +611,16 @@ internal fun ChatNavDrawerContent(
     onRenameSession: (sessionId: String, newTitle: String) -> Unit,
     onNavigateToAgentList: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToAgentChat: (agentAddress: String, sessionId: String?, startNew: Boolean) -> Unit
+    onNavigateToAgentChat: (agentAddress: String, sessionId: String?, startNew: Boolean) -> Unit,
+    onClearSession: (sessionId: String) -> Unit = {},
+    sessionTimes: Map<String, String> = emptyMap()
 ) {
-    val themeController = LocalThemeController.current
     // Passed straight through: ChatViewModel already emits the drawer's own
     // shape, and re-deriving it here would mint a fresh list on every
     // recomposition, which is exactly what stopped NavDrawer from skipping.
     NavDrawer(
         agentSections = agentSections,
         activeEntryId = activeSessionId,
-        themeMode = themeController.mode,
         onNewChatForAgent = { agentAddress ->
             onCloseDrawer()
             if (agentAddress == targetAgentAddress) {
@@ -608,6 +638,7 @@ internal fun ChatNavDrawerContent(
             }
         },
         onDeleteSession = onDeleteSession,
+        onClearSession = onClearSession,
         onRenameSession = onRenameSession,
         onOpenAgentList = {
             onCloseDrawer()
@@ -617,8 +648,9 @@ internal fun ChatNavDrawerContent(
             onCloseDrawer()
             onNavigateToSettings()
         },
-        onThemeModeChange = themeController.setMode,
-        connectedAgentAddress = targetAgentAddress
+        onClose = onCloseDrawer,
+        connectedAgentAddress = targetAgentAddress,
+        sessionTimes = sessionTimes
     )
 }
 

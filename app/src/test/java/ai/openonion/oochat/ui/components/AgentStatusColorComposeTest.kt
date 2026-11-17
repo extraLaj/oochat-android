@@ -2,9 +2,13 @@ package ai.openonion.oochat.ui.components
 
 import ai.openonion.oochat.domain.model.AgentStatus
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import ai.openonion.oochat.ui.theme.statusColors
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Rule
@@ -15,9 +19,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * An agent's status dot (W16AAPPLE-49): the palette has no accent to spare for "connecting", so
- * it is the brand green that is on the way to connected, and the dot pulses and the badge spins
- * to say so. It must stay apart from the grey of a disabled agent and the red of a failed one.
+ * An agent's status colour (W16AAPPLE-114): each state has a hue of its own, so the five cannot be
+ * mistaken for one another, and [AgentStatusChip] says each in a word as well, so none is told by
+ * its colour alone.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -32,8 +36,7 @@ class AgentStatusColorComposeTest {
     private fun render() {
         composeRule.setContent {
             ConnectOnionTheme {
-                seen["primary"] = MaterialTheme.colorScheme.primary
-                seen["outline"] = MaterialTheme.colorScheme.outline
+                seen["success"] = MaterialTheme.statusColors.success
                 seen["error"] = MaterialTheme.colorScheme.error
                 seen["active"] = agentStatusColor(AgentStatus.Active)
                 seen["connecting"] = agentStatusColor(AgentStatus.Connecting)
@@ -46,20 +49,40 @@ class AgentStatusColorComposeTest {
     }
 
     @Test
-    fun `connecting is the brand green, as active and connected are`() {
+    fun `each status has a colour of its own`() {
         render()
 
-        assertEquals(seen["primary"], seen["connecting"])
-        assertEquals(seen["primary"], seen["active"])
-        assertEquals(seen["primary"], seen["connected"])
+        val statuses = listOf("active", "connecting", "connected", "disabled", "failed").map { seen.getValue(it) }
+        assertEquals("two statuses share a colour: $seen", statuses.size, statuses.distinct().size)
     }
 
     @Test
-    fun `connecting is not the grey of a disabled agent or the red of a failed one`() {
+    fun `connected is the brand green and a failure the error red`() {
         render()
 
-        assertNotEquals(seen["outline"], seen["connecting"])
-        assertEquals(seen["outline"], seen["disabled"])
+        assertEquals(seen["success"], seen["connected"])
         assertEquals(seen["error"], seen["failed"])
+        assertNotEquals(seen["connected"], seen["connecting"])
+    }
+
+    @Test
+    fun `the chip says its status in a word, and that word is all TalkBack reads of it`() {
+        val statuses = listOf(
+            AgentStatus.Active to "Active",
+            AgentStatus.Connected to "Connected",
+            AgentStatus.Connecting to "Connecting",
+            AgentStatus.Error("no route") to "Error",
+            AgentStatus.Disabled to "Disabled"
+        )
+        composeRule.setContent {
+            ConnectOnionTheme {
+                Column { statuses.forEach { (status, _) -> AgentStatusChip(status) } }
+            }
+        }
+
+        statuses.forEach { (_, word) ->
+            composeRule.onNodeWithText(word, useUnmergedTree = true).assertExists()
+            composeRule.onNodeWithContentDescription(word).assertExists()
+        }
     }
 }

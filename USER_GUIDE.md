@@ -162,8 +162,8 @@ before they are sent.
 
 ## 5a. The Dashboard, and an agent's own page
 
-On a phone the app opens on the **Dashboard** tab, next to **Chat** at the top of
-the screen. It shows the agent's name and what it is doing, and from it you can:
+On a phone the app opens on the **Dashboard** tab, next to **Chat** along the
+bottom of the screen. It shows the agent's name and what it is doing, and from it you can:
 
 - start a **New chat**;
 - open one of your **Latest** chats, or **See all** of them (the same list as the
@@ -384,13 +384,23 @@ session**, **Reject**, or ask the agent to **Explain** what it is about to do.
 Open the drawer with the ☰ button. Every agent you have used has its own list of
 chats under it.
 
-<img src="screenshots/drawer-sessions.png" alt="The navigation drawer showing agents, each with its chats, and a pencil and a bin beside each chat" width="300">
+<img src="screenshots/drawer-sessions.png" alt="The navigation drawer: an agent with its status, Connected, its chat with three dots at the end of the row, and New chat under it" width="300">
 
-- **+** beside an agent starts a new chat with it.
+- **New chat** at the top of a conversation starts another with the agent you
+  are talking to. It is greyed out while the chat is still empty, because that
+  already is a new one. The conversation you leave is kept in the drawer.
+- **New chat** under an agent's chats in the drawer starts one with that agent.
+- Each agent's status is written beside it: **Active**, **Connected**,
+  **Connecting**, **Error** or **Disabled**. Tap the agent to hide or show its
+  chats.
 - Tap a chat to reopen it. History is kept on the device and survives the app
   being closed or killed.
-- The **pencil** renames a chat.
-- The **bin** deletes one, after asking.
+- The **three dots** on a chat open its menu:
+  - **Rename** gives it a new name.
+  - **Clear chat** deletes its messages and keeps the chat, after asking.
+  - **Delete…** removes the chat, after asking.
+
+<img src="screenshots/drawer-chat-menu.png" alt="A chat's menu in the drawer: Rename, Clear chat and, under a rule and in red, Delete" width="300"> <img src="screenshots/drawer-delete-chat.png" alt="The sheet that asks before a chat is deleted, naming the chat, with Cancel and a red Delete chat" width="300">
 
 <img src="screenshots/rename-chat.png" alt="The Rename chat sheet, pre-filled with the current name, with Save disabled until the name changes" width="300">
 

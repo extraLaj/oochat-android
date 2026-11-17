@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.navigation
 
 import ai.openonion.oochat.domain.model.ControlCenterApp
+import ai.openonion.oochat.ui.adaptive.LocalChatBottomBar
 import ai.openonion.oochat.ui.chat.ChatViewModel
 import ai.openonion.oochat.ui.chat.RecompFakeConnectUseCase
 import ai.openonion.oochat.ui.chat.chatViewModelOver
@@ -58,6 +59,8 @@ class ChatWithHomePanesComposeTest {
                 Column {
                     Text("chat, Home in layout: $homeInLayout")
                     Text("drawer requests: $openDrawerRequest")
+                    // As the chat screen does: the tabs are at the foot of the chat itself.
+                    LocalChatBottomBar.current?.invoke()
                 }
             },
             dashboard = { _, navigation ->

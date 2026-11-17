@@ -20,6 +20,17 @@ internal val Green600 = Color(0xFF16A34A)
 internal val Green900 = Color(0xFF14532D)
 internal val Green950 = Color(0xFF052E16)
 
+// The agent status chip's two hues (W16AAPPLE-114). They are status, not accent: only the
+// Active and Connecting chips wear them, each beside its own icon and word.
+internal val Blue100 = Color(0xFFE0E9F8)
+internal val Blue300 = Color(0xFF93C5FD)
+internal val Blue500 = Color(0xFF3B82F6)
+internal val Blue800 = Color(0xFF1E4FA3)
+internal val Amber100 = Color(0xFFFBEBD3)
+internal val Amber300 = Color(0xFFFCD34D)
+internal val Amber500 = Color(0xFFF59E0B)
+internal val Amber800 = Color(0xFF8A5300)
+
 /** The brand green, muted for dark surfaces: Green 500's relative luminance at about half its saturation. */
 internal val Sage = Color(0xFF6BBF85)
 

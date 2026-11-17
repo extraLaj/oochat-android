@@ -65,6 +65,8 @@ class ChatWithHomeTabsComposeTest {
                 items((0 until 100).toList()) { Text("message $it", Modifier.height(48.dp)) }
             }
             BasicTextField(draft, { draft = it }, Modifier.testTag("draft"))
+            // As the chat screen does: the tabs are at the foot of the chat itself.
+            LocalChatBottomBar.current?.invoke()
         }
     }
 

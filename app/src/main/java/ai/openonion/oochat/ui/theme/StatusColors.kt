@@ -15,7 +15,8 @@ import androidx.compose.ui.graphics.Color
  * The palette is green on warm greys with no other accent (W16AAPPLE-49), so a
  * success is the brand green and a warning is a warm grey: what makes a
  * warning card read as one is its icon and title, not a hue. Errors keep the
- * theme's red. The defaults are the dark-theme set; [DarkStatusColors] /
+ * theme's red. The one exception is the agent status chip, which has a blue
+ * and an amber of its own (W16AAPPLE-114). The defaults are the dark-theme set; [DarkStatusColors] /
  * [LightStatusColors] name the two instances the theme actually provides.
  *
  * Access from composables via `MaterialTheme.statusColors.warning` etc.
@@ -30,6 +31,14 @@ data class StatusColors(
     // colour reads too dark at 8dp. A connection still on its way is this same
     // dot pulsing, since the palette has no second accent to spare for it.
     val successDot: Color = Sage,
+    // The agent status chip (W16AAPPLE-114): an agent that is working is blue and
+    // one still connecting is amber, each on a pale container of its own hue.
+    // Connected takes success above, an error the scheme's red, and a disabled
+    // agent its greys, so these are the only two hues outside the palette.
+    val active: Color = Blue300,
+    val activeContainer: Color = Blue500.copy(alpha = 0.20f),
+    val connecting: Color = Amber300,
+    val connectingContainer: Color = Amber500.copy(alpha = 0.18f),
     // The logs console background. Same value in both instances below — it's
     // a monospace panel meant to stay dark regardless of app theme, tuned to
     // surfaceContainerLowestDark rather than a neutral black so it reads as
@@ -56,7 +65,11 @@ val LightStatusColors = StatusColors(
     warningContainer = Stone500.copy(alpha = 0.16f),
     success = Green900,
     successContainer = Green500.copy(alpha = 0.16f),
-    successDot = Green600
+    successDot = Green600,
+    active = Blue800,
+    activeContainer = Blue100,
+    connecting = Amber800,
+    connectingContainer = Amber100
 )
 
 val LocalStatusColors = staticCompositionLocalOf { StatusColors() }

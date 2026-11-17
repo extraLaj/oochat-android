@@ -36,7 +36,7 @@ them at or under 50% saturation.
 | `onSurfaceVariant` | `#57534E` (7.6:1) | `#D6D3D1` (11.7:1) | Secondary text |
 | `outline` | `#6B655F` (5.8:1) | `#A8A29E` (6.9:1) | Captions and labels |
 | `outlineVariant` | `#8F8883` (3.5:1) | `#78716C` (3.6:1) | Dividers and borders |
-| `error` | `#BA1A1A` (6.5:1) | `#FFB4AB` (10.3:1) | Failures, and the button that confirms a destructive action. Not the icon or menu item that only opens that confirmation: Logs' Clear logs, the chat menu's Clear chat and the agent list's Delete are the surface's own grey (W16AAPPLE-128) |
+| `error` | `#BA1A1A` (6.5:1) | `#FFB4AB` (10.3:1) | Failures, and the button that confirms a destructive action. Not the icon or menu item that only opens that confirmation: Logs' Clear logs, the chat menu's Clear chat and the agent list's Delete are the surface's own grey (W16AAPPLE-128). The one exception is Delete… in a chat's drawer menu, red as its design draws it (W16AAPPLE-114) |
 
 The ratios are against `surface`. Text roles are held to 4.5:1 on every surface they are read on, and
 dividers to 3:1.
@@ -47,8 +47,20 @@ The greys get closer together on the raised containers, so the rule depends on w
 with a border sits on `surfaceContainer` or lower.
 
 Status colours (`MaterialTheme.statusColors`) follow the same rule: success is the brand green and a
-warning is a warm grey, told apart by its icon and title rather than a hue. A connection that is still
-coming up is the connected green pulsing, and the word "Connecting" says so.
+warning is a warm grey, told apart by its icon and title rather than a hue.
+
+The one place with hues of its own is an agent's status (W16AAPPLE-114), drawn by `AgentStatusChip`:
+
+| Status | Colour | Shape | Meaning |
+|---|---|---|---|
+| Active | blue | a ring with a dot | Working on a task |
+| Connected | green | a solid dot | Online and idle |
+| Connecting | amber | a broken ring that turns | Reaching the host |
+| Error | the error red | a warning triangle | Can't connect |
+| Disabled | grey | a barred circle | Turned off by you |
+
+Every status has its word and its own shape, so it reads without colour, and TalkBack reads an
+agent's row as "name, status". The blue and the amber are for this chip only.
 
 ## Type
 
@@ -74,9 +86,14 @@ One scale, in `Radii` and `AppShapes`: 2, 4, 6, 8 and 12dp. Nothing is rounder t
 circle (dots, avatars, the Send and Stop buttons) and one named exception, `Radii.composer` (22dp):
 the chat composer's corners, measured off the chat design (W16AAPPLE-112).
 
+The navigation drawer and what opens from it are drawn rounder, to their own design (W16AAPPLE-114),
+and each of those shapes is named in `Shape.kt` rather than written where it is used: `DrawerShape`
+(the panel's trailing corners, 28dp), `SheetShape` (a bottom sheet's top corners, 28dp), `MenuShape`
+(20dp) and `PillShape`, which is for the status chip, New chat on the chat's bar and a confirmation
+sheet's two buttons. Chips elsewhere keep the scale.
+
 Use `MaterialTheme.shapes.<size>`, or `Radii.<size>` where a plain value is needed, as the dashed
-attachment tile does. Chat bubbles and buttons are `large` (8dp), sheets, dialogs and
-menus `extraLarge` (12dp). Material draws filled, tonal and outlined buttons fully round unless told
+attachment tile does. Chat bubbles and buttons are `large` (8dp), dialogs `extraLarge` (12dp). Material draws filled, tonal and outlined buttons fully round unless told
 otherwise, and the scale cannot reach that default, so each one passes `shape = MaterialTheme.shapes.large`.
 
 ## Elevation
@@ -116,7 +133,7 @@ browser's best guess and will not match this palette exactly.
 | `TypographyTest` | Every style is Inter, only Inter's two files are bundled and its licence ships with them, no custom family elsewhere, monospace timer |
 | `ShapesTest` | The scale, the tokens (the composer on `Radii.composer`), the bubble's tail, no numeric radius, every button passes a shape |
 | `ElevationTest` | No tint, no shadow above 1dp, every menu sets its shadow, no Material snackbar |
-| `AgentStatusColorComposeTest` | Connecting is the brand green, apart from disabled grey and error red |
+| `AgentStatusColorComposeTest` | Each agent status has a colour of its own, and the chip says it in a word |
 | `AppSnackbarHostComposeTest` | The app's snackbar shows its message and answers its action |
 | `ControlCenterWebViewTest`, `DashboardWebViewTest`, `ControlCenterPageTest` | Both WebViews are created under the app's theme, in both directions, and follow a change |
 
@@ -139,17 +156,18 @@ disagree: app dark on a light phone, and app light on a dark phone. Do it once a
 |---|---|
 | Setup and Loading, including the invite-code gate | The "Redeem code" button is the brand green, the gate card is a warm grey, no stray blue |
 | Chat | Bubbles are 8dp with a small tail, the composer is a field and not a pill, the Stop and approval-mode chips read as buttons, captions are legible on every surface |
-| Chat tabs (phone) | The Chat and Dashboard or Control Center tabs sit under the status bar with no gap, the selected one is clear, switching keeps the draft |
+| Chat tabs (phone) | The Chat and Dashboard tabs sit along the bottom, above the navigation bar with no gap, the selected one is clear, switching keeps the draft, and they step aside for the keyboard |
+| Drawer | Each agent's status chip, the open chat's tint, the three-dot menu and the sheets it opens; the drawer and its scrim cover the tabs |
 | Dashboard | The page is dark in dark mode, including one that has no dark styles of its own; cards are legible; flipping the theme reloads it |
 | Control Center | As the Dashboard; an app with `prefers-color-scheme` follows it; the "cannot show this app" notice is legible |
 | Tablet, side by side | The divider is a hairline, both panes follow the theme, no tab row or Home button |
 | Approvals and status cards | "Allow once" and the other buttons, the plan panel's done, in-progress and to-do dots, the warning cards (grey with an icon), the turn-limit card |
 | Attachment menu, `/` palette, menus | Lifted by a hairline and an outline, not a shadow, and still clearly separate from the page in light mode |
 | Rem | Notebook and pages are legible, the Home and Rem buttons follow the shape |
-| Agent list, edit and discovery | The status dots (a pulsing green dot is connecting), "Tap to select" is the brand green, the badge is grey |
+| Agent list, edit and discovery | The status dots and badges (blue active, amber connecting), "Tap to select" is the brand green |
 | Settings and its sheets | Every row, the Appearance control, the confirmation sheets and their buttons |
 | Logs | The console stays dark in light mode, levels are readable, a snackbar after "copy" is flat |
 | Recovery | The card, the buttons and the text |
-| Snackbars, dialogs and sheets | Flat, 8dp or 12dp corners, buttons on the theme's shape |
+| Snackbars, dialogs and sheets | Flat; a sheet is white and round at the top, with Cancel and its action as two pills |
 
 If something is unreadable, the fix is the role it uses, not a new colour. Tell the ticket which screen and which mode.

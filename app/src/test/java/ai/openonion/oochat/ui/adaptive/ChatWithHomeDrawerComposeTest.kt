@@ -49,7 +49,7 @@ class ChatWithHomeDrawerComposeTest {
                         ModalNavigationDrawer(
                             drawerContent = { ModalDrawerSheet { Text("the drawer") } },
                             drawerState = drawerState
-                        ) { Text("the conversation") }
+                        ) { WithChatTabs { Text("the conversation") } }
                     }
                 },
                 home = { modifier -> Pane(modifier) { Text("the page") } }

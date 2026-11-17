@@ -291,7 +291,6 @@ class ChatScreenshotTest {
     private fun captureChatScreen(name: String, palette: Palette, items: List<ChatItem>, running: Boolean) =
         composeRule.captureThemed(name, palette) {
             Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-                HomeTabs(tab = HomeTab.CHAT, homeLabel = "Dashboard", onTabChange = {})
                 ChatTopBar(
                     title = "open up a work room",
                     connectionState = ConnectionState.Connected(address = AGENT_ADDRESS),
@@ -299,6 +298,8 @@ class ChatScreenshotTest {
                     onClearChat = {},
                     onNavigateToLogs = {},
                     onMenuClick = {},
+                    agentName = "oo",
+                    onNewChat = {},
                     modelName = "gemini-3.8-flash",
                     sessionActivity = if (running) SessionActivity.RUNNING else SessionActivity.IDLE,
                 )
@@ -321,6 +322,7 @@ class ChatScreenshotTest {
                     usage = SessionUsageTotals(if (running) 337_300 else 342_300, if (running) 0.09 else 0.10, null),
                     onSend = { _, _, _ -> },
                 )
+                HomeTabs(tab = HomeTab.CHAT, homeLabel = "Dashboard", onTabChange = {})
             }
         }
 
@@ -348,7 +350,6 @@ class ChatScreenshotTest {
             interact = if (keyboardOpen) ({ onNode(hasSetTextAction()).performClick() }) else null
         ) {
             Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                HomeTabs(tab = HomeTab.CHAT, homeLabel = "Dashboard", onTabChange = {})
                 ChatTopBar(
                     title = "New chat",
                     connectionState = ConnectionState.Connected(address = AGENT_ADDRESS),
@@ -356,6 +357,10 @@ class ChatScreenshotTest {
                     onClearChat = {},
                     onNavigateToLogs = {},
                     onMenuClick = {},
+                    agentName = "oo",
+                    onNewChat = {},
+                    // Already a new chat, so the button is there but cannot be tapped.
+                    newChatEnabled = false,
                     modelName = "gemini-3.8-flash",
                     sessionActivity = SessionActivity.IDLE,
                 )
@@ -372,6 +377,8 @@ class ChatScreenshotTest {
                         centred = true,
                     )
                 }
+                // The tabs step aside for the keyboard.
+                if (!keyboardOpen) HomeTabs(tab = HomeTab.CHAT, homeLabel = "Dashboard", onTabChange = {})
             }
         }
 
