@@ -1,9 +1,9 @@
 package ai.openonion.oochat.ui.workroom
 
-import androidx.compose.ui.unit.dp
+import ai.openonion.oochat.ui.theme.ContentWidth
 
 /**
- * The widest the room's column of text, and its message field, get on a window wider than this.
- * Past it lines are too long to follow; the column stays in the middle instead, as Rem's pages do.
+ * The widest the room's column of text, and its message field, get: the app's one content width
+ * (W16AAPPLE-127). Past it lines are too long to follow; the column stays in the middle instead.
  */
-internal val WORK_ROOM_COLUMN_MAX_WIDTH = 640.dp
+internal val WORK_ROOM_COLUMN_MAX_WIDTH = ContentWidth.Max

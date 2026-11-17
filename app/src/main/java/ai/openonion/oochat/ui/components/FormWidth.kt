@@ -1,16 +1,16 @@
 package ai.openonion.oochat.ui.components
 
+import ai.openonion.oochat.ui.theme.ContentWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 
 /**
  * The widest a settings list or a form gets. On a tablet a row stretched across the whole window
  * leaves a label and its switch a hand's width apart; past this the content stays in the middle,
  * as the chat, Rem and a Work Room already do.
  */
-internal val FORM_MAX_WIDTH = 640.dp
+internal val FORM_MAX_WIDTH = ContentWidth.Max
 
 /**
  * Caps the content at [max] wide and centres it in the width it is given. Put it after

@@ -33,6 +33,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -300,31 +302,24 @@ fun ChatScreen(
         label = "drawerContentBlur"
     )
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            if (drawerEverOpened) {
-                ChatNavDrawerContent(
-                    agentSections = drawerAgents,
-                    activeSessionId = activeSessionId,
-                    targetAgentAddress = targetAgentAddress,
-                    onCloseDrawer = { drawerScope.launch { drawerState.close() } },
-                    onStartNewSession = viewModel::startNewSession,
-                    onSwitchToSession = viewModel::switchToSession,
-                    onDeleteSession = viewModel::deleteSession,
-                    onRenameSession = viewModel::renameSession,
-                    onNavigateToAgentList = onNavigateToAgentList,
-                    onNavigateToSettings = onNavigateToSettings,
-                    onNavigateToAgentChat = onNavigateToAgentChat
-                )
-            } else {
-                // Same footprint, none of the content: the drawer's open anchor
-                // is derived from the sheet's measured width, so an empty
-                // drawerContent would leave nothing to slide.
-                Spacer(Modifier.fillMaxHeight().width(NavDrawerWidth))
-            }
-        }
-    ) {
+    // The drawer's own panel, for both kinds of drawer below.
+    val drawerPanel: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
+        ChatNavDrawerContent(
+            agentSections = drawerAgents,
+            activeSessionId = activeSessionId,
+            targetAgentAddress = targetAgentAddress,
+            onCloseDrawer = onClose,
+            onStartNewSession = viewModel::startNewSession,
+            onSwitchToSession = viewModel::switchToSession,
+            onDeleteSession = viewModel::deleteSession,
+            onRenameSession = viewModel::renameSession,
+            onNavigateToAgentList = onNavigateToAgentList,
+            onNavigateToSettings = onNavigateToSettings,
+            onNavigateToAgentChat = onNavigateToAgentChat
+        )
+    }
+    // Everything but the drawer: the top bar, the transcript and the composer.
+    val screen: @Composable (permanentDrawer: Boolean) -> Unit = { permanentDrawer ->
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -401,9 +396,13 @@ fun ChatScreen(
                 isConnected = isConnected,
                 onClearChat = { viewModel.clearChat() },
                 onNavigateToLogs = onNavigateToLogs,
-                onMenuClick = {
-                    drawerEverOpened = true
-                    drawerScope.launch { drawerState.open() }
+                onMenuClick = if (permanentDrawer) {
+                    null
+                } else {
+                    {
+                        drawerEverOpened = true
+                        drawerScope.launch { drawerState.open() }
+                    }
                 },
                 awaitingOnboardCode = awaitingOnboardCode,
                 modelName = agentProfile?.model,
@@ -525,7 +524,38 @@ fun ChatScreen(
             AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
+
+    // On a window where the chat itself is at least [PermanentDrawerMinWidth] wide (a tablet in
+    // landscape with no Home beside it), the drawer stays open beside the chat as M3's standard
+    // drawer for that size does, instead of sliding over it (W16AAPPLE-127). A chat in a half-width
+    // pane next to Home keeps the modal drawer, so the drawer never takes room the chat needs.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        if (maxWidth >= PermanentDrawerMinWidth) {
+            PermanentNavigationDrawer(drawerContent = { drawerPanel {} }) { screen(true) }
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    if (drawerEverOpened) {
+                        drawerPanel { drawerScope.launch { drawerState.close() } }
+                    } else {
+                        // Same footprint, none of the content: the drawer's open anchor
+                        // is derived from the sheet's measured width, so an empty
+                        // drawerContent would leave nothing to slide.
+                        Spacer(Modifier.fillMaxHeight().width(NavDrawerWidth))
+                    }
+                }
+            ) { screen(false) }
+        }
+    }
 }
+
+/**
+ * The chat's own width from which its drawer stays open beside it rather than sliding over it:
+ * M3's Expanded width class (W16AAPPLE-127). The drawer takes [NavDrawerWidth] of it, leaving the
+ * chat at least 540dp.
+ */
+internal val PermanentDrawerMinWidth = 840.dp
 
 // ── Navigation drawer ───────────────────────────────────────────
 

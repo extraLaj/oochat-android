@@ -6,6 +6,17 @@ import androidx.compose.ui.unit.dp
 // Tune here — components should read these instead of carrying their own
 // inline copies of the same values.
 
+/**
+ * The one width a screen's content stops at on a wide window, centred past it (W16AAPPLE-127): the
+ * chat and its composer, the empty chat's card, a Work Room, Settings and the agent forms, and a
+ * Rem page. They had five caps of their own (600, 640, 680 and 720dp), so a tablet's column moved
+ * as you went from screen to screen. 640dp holds about 75 characters of body text, the top of a
+ * comfortable line, and any phone is narrower, so it changes nothing there.
+ */
+object ContentWidth {
+    val Max = 640.dp
+}
+
 object MessageBubbleToken {
     // Share of the row a bubble may take (the row is already inset by the
     // opposite sender's gutter). A fixed dp cap left ~30 characters per line on

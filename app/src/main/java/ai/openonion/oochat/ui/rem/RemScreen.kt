@@ -7,6 +7,9 @@ import ai.openonion.oochat.ui.chat.markdown.LinkResolver
 import ai.openonion.oochat.ui.chat.markdown.MarkdownRenderer
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.BackTopAppBar
+import ai.openonion.oochat.ui.components.bottom
+import ai.openonion.oochat.ui.components.exceptBottom
+import ai.openonion.oochat.ui.theme.ContentWidth
 import ai.openonion.oochat.ui.theme.spacing
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -48,6 +51,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -85,10 +89,12 @@ fun RemScreen(
         modifier = modifier,
         topBar = { BackTopAppBar(title = "Rem", onNavigateBack = onNavigateBack) }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        // Edge to edge (W16AAPPLE-127): the contents and the page run behind the navigation bar,
+        // with its height left under their last line so it can scroll clear.
+        Box(modifier = Modifier.fillMaxSize().padding(padding.exceptBottom())) {
             when (val outcome = state.outcome) {
                 null -> Loading()
-                is RemOutcome.Loaded -> Notebook(outcome.notebook, openPage, onOpenPage, onClosePage)
+                is RemOutcome.Loaded -> Notebook(outcome.notebook, openPage, onOpenPage, onClosePage, padding.bottom)
                 else -> outcome.message(state.ownAddress).let { message ->
                     StateCard(message, onRetry.takeIf { message.canRetry })
                 }
@@ -119,7 +125,8 @@ private fun Notebook(
     notebook: RemNotebook,
     openPage: RemPage?,
     onOpenPage: (String) -> Unit,
-    onClosePage: () -> Unit
+    onClosePage: () -> Unit,
+    bottomInset: Dp
 ) {
     if (notebook.pages.isEmpty()) {
         StateCard(RemMessage("No pages yet", "This Rem notebook is empty. Pages appear as the agent writes them."), onRetry = null)
@@ -128,11 +135,11 @@ private fun Notebook(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth >= TwoPaneMinWidth) {
             Row(modifier = Modifier.fillMaxSize()) {
-                Contents(notebook, openPage?.id, onOpenPage, Modifier.width(ContentsPaneWidth).fillMaxHeight())
+                Contents(notebook, openPage?.id, onOpenPage, bottomInset, Modifier.width(ContentsPaneWidth).fillMaxHeight())
                 VerticalDivider()
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     if (openPage != null) {
-                        PageView(notebook, openPage, onOpenPage)
+                        PageView(notebook, openPage, onOpenPage, bottomInset)
                     } else {
                         StateCard(RemMessage("Pick a page", "Choose a page on the left to read it."), onRetry = null)
                     }
@@ -141,16 +148,25 @@ private fun Notebook(
         } else if (openPage != null) {
             // Back closes the page first, as a phone's own navigation would.
             BackHandler(onBack = onClosePage)
-            PageView(notebook, openPage, onOpenPage)
+            PageView(notebook, openPage, onOpenPage, bottomInset)
         } else {
-            Contents(notebook, null, onOpenPage, Modifier.fillMaxSize())
+            Contents(notebook, null, onOpenPage, bottomInset, Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
-private fun Contents(notebook: RemNotebook, selectedId: String?, onOpenPage: (String) -> Unit, modifier: Modifier) {
-    LazyColumn(modifier = modifier, contentPadding = PaddingValues(vertical = MaterialTheme.spacing.sm)) {
+private fun Contents(
+    notebook: RemNotebook,
+    selectedId: String?,
+    onOpenPage: (String) -> Unit,
+    bottomInset: Dp,
+    modifier: Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(top = MaterialTheme.spacing.sm, bottom = MaterialTheme.spacing.sm + bottomInset)
+    ) {
         notebook.sections.forEach { (category, pages) ->
             item(key = "section:$category") {
                 Text(
@@ -201,7 +217,7 @@ private fun Contents(notebook: RemNotebook, selectedId: String?, onOpenPage: (St
 }
 
 @Composable
-private fun PageView(notebook: RemNotebook, page: RemPage, onOpenPage: (String) -> Unit) {
+private fun PageView(notebook: RemNotebook, page: RemPage, onOpenPage: (String) -> Unit, bottomInset: Dp) {
     // A link to another page of the notebook opens it; anything else (a web
     // address, a page this notebook does not have) stays as plain underlined text.
     val links = remember(notebook, page.id) {
@@ -213,7 +229,11 @@ private fun PageView(notebook: RemNotebook, page: RemPage, onOpenPage: (String) 
     ) {
         Column(
             // Capped for reading: a full tablet width of prose is hard to follow.
-            modifier = Modifier.widthIn(max = ReadingWidth).fillMaxWidth().padding(MaterialTheme.spacing.lg),
+            modifier = Modifier
+                .widthIn(max = ReadingWidth)
+                .fillMaxWidth()
+                .padding(bottom = bottomInset)
+                .padding(MaterialTheme.spacing.lg),
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
         ) {
             // Most pages open on their own `# Title`; a page that doesn't gets one.
@@ -350,4 +370,5 @@ private fun RemPage.updatedDay(): String? = updated?.take(10)?.takeIf { it.lengt
 
 private val TwoPaneMinWidth = 720.dp
 private val ContentsPaneWidth = 320.dp
-private val ReadingWidth = 720.dp
+/** A page's reading column: the app's one content width (W16AAPPLE-127). */
+private val ReadingWidth = ContentWidth.Max

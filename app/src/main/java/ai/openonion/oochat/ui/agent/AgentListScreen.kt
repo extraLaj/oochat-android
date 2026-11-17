@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -105,6 +106,8 @@ fun AgentListScreen(
     onDeleteAgent: (String) -> Unit,
     onSetDefault: (String) -> Unit,
     onReorderAgents: (List<String>) -> Unit = {},
+    /** The navigation bar's height, left as room under the last row rather than cut off above it. */
+    bottomInset: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     var agentToDelete by remember { mutableStateOf<AgentProfile?>(null) }
@@ -177,7 +180,12 @@ fun AgentListScreen(
         LazyColumn(
             state = lazyListState,
             modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.sm)
+            contentPadding = PaddingValues(
+                start = MaterialTheme.spacing.lg,
+                top = MaterialTheme.spacing.sm,
+                end = MaterialTheme.spacing.lg,
+                bottom = MaterialTheme.spacing.sm + bottomInset
+            )
         ) {
             itemsIndexed(orderedAgents, key = { _, agent -> agent.id }) { index, agent ->
                 ReorderableItem(reorderableState, key = agent.id) {

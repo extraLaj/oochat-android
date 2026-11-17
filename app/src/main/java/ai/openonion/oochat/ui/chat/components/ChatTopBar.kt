@@ -7,6 +7,7 @@ import ai.openonion.oochat.ui.components.ConnectionStatusDot
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.theme.Elevation
 import ai.openonion.oochat.ui.theme.hairline
+import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.ui.theme.statusColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -68,7 +69,9 @@ fun ChatTopBar(
     isConnected: Boolean,
     onClearChat: () -> Unit,
     onNavigateToLogs: () -> Unit,
-    onMenuClick: () -> Unit,
+    // Null when the drawer is always on screen beside the chat (W16AAPPLE-127): there is
+    // nothing to open, so the button is left out rather than shown doing nothing.
+    onMenuClick: (() -> Unit)?,
     awaitingOnboardCode: Boolean = false,
     // See ConnectionStatusDot's own doc — surfaces the connected
     // agent's model once its AGENT_PROFILE frame lands.
@@ -125,14 +128,18 @@ fun ChatTopBar(
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
-                Icon(imageVector = Icons.Default.Menu, contentDescription = "Open menu")
+            if (onMenuClick != null) {
+                IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
+                    Icon(imageVector = Icons.Default.Menu, contentDescription = "Open menu")
+                }
             }
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 2.dp)
+                    // Without the menu button the title takes the screen's own gutter: this and the
+                    // row's 4dp make the 16dp every screen's content starts at.
+                    .padding(start = if (onMenuClick != null) 2.dp else MaterialTheme.spacing.md)
             ) {
                 // Row 1: the title alone.
                 Text(

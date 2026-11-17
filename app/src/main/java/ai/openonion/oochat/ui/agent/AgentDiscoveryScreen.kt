@@ -7,6 +7,8 @@ import ai.openonion.oochat.ui.components.AgentInitialsAvatar
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.EmptyStateMessage
 import ai.openonion.oochat.ui.components.PillTextField
+import ai.openonion.oochat.ui.components.bottom
+import ai.openonion.oochat.ui.components.exceptBottom
 import ai.openonion.oochat.ui.theme.sectionLabel
 import ai.openonion.oochat.ui.theme.sectionOverline
 import ai.openonion.oochat.ui.theme.spacing
@@ -163,7 +165,8 @@ fun AgentDiscoveryScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                // Edge to edge (W16AAPPLE-127): the results run behind the navigation bar.
+                .padding(paddingValues.exceptBottom())
         ) {
             Column(
                 modifier = Modifier
@@ -253,7 +256,7 @@ fun AgentDiscoveryScreen(
                     }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = MaterialTheme.spacing.lg)
+                        contentPadding = PaddingValues(bottom = MaterialTheme.spacing.lg + paddingValues.bottom)
                     ) {
                         itemsIndexed(discoveredAgents, key = { _, agent -> agent.id }) { index, agent ->
                             DiscoveredAgentItem(

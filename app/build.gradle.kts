@@ -574,6 +574,9 @@ val regressionSuite = mapOf(
         "ui.home.AgentHomeTest",
     ),
     "design system" to listOf(
+        "ui.theme.ContentWidthTest",
+        "ui.chat.ChatDrawerPlacementComposeTest",
+        "ui.agent.AgentListEdgeToEdgeComposeTest",
         "ui.theme.ColorSchemePaletteTest",
         "ui.theme.StatusColorsPaletteTest",
         "ui.theme.LogColorsTest",

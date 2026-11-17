@@ -6,6 +6,8 @@ import ai.openonion.oochat.ui.common.FontSizeOption
 import ai.openonion.oochat.ui.common.appViewModel
 import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.BackTopAppBar
+import ai.openonion.oochat.ui.components.bottom
+import ai.openonion.oochat.ui.components.exceptBottom
 import ai.openonion.oochat.ui.components.formWidth
 import ai.openonion.oochat.ui.settings.components.AccountSection
 import ai.openonion.oochat.ui.settings.components.BackupSeedSheet
@@ -241,10 +243,12 @@ fun SettingsScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                // Edge to edge (W16AAPPLE-127): the list scrolls behind the navigation bar,
+                // and the bar's height is added under the last row so it can scroll clear.
+                .padding(paddingValues.exceptBottom())
                 .verticalScroll(rememberScrollState())
                 .formWidth()
-                .padding(bottom = MaterialTheme.spacing.xl)
+                .padding(bottom = MaterialTheme.spacing.xl + paddingValues.bottom)
         ) {
             // The identity variant stays put: it is not dismissible, so it does
             // not consult insecureStorageWarningDismissed either.

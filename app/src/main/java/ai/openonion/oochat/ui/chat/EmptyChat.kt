@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.ui.components.AgentInitialsAvatar
+import ai.openonion.oochat.ui.theme.ContentWidth
 import ai.openonion.oochat.ui.theme.emptyChatHeadline
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -181,8 +182,8 @@ private fun StarterChip(starter: ChatStarter, onClick: () -> Unit) {
     }
 }
 
-/** The card's width on a tablet: wide enough to write in, narrow enough to read as one block. */
-private val EmptyChatMaxWidth = 680.dp
+/** The card's width on a tablet: the app's one content width, as the chat it turns into (W16AAPPLE-127). */
+private val EmptyChatMaxWidth = ContentWidth.Max
 
 /**
  * Thin line icons, as drawn. Material's outlined set is filled shapes at a

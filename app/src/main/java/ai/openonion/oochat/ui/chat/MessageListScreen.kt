@@ -12,6 +12,7 @@ import ai.openonion.oochat.domain.model.reusing
 import ai.openonion.oochat.ui.chat.components.ChatItemBubble
 import ai.openonion.oochat.ui.chat.components.DateDivider
 import ai.openonion.oochat.ui.chat.components.TurnStepsBlock
+import ai.openonion.oochat.ui.theme.ContentWidth
 import ai.openonion.oochat.ui.theme.spacing
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -56,15 +57,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * Caps the chat column's width on tablets and unfolded foldables
- * instead of letting a line run edge-to-edge. chatBody is 15sp, and a
- * glyph there averages ~8dp, so 600dp of column holds roughly 70
- * characters once list/bubble padding is subtracted — the middle of the
- * 60-75 char comfortable-measure range. Any phone is narrower than this, so
- * widthIn is a no-op there. Shared with the composer, which has to line up
- * with the transcript above it or the column looks accidental.
+ * Caps the chat column's width on tablets and unfolded foldables instead of letting a line run
+ * edge-to-edge: the app's one content width, [ContentWidth.Max] (W16AAPPLE-127). Shared with the
+ * composer, which has to line up with the transcript above it or the column looks accidental.
  */
-internal val ChatContentMaxWidth = 600.dp
+internal val ChatContentMaxWidth = ContentWidth.Max
 
 @Composable
 fun MessageList(

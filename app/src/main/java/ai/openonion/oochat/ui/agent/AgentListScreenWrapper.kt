@@ -3,6 +3,8 @@ package ai.openonion.oochat.ui.agent
 import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.di.appContainer
 import ai.openonion.oochat.ui.components.AppSnackbarHost
+import ai.openonion.oochat.ui.components.bottom
+import ai.openonion.oochat.ui.components.exceptBottom
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -117,7 +119,10 @@ fun AgentListScreenWrapper(
             onReorderAgents = { orderedIds ->
                 viewModel.reorderAgents(orderedIds)
             },
-            modifier = modifier.padding(paddingValues)
+            // Edge to edge (W16AAPPLE-127): the list runs behind the navigation bar, and its last
+            // row scrolls clear of it.
+            bottomInset = paddingValues.bottom,
+            modifier = modifier.padding(paddingValues.exceptBottom())
         )
     }
 }
