@@ -84,6 +84,7 @@ class OpenNotificationTargetTest {
 
         assertEquals("${Routes.WORK_ROOM}/{invocationId}", route())
         assertEquals("codex:inv-1", arg("invocationId"))
+        assertEquals(true, nav.currentBackStackEntry?.savedStateHandle?.get<Boolean>(Routes.WORK_ROOM_AT_END))
         composeRule.runOnIdle { nav.popBackStack() }
         assertEquals(CHAT_ROUTES[1], route())
         assertEquals(address, arg("agentId"))

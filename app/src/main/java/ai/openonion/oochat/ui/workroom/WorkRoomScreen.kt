@@ -64,7 +64,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun WorkRoomScreenWrapper(
     invocationId: String,
     chatViewModelStoreOwner: ViewModelStoreOwner?,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    startAtEnd: Boolean = false
 ) {
     val application = LocalContext.current.applicationContext as Application
     val viewModel: ChatViewModel = viewModel(
@@ -85,7 +86,7 @@ fun WorkRoomScreenWrapper(
         draft = viewModel.workRoomDraft(invocationId, drafts),
         onDraftChange = { viewModel.editWorkRoomDraft(invocationId, it) },
         onSend = { viewModel.sendWorkRoomInput(invocationId) },
-        scrollPosition = viewModel.workRoomScrollPosition(invocationId),
+        scrollPosition = if (startAtEnd) WorkRoomScrollPosition.AT_END else viewModel.workRoomScrollPosition(invocationId),
         onScrollPositionChanged = { viewModel.updateWorkRoomScrollPosition(invocationId, it) },
         approvals = state.chatItems.workRoomApprovals(invocationId),
         onApprovalDecision = { itemId, approved, scope ->

@@ -11,4 +11,9 @@ data class WorkRoomScrollPosition(
         firstVisibleItemIndex = firstVisibleItemIndex.coerceAtLeast(0),
         firstVisibleItemScrollOffset = firstVisibleItemScrollOffset.coerceAtLeast(0)
     )
+
+    companion object {
+        /** The room's last item; the list clamps it so the end sits at the bottom. */
+        val AT_END = WorkRoomScrollPosition(firstVisibleItemIndex = Int.MAX_VALUE)
+    }
 }

@@ -430,7 +430,7 @@ rather than saved.
 while you are in another app posts a notification; tapping it opens that
 conversation. A Claude Code or Codex run that finishes, fails or is stopped
 while you are away posts one too, with its task and result, and tapping it
-opens its Work Room. Both pop up over whatever you are doing, and go away once
+opens its Work Room at its newest entry, where the run ended. Both pop up over whatever you are doing, and go away once
 you come back to the app. If you had silenced **Agent replies** in Android's
 settings before this version, silence it again: the channel was replaced so it
 could pop up, and Android does not carry the old setting over.

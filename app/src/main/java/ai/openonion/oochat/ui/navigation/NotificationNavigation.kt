@@ -77,6 +77,8 @@ internal fun OpenNotificationTarget(
                 withTimeoutOrNull(CHAT_SHOWN_WAIT_MS) { state.first { it.isAtLeast(Lifecycle.State.RESUMED) } }
             }
             navController.navigate(Routes.workRoom(invocationId))
+            // The chat under it is new, so the room has no saved place: start at its newest entry.
+            navController.currentBackStackEntry?.savedStateHandle?.set(Routes.WORK_ROOM_AT_END, true)
         }
         onHandled()
     }

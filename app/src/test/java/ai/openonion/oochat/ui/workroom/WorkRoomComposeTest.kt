@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -159,6 +160,24 @@ class WorkRoomComposeTest {
     @Test
     fun `the room's route carries an invocation id with its colon`() {
         assertEquals("work_room/codex%3Acall-1", Routes.workRoom("codex:call-1"))
+    }
+
+    @Test
+    fun `a room opened at its end shows how the run ended, not its first steps`() {
+        val finished = running.copy(
+            status = ProviderInvocationStatus.COMPLETED,
+            activities = (1..12).map { step ->
+                ProviderActivity("step-$step", step, "command", ProviderActivityStatus.COMPLETED, "Step $step", "Completed step $step")
+            }
+        )
+        composeRule.setContent {
+            ConnectOnionTheme {
+                WorkRoomScreen(run = finished, onNavigateBack = {}, scrollPosition = WorkRoomScrollPosition.AT_END)
+            }
+        }
+
+        composeRule.onNodeWithText("Step 12").assertIsDisplayed()
+        composeRule.onNodeWithText("Step 1").assertIsNotDisplayed()
     }
 
     @Test

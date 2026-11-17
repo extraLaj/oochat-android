@@ -70,6 +70,9 @@ object Routes {
     /** A Claude Code or Codex run's Work Room; invocation ids hold a ':', so the id is encoded. */
     fun workRoom(invocationId: String) = "$WORK_ROOM/${Uri.encode(invocationId)}"
 
+    /** SavedStateHandle flag on a Work Room entry opened from a notification: start at its end. */
+    const val WORK_ROOM_AT_END = "work_room_at_end"
+
     /** SavedStateHandle key used to hand a picked agent address back from AGENT_DISCOVERY. */
     const val RESULT_SELECTED_AGENT_ADDRESS = "selected_agent_address"
 }
@@ -489,8 +492,11 @@ fun NavigationGraph(
             route = "${Routes.WORK_ROOM}/{invocationId}",
             arguments = listOf(navArgument("invocationId") { type = NavType.StringType })
         ) { entry ->
+            // Taken once, so a rotation or return keeps the place the user scrolled to.
+            val startAtEnd = remember { entry.savedStateHandle.remove<Boolean>(Routes.WORK_ROOM_AT_END) == true }
             WorkRoomScreenWrapper(
                 invocationId = entry.arguments?.getString("invocationId").orEmpty(),
+                startAtEnd = startAtEnd,
                 chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->
                     runCatching { navController.getBackStackEntry(route) }.getOrNull()
                 },
