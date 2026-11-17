@@ -1,6 +1,8 @@
 package ai.openonion.oochat.ui.agent
 
 import ai.openonion.oochat.domain.model.AgentProfile
+import ai.openonion.oochat.ui.agent.components.FieldLabel
+import ai.openonion.oochat.ui.agent.components.FormFieldShape
 import ai.openonion.oochat.ui.components.AgentInitialsAvatar
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.EmptyStateMessage
@@ -40,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -73,6 +76,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -162,9 +167,10 @@ fun AgentDiscoveryScreen(
                     .fillMaxWidth()
                     .padding(horizontal = MaterialTheme.spacing.lg, vertical = MaterialTheme.spacing.md)
             ) {
-                // Server URL + Discover button — a pill-shaped bordered field
-                // (leading search icon, clear button) beside a labeled pill
-                // button, matching Figma's header row exactly.
+                // Server URL + Discover button — the form's one field style
+                // (label above, bordered field, W16AAPPLE-124) with a leading
+                // search icon and clear button, beside a labeled pill button.
+                FieldLabel("Server URL")
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
@@ -274,11 +280,10 @@ fun AgentDiscoveryScreen(
 }
 
 /**
- * Server URL field: Figma's 14dp-radius surface-container pill with a
- * leading search icon and a clear ("×") action once non-empty — a thin
- * wrapper over the shared [PillTextField], which carries the
- * BasicTextField-over-OutlinedTextField rationale this field used to
- * re-implement.
+ * Server URL field: the same bordered [PillTextField] as Setup's and Add
+ * Agent's Server URL (W16AAPPLE-124; it was a third style, a filled
+ * surface-container pill with its label only as a placeholder), with a
+ * leading search icon and a clear ("×") action once non-empty.
  */
 @Composable
 private fun ServerUrlField(
@@ -290,11 +295,11 @@ private fun ServerUrlField(
     PillTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = "Server URL",
+        placeholder = "https://oo.openonion.ai",
+        label = "Server URL",
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        backgroundColor = MaterialTheme.colorScheme.surfaceContainer,
-        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+        shape = FormFieldShape,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
         itemSpacing = MaterialTheme.spacing.xs,
         keyboardActions = KeyboardActions(onDone = { onSubmit() }),
         leadingContent = {

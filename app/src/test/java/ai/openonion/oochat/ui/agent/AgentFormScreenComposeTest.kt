@@ -4,15 +4,22 @@ import ai.openonion.oochat.domain.model.AgentLiveProfile
 import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.height
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -186,5 +193,59 @@ class AgentFormScreenComposeTest {
 
         composeRule.onNodeWithText("explain").assertIsDisplayed()
         composeRule.onNodeWithText("translate").assertIsDisplayed()
+    }
+
+    // ── one field style and no repeated copy (W16AAPPLE-124) ──────
+
+    @Test
+    fun `every field on Edit Agent has its label above it, not floating inside it`() {
+        setScreen(existingAgent = saved.copy(description = "Answers questions"))
+
+        // Each field found by its own name, so a field added to the form later cannot shift them.
+        listOf("Agent Name (optional)", "Server URL", "Agent Address", "Description (optional)").forEach { label ->
+            val field = composeRule.onNode(hasSetTextAction() and hasContentDescription(label))
+                .performScrollTo()
+                .getBoundsInRoot()
+            val shown = composeRule.onNodeWithText(label).getBoundsInRoot()
+            assertTrue("$label is drawn inside its field", shown.bottom <= field.top)
+        }
+    }
+
+    @Test
+    fun `TalkBack reads each field's name once, on the field, not again on the label above it`() {
+        setScreen(existingAgent = saved)
+
+        listOf("Agent Name (optional)", "Server URL", "Agent Address", "Description (optional)").forEach { label ->
+            composeRule.onNode(hasSetTextAction() and hasContentDescription(label)).assertExists()
+            composeRule.onNodeWithText(label)
+                .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.HideFromAccessibility))
+        }
+    }
+
+    @Test
+    fun `Description grows to three lines and then scrolls inside itself`() {
+        setScreen(existingAgent = saved)
+        val description = composeRule.onNode(hasSetTextAction() and hasContentDescription("Description (optional)"))
+            .performScrollTo()
+        val oneLine = description.getBoundsInRoot().height
+
+        description.performTextInput("one\ntwo\nthree")
+        val threeLines = description.getBoundsInRoot().height
+        description.performTextInput("\nfour\nfive")
+        val fiveLines = description.getBoundsInRoot().height
+
+        assertTrue("three lines ($threeLines) are no taller than one ($oneLine)", threeLines > oneLine)
+        assertEquals("five lines grew past the three-line cap", threeLines, fiveLines)
+    }
+
+    @Test
+    fun `Edit Agent has no second heading, no line under Save and no character counter`() {
+        setScreen(existingAgent = saved)
+
+        composeRule.onNodeWithText("Edit Agent").assertIsDisplayed()
+        composeRule.onNodeWithText("Update Agent Configuration").assertDoesNotExist()
+        composeRule.onNodeWithText("Modify the agent settings below.").assertDoesNotExist()
+        composeRule.onNodeWithText("Changes will be saved", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("/500", substring = true).assertDoesNotExist()
     }
 }

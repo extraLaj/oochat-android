@@ -7,9 +7,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -52,7 +54,7 @@ class EmbeddedDiscoveryPanelComposeTest {
 
     private lateinit var readFormState: () -> AgentFormState
 
-    private fun setPanel(savedAgentDropdown: Boolean = true) {
+    private fun setPanel(savedAgentDropdown: Boolean = true, found: List<AgentProfile> = listOf(discovered)) {
         composeRule.setContent {
             ConnectOnionTheme {
                 var formState by remember { mutableStateOf(AgentFormState()) }
@@ -61,7 +63,7 @@ class EmbeddedDiscoveryPanelComposeTest {
                     formState = formState,
                     onFormStateChange = { formState = it },
                     savedAgents = listOf(saved),
-                    discoveredAgents = listOf(discovered),
+                    discoveredAgents = found,
                     discoveryPhase = DiscoveryPhase.Done,
                     error = null,
                     onDiscover = {},
@@ -167,5 +169,13 @@ class EmbeddedDiscoveryPanelComposeTest {
         addressField().performClick()
 
         composeRule.onNodeWithText("Saved Bot").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a relay with no agents offers Rescan once, beside the Server URL, not again under it`() {
+        setPanel(found = emptyList())
+
+        composeRule.onNodeWithText("No agents on this server").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Rescan").assertCountEquals(1)
     }
 }

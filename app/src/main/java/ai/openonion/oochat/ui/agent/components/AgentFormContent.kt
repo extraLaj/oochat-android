@@ -33,7 +33,6 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,48 +43,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
  * Shared 12dp rounded shape — matches the Figma design's uniform 12px-radius
- * input styling. Passed to the shared [PillTextField] by this form and used
- * by AgentFormScreen's Name/Description fields (which aren't in the Figma
- * source, so they stay on the stock Material3 [OutlinedTextField]).
+ * input styling. Every field on Setup, Add Agent, Edit Agent and Discover is a
+ * [PillTextField] in this shape under a [FieldLabel] (W16AAPPLE-124): one
+ * style, where Name and Description used to float their labels inside a
+ * stock Material3 OutlinedTextField.
  */
 internal val FormFieldShape = AppShapes.large
 
 /**
- * Focus-tinted border/container colors for AgentFormScreen's Name/Description
- * [OutlinedTextField]s. Server URL and Agent Address use [PillTextField]
- * instead — see its doc comment for why.
- */
-/**
- * The one input-text size, shared by the stock [OutlinedTextField]s and
- * [PillTextField] alike.
+ * Static label above a [PillTextField], matching Figma's `labelStyle` (12sp, semibold, onSurfaceVariant).
  *
- * A bare Material3 [OutlinedTextField] inherits `LocalTextStyle`, which
- * `MaterialTheme` sets to `bodyLarge` (16sp) — so every form field that
- * didn't pass `textStyle` silently rendered a size larger than the
- * PillTextField sitting directly beneath it. Pass this to both `textStyle`
- * and the `placeholder` slot (the placeholder doesn't pick up `textStyle`).
+ * Hidden from TalkBack: the field under it is named with the same text (its `label`), so a screen
+ * reader announced the name twice, once on the label and again on the field (W16AAPPLE-124).
  */
-@Composable
-internal fun formFieldTextStyle() = MaterialTheme.typography.bodyMedium
-
-@Composable
-internal fun formFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
-)
-
-/** Static label above a [PillTextField], matching Figma's `labelStyle` (12sp, semibold, onSurfaceVariant). */
 @Composable
 internal fun FieldLabel(text: String) {
     Text(
@@ -93,7 +73,9 @@ internal fun FieldLabel(text: String) {
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = MaterialTheme.spacing.xs)
+        modifier = Modifier
+            .padding(bottom = MaterialTheme.spacing.xs)
+            .semantics { hideFromAccessibility() }
     )
 }
 
@@ -178,7 +160,10 @@ fun AgentFormContent(
         )
 
         // Server URL — static label above a fixed-height bordered box,
-        // matching Figma's OutlinedField exactly (see PillTextField doc).
+        // matching Figma's OutlinedField exactly (see PillTextField doc). Still
+        // capped at 500 characters, now silently: with the counter gone
+        // (W16AAPPLE-124; no other field had one), a longer paste is cut off at
+        // 500 with nothing on screen saying so. A real URL never comes near it.
         Column {
             FieldLabel("Server URL")
             PillTextField(
@@ -197,15 +182,6 @@ fun AgentFormContent(
                     imeAction = ImeAction.Next
                 ),
                 modifier = Modifier.fillMaxWidth()
-            )
-            Text(
-                text = "${formState.serverUrl.length}/500",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = TextAlign.End,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = MaterialTheme.spacing.xxs)
             )
         }
 

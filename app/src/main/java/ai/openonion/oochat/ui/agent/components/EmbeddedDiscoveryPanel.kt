@@ -280,9 +280,7 @@ fun EmbeddedDiscoveryPanel(
                         body = error.message,
                         onRetry = { onDiscover(formState.serverUrl) }
                     )
-                    discoveredAgents.isEmpty() -> CollapsedEmptyDiscovery(
-                        onRetry = { onDiscover(formState.serverUrl) }
-                    )
+                    discoveredAgents.isEmpty() -> CollapsedEmptyDiscovery()
                     else -> Column {
                         Row(
                             modifier = Modifier
@@ -476,16 +474,18 @@ private fun RadarLoadingState(url: String) {
  *
  * A 220dp box whose entire content is "there is nothing here" is 220dp of
  * nothing. Once the server has genuinely answered with no agents, the panel
- * hands the space back to the address field below it. Rescan stays, because an
- * empty relay is usually a transient or wrong-URL condition rather than a
- * verdict — this collapses the box, it does not close the door.
+ * hands the space back to the address field below it. It has no Rescan of
+ * its own: the Rescan beside the Server URL just above it does the same, and
+ * two buttons of the same name a line apart read as two different actions
+ * (W16AAPPLE-124).
  */
 @Composable
-private fun CollapsedEmptyDiscovery(onRetry: () -> Unit) {
+private fun CollapsedEmptyDiscovery() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = MaterialTheme.spacing.lg, end = MaterialTheme.spacing.sm),
+            .heightIn(min = 48.dp)
+            .padding(horizontal = MaterialTheme.spacing.lg),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)
     ) {
@@ -501,9 +501,6 @@ private fun CollapsedEmptyDiscovery(onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f)
         )
-        TextButton(onClick = onRetry, shape = MaterialTheme.shapes.medium) {
-            Text("Rescan")
-        }
     }
 }
 

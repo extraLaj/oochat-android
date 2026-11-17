@@ -49,6 +49,9 @@ import androidx.compose.ui.unit.dp
  * URL / Agent Address fields are one input level, and the old
  * `fontSize` parameter had let the discovery surfaces drift to 13sp while
  * the Edit Agent form stayed at 14sp.
+ *
+ * [maxLines] above 1 lets a field such as a description wrap and grow, with
+ * the same vertical inset as a single line has, instead of scrolling sideways.
  */
 @Composable
 fun PillTextField(
@@ -70,6 +73,7 @@ fun PillTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    maxLines: Int = 1,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     anchorModifier: Modifier = Modifier,
@@ -90,14 +94,15 @@ fun PillTextField(
             .background(backgroundColor)
             .border(BorderStroke(1.5.dp, borderColor), shape)
             .then(anchorModifier)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 14.dp, vertical = if (maxLines > 1) 14.dp else 0.dp)
     ) {
         leadingContent?.invoke()
         Box(modifier = Modifier.weight(1f)) {
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                singleLine = true,
+                singleLine = maxLines == 1,
+                maxLines = maxLines,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontFamily = fontFamily
@@ -125,7 +130,7 @@ fun PillTextField(
                         fontFamily = fontFamily
                     ),
                     color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
+                    maxLines = maxLines,
                     overflow = TextOverflow.Ellipsis
                 )
             }

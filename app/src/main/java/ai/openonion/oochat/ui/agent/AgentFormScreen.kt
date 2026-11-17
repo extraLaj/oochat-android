@@ -6,15 +6,15 @@ import ai.openonion.oochat.domain.model.AppError
 import ai.openonion.oochat.ui.agent.components.AgentFormContent
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import ai.openonion.oochat.ui.agent.components.EmbeddedDiscoveryPanel
+import ai.openonion.oochat.ui.agent.components.FieldLabel
 import ai.openonion.oochat.ui.agent.components.FormFieldShape
-import ai.openonion.oochat.ui.agent.components.formFieldColors
-import ai.openonion.oochat.ui.agent.components.formFieldTextStyle
 import ai.openonion.oochat.ui.chat.components.ExpandChevron
 import ai.openonion.oochat.ui.chat.components.ExpandableSection
 import ai.openonion.oochat.ui.components.AppSnackbarHost
 import ai.openonion.oochat.ui.components.BackTopAppBar
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
+import ai.openonion.oochat.ui.components.PillTextField
 import ai.openonion.oochat.ui.components.formWidth
 import ai.openonion.oochat.ui.theme.ButtonToken
 import ai.openonion.oochat.ui.theme.spacing
@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,11 +33,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -53,7 +52,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 
 /**
@@ -188,20 +188,8 @@ fun AgentFormScreen(
                         .padding(MaterialTheme.spacing.lg),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg)
                 ) {
-                    // Was 28sp Bold primary directly under the 22sp "Edit Agent"
-                    // top-bar title — the same sentence twice, louder. The focus
-                    // is the form and its save button.
-                    Text(
-                        text = "Update Agent Configuration",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Modify the agent settings below.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                    // No heading of its own: the top bar already says "Edit Agent",
+                    // and a second title under it only repeated it (W16AAPPLE-124).
 
                     // Filled only while this saved agent is the live, admitted
                     // connection — stale data from a past session would be
@@ -209,20 +197,7 @@ fun AgentFormScreen(
                     // empty rather than showing nothing (W16AAPPLE-71).
                     LiveProfileSection(liveProfile)
 
-                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.sm))
-
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Agent Name (optional)") },
-                        placeholder = { Text("My AI Agent", style = formFieldTextStyle()) },
-                        singleLine = true,
-                        supportingText = { Text("Left blank, the agent is named after its address.") },
-                        shape = FormFieldShape,
-                        colors = formFieldColors(),
-                        textStyle = formFieldTextStyle(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    AgentNameField(name, onValueChange = { name = it })
 
                     AgentFormContent(
                         formState = formState,
@@ -231,22 +206,23 @@ fun AgentFormScreen(
                         onNavigateToDiscover = onNavigateToDiscover
                     )
 
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = { Text("Description (optional)") },
-                        placeholder = { Text("Describe this agent...", style = formFieldTextStyle()) },
-                        maxLines = 3,
-                        shape = FormFieldShape,
-                        colors = formFieldColors(),
-                        textStyle = formFieldTextStyle(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column {
+                        FieldLabel("Description (optional)")
+                        PillTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            placeholder = "Describe this agent...",
+                            label = "Description (optional)",
+                            shape = FormFieldShape,
+                            maxLines = 3,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 PinnedSaveFooter(
                     label = "Save changes",
-                    helper = "Changes will be saved to your agent list.",
                     enabled = formState.isSubmittable,
                     onClick = { save() }
                 )
@@ -303,18 +279,7 @@ fun AgentFormScreen(
             // doesn't — so Name stays a top-level field (matching Edit
             // mode's field order) rather than living inside the panel,
             // which only Create mode's manual-address path actually needs it for.
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Agent Name (optional)") },
-                placeholder = { Text("My AI Agent", style = formFieldTextStyle()) },
-                singleLine = true,
-                supportingText = { Text("Left blank, the agent is named after its address.") },
-                shape = FormFieldShape,
-                colors = formFieldColors(),
-                textStyle = formFieldTextStyle(),
-                modifier = Modifier.fillMaxWidth()
-            )
+            AgentNameField(name, onValueChange = { name = it })
 
             EmbeddedDiscoveryPanel(
                 formState = formState,
@@ -351,6 +316,35 @@ fun AgentFormScreen(
                 onKeepEditing = { showDiscardConfirm = false }
             )
         }
+    }
+}
+
+/**
+ * The agent's name, in the same style as every other field on the form: a fixed label above a
+ * bordered field, as Server URL and Agent Address have (W16AAPPLE-124).
+ */
+@Composable
+private fun AgentNameField(name: String, onValueChange: (String) -> Unit) {
+    Column {
+        FieldLabel("Agent Name (optional)")
+        PillTextField(
+            value = name,
+            onValueChange = onValueChange,
+            placeholder = "My AI Agent",
+            label = "Agent Name (optional)",
+            shape = FormFieldShape,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Left blank, the agent is named after its address.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(top = MaterialTheme.spacing.xs)
+        )
     }
 }
 
@@ -494,7 +488,7 @@ private fun ProfileTagGroup(label: String, tags: List<String>) {
  * mode's submit lives inside [EmbeddedDiscoveryPanel]'s fallback instead.
  */
 @Composable
-private fun PinnedSaveFooter(label: String, helper: String, enabled: Boolean, onClick: () -> Unit) {
+private fun PinnedSaveFooter(label: String, enabled: Boolean, onClick: () -> Unit) {
     Box(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -524,12 +518,6 @@ private fun PinnedSaveFooter(label: String, helper: String, enabled: Boolean, on
             ) {
                 Text(text = label)
             }
-            Spacer(modifier = Modifier.height(MaterialTheme.spacing.xs))
-            Text(
-                text = helper,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
         }
     }
 }
