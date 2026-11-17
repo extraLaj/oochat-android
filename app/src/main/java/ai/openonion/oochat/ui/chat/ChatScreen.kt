@@ -126,7 +126,6 @@ fun ChatScreen(
     onNavigateToAgentChat: (agentAddress: String, sessionId: String?, startNew: Boolean) -> Unit = { _, _, _ -> },
     viewModel: ChatViewModel = appViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
     val isConnected by viewModel.isConnected.collectAsState()
     val hasLiveConnection by viewModel.hasLiveConnection.collectAsState()
     val isAgentWorking by viewModel.isAgentWorking.collectAsState()
@@ -150,7 +149,6 @@ fun ChatScreen(
     val webViewHostsApps = remember { lazy { controlCenterSupported() } }
     val agentHome = AgentHome(dashboardHtml != null, controlCenterApp != null) { webViewHostsApps.value }
     val plan by viewModel.plan.collectAsState()
-    val activeSessionId by viewModel.activeSessionId.collectAsState()
     val itemTimestamps by viewModel.itemTimestamps.collectAsState()
     val hasOlderMessages by viewModel.hasOlderMessages.collectAsState()
     val targetAgentAddress by viewModel.targetAgentAddress.collectAsState()
@@ -219,6 +217,9 @@ fun ChatScreen(
     val developerToolsEnabled by viewModel.developerToolsEnabled.collectAsState()
     val userTools = availableTools.filter { it.isFormAvailable }
     val toolsForPanel = if (developerToolsEnabled) availableTools else userTools
+    val hasUsableTools = toolsForPanel.any {
+        it.name.isNotBlank() && (developerToolsEnabled || it.isFormAvailable)
+    }
     val toolLabels = remember(availableTools) {
         availableTools.associate { tool -> tool.name to tool.toUserFacingName() }
     }
@@ -329,9 +330,10 @@ fun ChatScreen(
 
     // The drawer's own panel, for both kinds of drawer below.
     val drawerPanel: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
+        val drawerActiveSessionId by viewModel.activeSessionId.collectAsState()
         ChatNavDrawerContent(
             agentSections = drawerAgents,
-            activeSessionId = activeSessionId,
+            activeSessionId = drawerActiveSessionId,
             targetAgentAddress = targetAgentAddress,
             onCloseDrawer = onClose,
             onStartNewSession = viewModel::startNewSession,
@@ -350,6 +352,11 @@ fun ChatScreen(
     val bottomBar = LocalChatBottomBar.current
     // Everything but the drawer: the top bar, the transcript, the composer and the tabs.
     val screen: @Composable (permanentDrawer: Boolean) -> Unit = { permanentDrawer ->
+        // Keep chat-item updates inside the content scope. The surrounding screen shell does not
+        // need to re-execute for every streaming or tool frame.
+        val uiState by viewModel.uiState.collectAsState()
+        val activeSessionId by viewModel.activeSessionId.collectAsState()
+        var toolsPanelOpenRequested by rememberSaveable(activeSessionId) { mutableStateOf(false) }
         Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(
             modifier = Modifier
@@ -409,6 +416,9 @@ fun ChatScreen(
                     onVoiceTranscriptConsumed = viewModel::consumeVoiceTranscript,
                     onQueryVoiceAmplitude = viewModel::currentVoiceAmplitude,
                     onStop = viewModel::interrupt,
+                    onOpenActions = hasUsableTools.takeIf { it }?.let {
+                        { toolsPanelOpenRequested = true }
+                    },
                     centred = centred,
                     focusRequester = composerFocus,
                     // Dimmed only when it cannot be used. Offline it can, so it is
@@ -517,11 +527,13 @@ fun ChatScreen(
                 toolLabels = toolLabels
             )
 
-            if (toolsForPanel.isNotEmpty()) {
+            if (hasUsableTools) {
                 ExecToolPanel(
                     tools = toolsForPanel,
                     onExecute = viewModel::executeTool,
-                    allowRawJson = developerToolsEnabled
+                    allowRawJson = developerToolsEnabled,
+                    openRequested = toolsPanelOpenRequested,
+                    onOpened = { toolsPanelOpenRequested = false }
                 )
             }
 
@@ -680,6 +692,7 @@ private fun ChatInput(
     onVoiceTranscriptConsumed: () -> Unit,
     onQueryVoiceAmplitude: () -> Float = { 0f },
     onStop: () -> Unit,
+    onOpenActions: (() -> Unit)?,
     centred: Boolean,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier
@@ -711,6 +724,7 @@ private fun ChatInput(
             onVoiceTranscriptConsumed = onVoiceTranscriptConsumed,
             onQueryVoiceAmplitude = onQueryVoiceAmplitude,
             onStop = onStop,
+            onOpenActions = onOpenActions,
             centred = centred,
             focusRequester = focusRequester,
             // Centred, EmptyChat already sets the card's width.

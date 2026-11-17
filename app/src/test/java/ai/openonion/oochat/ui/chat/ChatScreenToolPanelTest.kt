@@ -12,6 +12,7 @@ import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import android.app.Application
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -117,11 +118,25 @@ class ChatScreenToolPanelTest {
         }
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("Actions").assertExists()
-        composeRule.onNodeWithText("Show").performClick()
+        composeRule.onNodeWithContentDescription("Actions").performClick()
         composeRule.onNodeWithTag(EXEC_TOOL_SUBMIT_TAG).assertExists()
         composeRule.onNodeWithText("Path (required)").assertExists()
         composeRule.onNodeWithText("Arguments JSON").assertDoesNotExist()
         composeRule.onNodeWithText("Use JSON").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the actions button is absent when the agent exposes no tools`() {
+        composeRule.setContent {
+            ConnectOnionTheme {
+                ChatScreen(
+                    connectToAgentId = AGENT_ADDRESS,
+                    viewModel = viewModel
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithContentDescription("Actions").assertDoesNotExist()
     }
 }

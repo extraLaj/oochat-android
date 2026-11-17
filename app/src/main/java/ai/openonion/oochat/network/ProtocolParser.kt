@@ -11,6 +11,7 @@ import ai.openonion.oochat.domain.model.AgentSkill
 import ai.openonion.oochat.domain.model.AgentTool
 import ai.openonion.oochat.domain.model.AgentToolParameter
 import ai.openonion.oochat.domain.model.ApprovalMode
+import ai.openonion.oochat.domain.model.BuiltInToolForms
 import ai.openonion.oochat.domain.model.ChatItem
 import ai.openonion.oochat.domain.model.CompactStatus
 import ai.openonion.oochat.domain.model.ControlCenterApp
@@ -1033,6 +1034,7 @@ object ProtocolParser {
                 )
             }
             .distinctBy { it.name }
+            .let(BuiltInToolForms::apply)
 
     /** A protocol name or version short and plain enough to echo — see [describeProtocol]. */
     private val PROTOCOL_TOKEN = Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,31}")

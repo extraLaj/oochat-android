@@ -23,6 +23,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,8 @@ internal fun ExecToolPanel(
     tools: List<AgentTool>,
     onExecute: (tool: String, argsJson: String) -> Unit,
     allowRawJson: Boolean = true,
+    openRequested: Boolean = false,
+    onOpened: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val usableTools = tools.filter { it.name.isNotBlank() && (allowRawJson || it.isFormAvailable) }
@@ -86,6 +89,13 @@ internal fun ExecToolPanel(
     var submitted by rememberSaveable(selectedToolKey) { mutableStateOf(false) }
     var optionalFieldsExpanded by rememberSaveable(selectedToolKey) { mutableStateOf(false) }
     var confirming by rememberSaveable(selectedToolKey) { mutableStateOf(false) }
+
+    LaunchedEffect(openRequested) {
+        if (openRequested) {
+            expanded = true
+            onOpened()
+        }
+    }
 
     val argsError = remember(argsJson) { validateExecArguments(argsJson) }
     val typedResult = remember(selectedToolKey, inputValues) {

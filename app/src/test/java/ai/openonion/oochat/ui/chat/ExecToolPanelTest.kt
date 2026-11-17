@@ -2,6 +2,13 @@ package ai.openonion.oochat.ui.chat
 
 import ai.openonion.oochat.domain.model.AgentTool
 import ai.openonion.oochat.domain.model.AgentToolParameter
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
@@ -73,6 +80,37 @@ class ExecToolPanelTest {
 
         composeRule.onNodeWithText("Show").assertExists()
         composeRule.onNodeWithText("Arguments JSON").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a consumed open request can open the panel again`() {
+        composeRule.setContent {
+            var openRequested by remember { mutableStateOf(false) }
+            Column {
+                Button(onClick = { openRequested = true }) {
+                    Text("Open actions")
+                }
+                ExecToolPanel(
+                    tools = listOf(AgentTool("read_file")),
+                    openRequested = openRequested,
+                    onOpened = { openRequested = false },
+                    onExecute = { _, _ -> }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Open actions").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Hide").assertExists()
+        composeRule.onNodeWithText("Open actions").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Hide").assertExists()
+        composeRule.onNodeWithText("Hide").performClick()
+        composeRule.onNodeWithText("Show").assertExists()
+
+        composeRule.onNodeWithText("Open actions").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Hide").assertExists()
     }
 
     @Test

@@ -78,6 +78,23 @@ class TouchTargetComposeTest {
     }
 
     @Test
+    fun `InputBar actions button meets 48dp`() {
+        composeRule.setContent {
+            ConnectOnionTheme {
+                InputBar(
+                    isConnected = true,
+                    onSend = { _, _, _ -> },
+                    onOpenActions = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Actions")
+            .assertTouchHeightIsEqualTo(48.dp)
+            .assertTouchWidthIsEqualTo(48.dp)
+    }
+
+    @Test
     fun `InputBar dictation waveform meets 48dp`() {
         composeRule.setContent {
             ConnectOnionTheme {

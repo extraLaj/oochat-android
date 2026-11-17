@@ -197,6 +197,22 @@ class ProtocolParserTest {
     }
 
     @Test
+    fun `AGENT_PROFILE with ConnectOnion's bare tool names gets the built-in forms`() {
+        val result = parse(
+            """{"type":"AGENT_PROFILE","name":"oo","tools":[
+              |"edit","glob","grep","multi_edit","read_file","write","bash",
+              |"add","clear","complete","list","remove","start","update"
+              |]}""".trimMargin()
+        )
+
+        val profile = (result.event as ConnectionEvent.AgentProfileReceived).profile
+        val readFile = profile.toolDefinitions.first { it.name == "read_file" }
+        assertTrue(readFile.isFormAvailable)
+        assertEquals("Read a file", readFile.displayName)
+        assertFalse(profile.toolDefinitions.first { it.name == "bash" }.isFormAvailable)
+    }
+
+    @Test
     fun `AGENT_PROFILE excludes the LLM-only summary from executable tool arguments`() {
         val result = parse(
             """{"type":"AGENT_PROFILE","name":"assistant","tools":[

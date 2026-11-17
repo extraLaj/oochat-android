@@ -794,8 +794,9 @@ The `tools` list accepts the existing legacy form, for example:
 ```
 
 Legacy names remain available to developers through the JSON editor, but are
-never shown as normal-user actions because the client cannot safely infer their
-arguments.
+not shown as normal-user actions because the client cannot safely infer their
+arguments. The one exception is the app's [built-in forms](#built-in-forms-interim)
+for ConnectOnion's standard tools.
 
 The direct-tool form uses the Host's direct-EXEC JSON Schema:
 
@@ -838,14 +839,39 @@ primitive defaults, and leaves optional fields behind More options. A schema
 with empty `properties` is a no-argument action. The action panel starts
 collapsed behind Show in every mode.
 
-ConnectOnion 1.9.5 currently sends `sample.tools.names()`, so it supplies only
-legacy names and normal users will not see a form. Before relying on this
-feature, the Host producer must send a direct-EXEC schema for every intended
+ConnectOnion (1.8.8 and 1.9.5) currently sends `sample.tools.names()`
+(`network/host/server.py`), so it supplies only legacy names. The long-term
+fix is for the Host producer to send a direct-EXEC schema for every intended
 user-facing tool. It may start with `t.to_function_schema()`, but must remove
 the LLM-only `summary` property from both `parameters.properties` and
 `parameters.required` before publishing it. `to_function_schema()` adds that
 required property for the LLM's tool-call narration; it is not accepted by
 `tool(**args)` on the direct EXEC route.
+
+#### Built-in forms (interim)
+
+Until the Host sends schemas, the app ships forms for a small set of
+ConnectOnion's standard tools (`domain/model/BuiltInToolForms.kt`). This is a
+deliberate, client-owned exception to "the client does not guess arguments":
+
+| Group | Fingerprint (all must be listed) | Tools given a form |
+| --- | --- | --- |
+| File tools | `read_file`, `glob`, `grep`, `edit`, `write`, `multi_edit` | `read_file`, `glob`, `grep` |
+| To-do list | `add`, `clear`, `complete`, `list`, `remove`, `start`, `update` | `list`, `add`, `start`, `complete`, `remove`*, `clear`* |
+
+\* asks for confirmation before sending.
+
+- Only a bare-name tool is filled in. A structured entry from the Host always
+  wins.
+- A group's forms apply only when the Host lists the whole fingerprint, so a
+  generic name such as `list` or `clear` on another agent is left alone.
+- `bash`, `write`, `edit`, `multi_edit`, `update`, `run_background` and the
+  other tools are never given a form; they stay in the developer JSON editor.
+- Parameter names were copied from ConnectOnion 1.8.8's `to_function_schema()`
+  minus `summary`. If a later ConnectOnion renames an argument, the Host
+  rejects the EXEC and the result card shows the error; update the catalog
+  when upgrading ConnectOnion. Labels, descriptions, `display_name`,
+  `action_label` and confirmation are the app's own wording, not Host fields.
 
 For compatibility with an older Host producer, Android also removes an exact
 top-level `summary` property and required entry from an incoming structured

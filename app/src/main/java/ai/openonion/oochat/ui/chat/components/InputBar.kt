@@ -31,6 +31,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -99,6 +103,7 @@ fun InputBar(
     onVoiceTranscriptConsumed: () -> Unit = {},
     onQueryVoiceAmplitude: () -> Float = { 0f },
     onStop: () -> Unit = {},
+    onOpenActions: (() -> Unit)? = null,
     draft: ChatComposerDraft = ChatComposerDraft(),
     draftKey: String? = null,
     onDraftChange: (ChatComposerDraft) -> Unit = {},
@@ -572,6 +577,7 @@ fun InputBar(
                         onFileClick = { filePicker.launch(arrayOf("*/*")) }
                     )
                     approvalChip()
+                    onOpenActions?.let { openActions -> ActionsButton(openActions) }
                 },
                 trailingTools = {
                     if (attachmentCount > 0) AttachmentCountBadge(attachmentCount)
@@ -607,9 +613,20 @@ fun InputBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             approvalChip()
+            onOpenActions?.let { openActions -> ActionsButton(openActions) }
             Spacer(modifier = Modifier.weight(1f))
             SessionUsageSummary(usage)
         }
+    }
+}
+
+@Composable
+private fun ActionsButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Outlined.Terminal,
+            contentDescription = "Actions"
+        )
     }
 }
 
