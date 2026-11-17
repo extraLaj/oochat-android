@@ -128,8 +128,10 @@ class WorkRoomResizeComposeTest {
     private fun assertKept(anchorKey: String, widthNow: Dp) {
         composeRule.onNodeWithText("Use the existing SecondaryButton style").assertIsDisplayed()
         composeRule.onNodeWithText("Allow once").assertIsDisplayed()
-        // The step the room was at the top of is still on screen, whatever the new width.
-        composeRule.onNodeWithText("Step ${anchorKey.substringAfterLast('-')}").assertIsDisplayed()
+        // The room is still at the step it was at the top of, whatever the new width. That step can be
+        // a sliver under the list's top edge, so the step after it is what is checked on screen.
+        assertEquals(anchorKey, savedPosition.firstVisibleItemKey)
+        composeRule.onNodeWithText("Step ${anchorKey.substringAfterLast('-').toInt() + 1}").assertIsDisplayed()
         assertEquals(widthNow, composeRule.onNodeWithTag(WORK_ROOM_APPROVAL_DOCK_TAG).getBoundsInRoot().width)
     }
 

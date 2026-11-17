@@ -1,8 +1,11 @@
 package ai.openonion.oochat.ui.navigation
 
+import ai.openonion.oochat.domain.model.AgentStatus
 import ai.openonion.oochat.domain.model.ThemeMode
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import org.junit.Rule
 import org.junit.Test
@@ -25,11 +28,11 @@ class NavDrawerComposeTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun setDrawer() {
+    private fun setDrawer(sections: List<DrawerAgentSection> = emptyList()) {
         composeRule.setContent {
             ConnectOnionTheme {
                 NavDrawer(
-                    agentSections = emptyList(),
+                    agentSections = sections,
                     activeEntryId = null,
                     themeMode = ThemeMode.SYSTEM,
                     onNewChatForAgent = {},
@@ -58,5 +61,24 @@ class NavDrawerComposeTest {
         setDrawer()
 
         composeRule.onNodeWithText("Balance").assertDoesNotExist()
+    }
+
+    private fun section(id: String, status: AgentStatus) =
+        DrawerAgentSection(id, "0x" + id.repeat(32), id, status, emptyList())
+
+    @Test
+    fun `the agent count is one label that says how many are online`() {
+        setDrawer(listOf(section("a", AgentStatus.Active), section("b", AgentStatus.Connected), section("c", AgentStatus.Disabled)))
+
+        composeRule.onNodeWithText("2 of 3 online").assertExists()
+        composeRule.onAllNodesWithText("3").assertCountEquals(0)
+    }
+
+    @Test
+    fun `with none online the header shows only the total`() {
+        setDrawer(listOf(section("a", AgentStatus.Disabled), section("b", AgentStatus.Disabled)))
+
+        composeRule.onNodeWithText("2").assertExists()
+        composeRule.onAllNodesWithText("0 of 2 online").assertCountEquals(0)
     }
 }

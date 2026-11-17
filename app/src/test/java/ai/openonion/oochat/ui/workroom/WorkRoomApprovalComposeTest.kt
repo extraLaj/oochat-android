@@ -8,8 +8,10 @@ import ai.openonion.oochat.domain.model.ProviderInvocationStatus
 import ai.openonion.oochat.domain.model.WorkRoomApproval
 import ai.openonion.oochat.ui.chat.components.ChatItemBubble
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -91,6 +93,13 @@ class WorkRoomApprovalComposeTest {
         composeRule.onNodeWithText("Allow once").performClick()
 
         assertEquals(listOf(Triple("req-1", true, "once")), decisions)
+    }
+
+    @Test
+    fun `an undecided room says it is waiting once, in the status line`() {
+        showRoom(approval())
+
+        composeRule.onAllNodesWithText("Waiting for your decision").assertCountEquals(1)
     }
 
     @Test

@@ -263,37 +263,14 @@ fun NavDrawer(
                     style = MaterialTheme.typography.sectionLabel,
                     color = MaterialTheme.colorScheme.outline
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)
-                ) {
-                    if (onlineCount > 0) {
-                        Text(
-                            text = "$onlineCount online",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(MaterialTheme.shapes.large)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                                .border(
-                                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                                    MaterialTheme.shapes.large
-                                )
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
-                    }
-                    Text(
-                        text = "${agentSections.size}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier
-                            .clip(MaterialTheme.shapes.small)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 7.dp, vertical = 1.dp)
-                    )
-                }
+                // One count, in words: "2 of 5 online", or just the total when none are.
+                val total = agentSections.size
+                Text(
+                    text = if (onlineCount > 0) "$onlineCount of $total online" else "$total",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (onlineCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
             }
 
             if (agentSections.isEmpty()) {
