@@ -652,6 +652,10 @@ open class ChatViewModel @JvmOverloads constructor(
     private val _targetAgentAddressFlow = MutableStateFlow<String?>(null)
     val targetAgentAddress: StateFlow<String?> = _targetAgentAddressFlow.asStateFlow()
 
+    /** The saved agent being dialled, for the banner's Edit agent; null when Setup's config is all there is. */
+    suspend fun targetSavedAgentId(): String? =
+        _targetAgentAddress.takeIf { it.isNotBlank() }?.let { agentRepository.getAgentByAddress(it)?.id }
+
     /**
      * Data source for the agent-grouped NavDrawer: every saved agent with
      * its own session list, plus a live [AgentStatus] — computed here (not

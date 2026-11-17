@@ -3,6 +3,7 @@ package ai.openonion.oochat.ui.onboarding
 import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.repository.ConnectionConfigRepository
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import android.app.Application
 import kotlinx.coroutines.CompletableDeferred
@@ -256,6 +257,17 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `connect refuses an unencrypted server URL outside the user's own network`() = runTest(testDispatcher) {
+        val vm = createVm()
+
+        vm.connect(validForm(serverUrl = "http://agent.example.com"), onSaved = {})
+        testScheduler.runCurrent()
+
+        assertEquals(CleartextPolicy.REFUSED, vm.errorMessage.value)
+        assertEquals(0, configRepository.saveCount)
+    }
+
+    @Test
     fun `connect rejects an agent address that looks like a URL instead of a hex address`() = runTest(testDispatcher) {
         val vm = createVm()
         // Leading whitespace deliberately evades AgentFormState.isValid's own
@@ -280,7 +292,7 @@ class OnboardingViewModelTest {
 
         for (scheme in listOf("https://", "http://", "wss://", "ws://")) {
             configRepository.saveCount = 0
-            vm.connect(validForm(serverUrl = "${scheme}relay.example.com"), onSaved = {})
+            vm.connect(validForm(serverUrl = "${scheme}192.168.1.20:8000"), onSaved = {})
             testScheduler.runCurrent()
 
             assertNull("scheme $scheme should be accepted", vm.errorMessage.value)

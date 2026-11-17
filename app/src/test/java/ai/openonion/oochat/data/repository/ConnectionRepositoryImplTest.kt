@@ -17,6 +17,7 @@ import ai.openonion.oochat.domain.model.ServerSessionStatus
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.PendingMessageSink
 import ai.openonion.oochat.network.QueuedMessage
@@ -54,6 +55,7 @@ import okio.ByteString
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -136,7 +138,7 @@ class ConnectionRepositoryImplTest {
     private fun repositoryWith(sessionStore: SessionStore? = null) =
         ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             sessionStore = sessionStore,
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url ->
@@ -268,6 +270,29 @@ class ConnectionRepositoryImplTest {
     }
 
     @Test
+    fun `an unencrypted connect to a public address is refused once, with nothing dialled`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT", directUrl = "http://agent.example.com:8000")
+
+        assertEquals(
+            ConnectionState.Error(
+                CleartextPolicy.REFUSED,
+                retryable = false,
+                kind = ConnectionState.Error.Kind.UNENCRYPTED_REFUSED
+            ),
+            repository.connectionState.value
+        )
+        assertNull(factory.lastListener)
+    }
+
+    @Test
+    fun `an unencrypted connect to a private address is dialled`() = runTest(testDispatcher) {
+        repository.connect("0xAGENT", directUrl = "http://192.168.1.20:8000")
+
+        assertEquals(ConnectionState.Connecting, repository.connectionState.value)
+        assertNotNull(factory.lastListener)
+    }
+
+    @Test
     fun `connect omits the session when memory is disabled`() = runTest(testDispatcher) {
         val delegate = InMemorySessionStore().apply {
             sessions["conversation-1"] = SessionState(sessionId = "saved-session")
@@ -309,7 +334,7 @@ class ConnectionRepositoryImplTest {
         val relays = mutableListOf<String>()
         val repo = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://default.invalid",
+            relayUrl = "wss://default.invalid",
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url ->
                 relays += url
@@ -320,7 +345,7 @@ class ConnectionRepositoryImplTest {
         repo.connect("0xAGENT", relayUrl = "https://relay.example.com")
         repo.connect("0xOTHER")
 
-        assertEquals(listOf("https://relay.example.com", "ws://default.invalid"), relays)
+        assertEquals(listOf("https://relay.example.com", "wss://default.invalid"), relays)
     }
 
     @Test
@@ -1731,7 +1756,7 @@ class ConnectionRepositoryImplTest {
         val outbox = InMemoryPendingMessageSink()
         val repo = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             pendingMessageSink = outbox,
             agentConnectionFactory = { km, url ->
                 AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = outbox)
@@ -1761,7 +1786,7 @@ class ConnectionRepositoryImplTest {
         }
         val repo = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             sessionStore = MemoryGatedSessionStore(delegate, memoryEnabled),
             pendingMessageSink = outbox,
             agentConnectionFactory = { km, url ->
@@ -1825,7 +1850,7 @@ class ConnectionRepositoryImplTest {
         sessions: SessionStore? = null
     ) = ConnectionRepositoryImpl(
         keyManager = keyManager,
-        relayUrl = "ws://test.invalid",
+        relayUrl = "wss://test.invalid",
         sessionStore = sessions,
         pendingMessageSink = outbox,
         agentConnectionFactory = { km, url ->

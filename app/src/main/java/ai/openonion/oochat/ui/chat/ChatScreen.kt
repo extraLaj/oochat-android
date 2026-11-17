@@ -103,6 +103,7 @@ fun ChatScreen(
     onNavigateToLogs: () -> Unit = {},
     onNavigateToRem: () -> Unit = {},
     onNavigateToAgentList: () -> Unit = {},
+    onNavigateToAgentEdit: (agentId: String) -> Unit = {},
     onNavigateToControlCenter: () -> Unit = {},
     onNavigateToWorkRoom: (invocationId: String) -> Unit = {},
     // Home is already part of this layout, beside the chat or as a tab, so the top bar's button to
@@ -415,6 +416,12 @@ fun ChatScreen(
                 connectionState = connectionState,
                 onReconnect = connectToCurrentTarget,
                 onStop = { viewModel.disconnect() },
+                // The agent's own Edit screen, or the list when it was only ever set up in Setup.
+                onEditAgent = {
+                    drawerScope.launch {
+                        viewModel.targetSavedAgentId()?.let(onNavigateToAgentEdit) ?: onNavigateToAgentList()
+                    }
+                },
                 awaitingOnboardCode = awaitingOnboardCode,
                 isOffline = isOffline
             )

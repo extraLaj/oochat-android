@@ -42,6 +42,7 @@ import ai.openonion.oochat.domain.usecase.RecentChatsSync
 import ai.openonion.oochat.domain.usecase.SyncRecentChatsUseCase
 import ai.openonion.oochat.network.AgentDiscoveryService
 import ai.openonion.oochat.network.AndroidSpeechRecognitionService
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.network.ConnectivityManagerNetworkMonitor
 import ai.openonion.oochat.network.NetworkMonitor
 import ai.openonion.oochat.network.SessionSyncClient
@@ -70,7 +71,13 @@ import okhttp3.OkHttpClient
  * a container property would only cover the call sites the container itself
  * constructs.
  */
-val sharedHttpClient: OkHttpClient by lazy { OkHttpClient() }
+val sharedHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .addInterceptor(CleartextPolicy.interceptor)
+        // A redirect is only seen here; a socket only by the one above.
+        .addNetworkInterceptor(CleartextPolicy.interceptor)
+        .build()
+}
 
 /**
  * Application-scoped composition root.

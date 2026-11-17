@@ -81,7 +81,7 @@ class SessionPersistsToRoomTest {
         val sink = NoopSink()
         repository = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             sessionStore = SessionStoreImpl(db.sessionStateDao()),
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url -> AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = sink) }

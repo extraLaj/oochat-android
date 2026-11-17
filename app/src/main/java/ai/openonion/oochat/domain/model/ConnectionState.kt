@@ -35,13 +35,22 @@ sealed class ConnectionState {
     /**
      * @param retryable false when trying again cannot help (the agent refused
      *   this app's protocol version), so nothing should retry automatically.
+     * @param kind what the screens act on, so they never compare [message] text.
      */
     data class Error(
         val message: String,
         val technicalDetails: String? = null,
         val cause: Throwable? = null,
-        val retryable: Boolean = true
+        val retryable: Boolean = true,
+        val kind: Kind = Kind.OTHER
     ) : ConnectionState() {
+        enum class Kind {
+            OTHER,
+
+            /** An `http://` or `ws://` server outside the user's own network (W16AAPPLE-86). */
+            UNENCRYPTED_REFUSED
+        }
+
         companion object {
             fun fromException(e: Throwable): Error {
                 return Error(

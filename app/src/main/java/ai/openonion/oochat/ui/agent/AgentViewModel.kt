@@ -1,5 +1,6 @@
 package ai.openonion.oochat.ui.agent
 
+import ai.openonion.oochat.Constants
 import ai.openonion.oochat.data.local.ConnectionConfig
 import ai.openonion.oochat.data.repository.AgentDiscoveryRepository
 import ai.openonion.oochat.data.repository.AgentRepository
@@ -13,6 +14,7 @@ import ai.openonion.oochat.domain.model.canonicalAgentAddress
 import ai.openonion.oochat.domain.model.createError
 import ai.openonion.oochat.domain.usecase.ConnectToAgentUseCaseContract
 import ai.openonion.oochat.network.AgentDiscoveryService
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.ui.common.launchScoped
 import ai.openonion.oochat.util.runCatchingCancellable
 import android.app.Application
@@ -153,6 +155,8 @@ class AgentViewModel @JvmOverloads constructor(
         !serverUrl.startsWith("https://") && !serverUrl.startsWith("http://") &&
             !serverUrl.startsWith("wss://") && !serverUrl.startsWith("ws://") ->
             "Please enter a valid URL (e.g., https://server.com)"
+        !Constants.isDefaultServerUrl(serverUrl) && !CleartextPolicy.allows(serverUrl) ->
+            CleartextPolicy.REFUSED
         address.startsWith("https://") || address.startsWith("http://") ||
             address.startsWith("wss://") || address.startsWith("ws://") ->
             // No "select from the dropdown": Add Agent has none (W16AAPPLE-81).

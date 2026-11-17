@@ -1,6 +1,7 @@
 package ai.openonion.oochat.ui.components
 
 import ai.openonion.oochat.domain.model.ConnectionState
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.ui.theme.ConnectOnionTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -27,10 +28,10 @@ class ConnectionBannerTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun show(state: ConnectionState, onReconnect: () -> Unit = {}) {
+    private fun show(state: ConnectionState, onEditAgent: () -> Unit = {}, onReconnect: () -> Unit = {}) {
         composeRule.setContent {
             ConnectOnionTheme {
-                ConnectionBanner(connectionState = state, onReconnect = onReconnect)
+                ConnectionBanner(connectionState = state, onReconnect = onReconnect, onEditAgent = onEditAgent)
             }
         }
     }
@@ -51,6 +52,40 @@ class ConnectionBannerTest {
         composeRule.onNodeWithText("Reconnect").performClick()
 
         assertEquals(1, reconnects)
+    }
+
+    private val unencryptedRefused = ConnectionState.Error(
+        message = CleartextPolicy.REFUSED,
+        retryable = false,
+        kind = ConnectionState.Error.Kind.UNENCRYPTED_REFUSED
+    )
+
+    @Test
+    fun `a refused unencrypted connection is named as one, not as a version problem`() {
+        show(unencryptedRefused)
+
+        composeRule.onNodeWithText("Unencrypted connection refused").assertIsDisplayed()
+        composeRule.onNodeWithText("Incompatible version").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a refused unencrypted connection offers Edit agent, not a Reconnect that would be refused again`() {
+        var reconnects = 0
+        var edits = 0
+        show(unencryptedRefused, onReconnect = { reconnects++ }, onEditAgent = { edits++ })
+
+        composeRule.onNodeWithText("Reconnect").assertDoesNotExist()
+        composeRule.onNodeWithText("Edit agent").performClick()
+
+        assertEquals(1, edits)
+        assertEquals(0, reconnects)
+    }
+
+    @Test
+    fun `the banner goes by the error's kind, not its wording`() {
+        show(ConnectionState.Error(message = CleartextPolicy.REFUSED, retryable = false))
+
+        composeRule.onNodeWithText("Unencrypted connection refused").assertDoesNotExist()
     }
 
     @Test

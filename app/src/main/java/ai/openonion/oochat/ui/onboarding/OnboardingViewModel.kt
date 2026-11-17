@@ -8,6 +8,7 @@ import ai.openonion.oochat.data.repository.ConnectionConfigRepository
 import ai.openonion.oochat.di.appContainer
 import ai.openonion.oochat.domain.model.canonicalAgentAddress
 import ai.openonion.oochat.network.AgentDiscoveryService
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.ui.agent.components.AgentFormState
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -138,6 +139,8 @@ class OnboardingViewModel @JvmOverloads constructor(
         !trimmedUrl.startsWith("wss://") && !trimmedUrl.startsWith("ws://") &&
             !trimmedUrl.startsWith("https://") && !trimmedUrl.startsWith("http://") ->
             "Please enter a valid URL (e.g., https://server.com)"
+        !Constants.isDefaultServerUrl(trimmedUrl) && !CleartextPolicy.allows(trimmedUrl) ->
+            CleartextPolicy.REFUSED
         // Agent address should be 0x... hex, not a URL
         trimmedAddress.startsWith("wss://") || trimmedAddress.startsWith("ws://") ||
             trimmedAddress.startsWith("https://") || trimmedAddress.startsWith("http://") ->

@@ -61,6 +61,7 @@ fun ConnectionBanner(
     connectionState: ConnectionState,
     onReconnect: () -> Unit,
     onStop: (() -> Unit)? = null,
+    onEditAgent: () -> Unit = {},
     awaitingOnboardCode: Boolean = false,
     isOffline: Boolean = false,
     modifier: Modifier = Modifier
@@ -98,6 +99,8 @@ fun ConnectionBanner(
             if (awaitingOnboardCode) BannerKind.AwaitingCode else BannerKind.Connecting
         // A refused protocol version (W16AAPPLE-12): "Connection failed" would
         // contradict the message in the chat, which says exactly what is wrong.
+        connectionState is ConnectionState.Error &&
+            connectionState.kind == ConnectionState.Error.Kind.UNENCRYPTED_REFUSED -> BannerKind.Unencrypted
         connectionState is ConnectionState.Error && !connectionState.retryable -> BannerKind.Incompatible
         connectionState.isError() -> BannerKind.Error
         connectionState.isDisconnected() -> BannerKind.Disconnected
@@ -136,13 +139,19 @@ fun ConnectionBanner(
             // Keeps Reconnect, unlike OfflineBanner: nothing here recovers on its
             // own, and once the agent is updated this is the user's way back.
             BannerKind.Incompatible -> ReconnectBanner(title = "Incompatible version", onReconnect = onReconnect)
+            // Edit agent, not Reconnect: the same address can only be refused again.
+            BannerKind.Unencrypted -> ActionBanner(
+                title = "Unencrypted connection refused",
+                action = "Edit agent",
+                onAction = onEditAgent
+            )
             BannerKind.Disconnected -> ReconnectBanner(title = "Disconnected", onReconnect = onReconnect)
         }
     }
 }
 
 /** The single banner the current [ConnectionState] resolves to, if any. */
-private enum class BannerKind { None, Offline, Connecting, AwaitingCode, Error, Incompatible, Disconnected }
+private enum class BannerKind { None, Offline, Connecting, AwaitingCode, Error, Incompatible, Unencrypted, Disconnected }
 
 /**
  * Shared chrome for every banner here: a single-line text row closed by a
@@ -267,12 +276,19 @@ private fun AwaitingOnboardCodeBanner() {
 /**
  * Banner with a "Reconnect" action, shared by the [ConnectionState.Error] and
  * [ConnectionState.Disconnected] cases — same treatment, different [title].
+ */
+@Composable
+private fun ReconnectBanner(title: String, onReconnect: () -> Unit) =
+    ActionBanner(title = title, action = "Reconnect", onAction = onReconnect)
+
+/**
+ * A failure with one action the user can take.
  *
  * Keeps the error colour where [ConnectingBanner] drops its amber: this is a
  * failure the user has to act on. Carried by the icon and text, not a fill.
  */
 @Composable
-private fun ReconnectBanner(title: String, onReconnect: () -> Unit) {
+private fun ActionBanner(title: String, action: String, onAction: () -> Unit) {
     val error = MaterialTheme.colorScheme.error
     BannerRow(
         leading = {
@@ -291,13 +307,13 @@ private fun ReconnectBanner(title: String, onReconnect: () -> Unit) {
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = "Reconnect",
+            text = action,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
             // Same ~40dp compromise as the Stop link in ConnectingBanner above.
             modifier = Modifier
-                .clickable(onClick = onReconnect)
+                .clickable(onClick = onAction)
                 .padding(horizontal = MaterialTheme.spacing.xs2, vertical = MaterialTheme.spacing.md)
         )
     }

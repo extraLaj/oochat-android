@@ -25,6 +25,7 @@ import ai.openonion.oochat.domain.model.ServerTranscriptEntry
 import ai.openonion.oochat.domain.model.SessionModes
 import ai.openonion.oochat.domain.usecase.ServerErrorText
 import ai.openonion.oochat.network.AgentConnection
+import ai.openonion.oochat.network.CleartextPolicy
 import ai.openonion.oochat.network.ConnectionEvent
 import ai.openonion.oochat.network.InMemoryPendingMessageSink
 import ai.openonion.oochat.network.OutboxFullException
@@ -706,6 +707,19 @@ class ConnectionRepositoryImpl(
                     // the user taps Reconnect (W16AAPPLE-102).
                     connection?.teardown()
                     eventCollectionJob?.cancel()
+
+                    // Refused before anything is dialled (W16AAPPLE-86), and not retried.
+                    val socketUrl = directUrl?.let(AgentConnection::directSocketUrl) ?: effectiveRelayUrl
+                    if (!CleartextPolicy.allows(socketUrl)) {
+                        FileLogger.e(LogTags.CONN_REPO, "Connect refused: unencrypted to a public address")
+                        connection = null
+                        _connectionState.value = ConnectionState.Error(
+                            CleartextPolicy.REFUSED,
+                            retryable = false,
+                            kind = ConnectionState.Error.Kind.UNENCRYPTED_REFUSED
+                        )
+                        return@runCatchingCancellable
+                    }
 
                     // Rows whose conversation never materialised or has since
                     // been deleted; connect() is a natural, infrequent

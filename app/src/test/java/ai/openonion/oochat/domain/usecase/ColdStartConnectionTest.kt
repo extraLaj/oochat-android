@@ -200,7 +200,7 @@ class ColdStartConnectionTest {
             repositoryFactory = {
                 ConnectionRepositoryImpl(
                     keyManager = keyManager,
-                    relayUrl = "ws://test.invalid",
+                    relayUrl = "wss://test.invalid",
                     sessionStore = sessionStore,
                     agentConnectionFactory = { km, url ->
                         AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" })

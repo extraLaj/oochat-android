@@ -100,7 +100,7 @@ class SharedConnectionTest {
             repositoryFactory = {
                 ConnectionRepositoryImpl(
                     keyManager = keyManager,
-                    relayUrl = "ws://test.invalid",
+                    relayUrl = "wss://test.invalid",
                     sessionStore = sessionStore,
                     agentConnectionFactory = { km, url ->
                         AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" })
@@ -204,7 +204,7 @@ class SharedConnectionTest {
             keyManager = keyManager,
             repositoryFactory = {
                 Thread.sleep(50)
-                ConnectionRepositoryImpl(keyManager, "ws://test.invalid").also { built += it }
+                ConnectionRepositoryImpl(keyManager, "wss://test.invalid").also { built += it }
             }
         )
 

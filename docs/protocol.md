@@ -133,6 +133,22 @@ and compatibility tests are available.
 
 ## Connection target and lifecycle
 
+Unencrypted `http://` and `ws://` are dialled only to the user's own network
+(W16AAPPLE-86, `CleartextPolicy`): `localhost`, `127.x`, `10.x`, `172.16`-`172.31.x`,
+`192.168.x`, link-local `169.254.x`, Tailscale's `100.64.0.0/10`, and IPv6 `::1`,
+`fc00::/7` and `fe80::/10`, as literal addresses. A hostname, `.local` and
+Tailscale's MagicDNS names included, is never resolved, so it needs `https://` or
+`wss://`. Android's network security config cannot express
+IP ranges, so it permits cleartext and the rule is in code, in three places:
+
+- `sharedHttpClient` refuses any other unencrypted request, redirects included,
+  with an `IOException`, so `/info`, Session Sync and every socket are covered.
+- `ConnectionRepositoryImpl.connect` refuses before dialling, with a
+  non-retryable `ConnectionState.Error` of kind `UNENCRYPTED_REFUSED`, so there is
+  no reconnect ladder; the banner reads "Unencrypted connection refused" and offers
+  Edit agent instead of Reconnect.
+- Setup and Add/Edit Agent refuse to save such a server URL, with the same message.
+
 The default relay is `Constants.DEFAULT_SERVER_URL`:
 
 ```text

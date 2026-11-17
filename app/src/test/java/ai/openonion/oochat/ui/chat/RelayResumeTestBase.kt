@@ -554,7 +554,7 @@ abstract class RelayResumeTestBase {
         const val RELAY_HOST = "oo.openonion.ai"
 
         /** Relay HTTP lookups (published profile, skills); unresolvable, so nothing leaves the JVM. */
-        const val DIRECTORY = "ws://test.invalid"
+        const val DIRECTORY = "wss://test.invalid"
 
         /** Virtual time per pump tick. */
         const val TICK_MS = 250L

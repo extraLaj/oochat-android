@@ -37,6 +37,13 @@ were told otherwise — the relay handles agents behind home routers, which is
 most of them. *Direct Connection* is for an agent you can reach on the network
 yourself, and it asks for that agent's own URL instead of the relay's.
 
+An unencrypted address (`http://` or `ws://`, what `co host` serves by default)
+works only for an agent on your own network: `localhost`, an address starting
+`192.168.`, `10.` or `172.16.` to `172.31.`, or a Tailscale address (`100.x`).
+Write the address itself, not a name like `mypc.local`. Anywhere else needs
+`https://` or `wss://`, and the app says so instead of connecting; the banner's
+*Edit agent* takes you to the agent's settings to change it.
+
 ### If the agent asks for an invite code
 
 <img src="screenshots/invite-code-gate.png" alt="The connecting screen headed Onboarding required, saying this agent needs an invite code or payment before you can chat and that it is taking you there now" width="300">

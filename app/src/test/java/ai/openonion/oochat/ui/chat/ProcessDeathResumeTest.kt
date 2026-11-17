@@ -429,7 +429,7 @@ class ProcessDeathResumeTest {
 
     private companion object {
         const val DB_NAME = "process-death-resume-test.db"
-        const val RELAY = "ws://test.invalid"
+        const val RELAY = "wss://test.invalid"
 
         /** Deadlock guard; a correct run is well inside it. */
         const val TIMEOUT_MS = 15_000L

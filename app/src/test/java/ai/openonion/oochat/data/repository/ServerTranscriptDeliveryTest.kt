@@ -118,7 +118,7 @@ class ServerTranscriptDeliveryTest {
         val sink = NoopSink()
         repository = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             sessionStore = MemoryStore(),
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url -> AgentConnection(km, url, factory, signer = { _, _ -> "fake-signature" }, pendingMessageSink = sink) }

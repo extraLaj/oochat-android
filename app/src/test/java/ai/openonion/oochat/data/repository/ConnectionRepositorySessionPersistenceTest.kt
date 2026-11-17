@@ -241,7 +241,7 @@ class ConnectionRepositorySessionPersistenceTest {
 
         repository = ConnectionRepositoryImpl(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             sessionStore = store,
             pendingMessageSink = sink,
             agentConnectionFactory = { km, url ->
@@ -555,7 +555,7 @@ class ConnectionRepositorySessionPersistenceTest {
         val blockingSink = BlockingDrainSink()
         val connection = AgentConnection(
             keyManager = keyManager,
-            relayUrl = "ws://test.invalid",
+            relayUrl = "wss://test.invalid",
             webSocketFactory = factory,
             signer = { _, _ -> "fake-signature" },
             pendingMessageSink = blockingSink

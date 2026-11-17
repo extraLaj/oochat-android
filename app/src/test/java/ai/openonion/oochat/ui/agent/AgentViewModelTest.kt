@@ -9,6 +9,7 @@ import ai.openonion.oochat.data.repository.DefaultAgentRepositoryContract
 import ai.openonion.oochat.domain.model.AgentProfile
 import ai.openonion.oochat.domain.model.ExecOutcome
 import ai.openonion.oochat.domain.model.ExecRequest
+import ai.openonion.oochat.network.CleartextPolicy
 import android.app.Application
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -372,12 +373,21 @@ class AgentViewModelTest {
             "https://x.com" to validAddress('a'),
             "http://10.0.0.2:8000" to validAddress('b'),
             "wss://x.com" to validAddress('c'),
-            "ws://x.com" to validAddress('d')
+            "ws://192.168.1.20:8000" to validAddress('d')
         )
 
         for ((url, address) in urlsAndAddresses) {
             assertTrue(url, viewModel.createAgent(name = url, address = address, serverUrl = url))
         }
+    }
+
+    @Test
+    fun `createAgent refuses an unencrypted server URL outside the user's own network`() = runTest {
+        for (url in listOf("http://agent.example.com", "ws://203.0.113.5:8000")) {
+            assertFalse(url, viewModel.createAgent(name = url, address = validAddress('e'), serverUrl = url))
+            assertEquals(CleartextPolicy.REFUSED, viewModel.uiState.value.error?.message)
+        }
+        assertEquals(0, agentRepository.createCount)
     }
 
     @Test

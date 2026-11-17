@@ -223,6 +223,9 @@ fun NavigationGraph(
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
                     },
+                    onNavigateToAgentEdit = { agentId ->
+                        navController.navigate("${Routes.AGENT_EDIT}/$agentId")
+                    },
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)
                     },
@@ -311,6 +314,9 @@ fun NavigationGraph(
                     },
                     onNavigateToAgentList = {
                         navController.navigate(Routes.AGENT_LIST)
+                    },
+                    onNavigateToAgentEdit = { agentId ->
+                        navController.navigate("${Routes.AGENT_EDIT}/$agentId")
                     },
                     onNavigateToControlCenter = {
                         navController.navigate(Routes.CONTROL_CENTER)

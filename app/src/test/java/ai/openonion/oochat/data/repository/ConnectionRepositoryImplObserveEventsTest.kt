@@ -40,7 +40,7 @@ class ConnectionRepositoryImplObserveEventsTest {
         // real KeyManager.
         repository = ConnectionRepositoryImpl(
             keyManager = null,
-            relayUrl = "ws://test.invalid"
+            relayUrl = "wss://test.invalid"
         )
     }
 
