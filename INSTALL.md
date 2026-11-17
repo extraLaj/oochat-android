@@ -17,12 +17,20 @@ Both produce the same application. Approach A takes about a minute; Approach B t
 Gradle cache.
 
 **On a machine with no Android tooling at all**, `tools/local-android-setup/` automates
-Approach A end to end — it installs a private SDK and emulator, creates a virtual
-device, installs the app and launches it, then removes all of it on request:
+Approach B end to end — it installs a private SDK and emulator, creates a virtual
+device, builds the app from this checkout, installs it and launches it, then removes
+all of it on request. The one thing it needs first is **JDK 17**
+([Adoptium](https://adoptium.net/temurin/releases/?version=17)): the SDK manager and
+the build both run on it.
 
 ```bash
+java -version                                               # expect 17.x
 cd tools/local-android-setup && ./install.sh && ./run.sh    # Windows: install.bat, run.bat
 ```
+
+On a fresh clone `run.sh` builds the APK, which adds about four minutes and a
+~1.5 GB Gradle cache (also under `.local/`). To install a pre-built APK instead,
+put it in an `apk/` folder at the repository root before running `run.sh`.
 
 Each script states what it will download, how big it is and where it goes, then
 waits for confirmation. Everything lands in `tools/local-android-setup/.local/` — no

@@ -255,11 +255,94 @@ if ($LASTEXITCODE -ne 0) {
 Write-Info 'Done.'
 
 Write-Step 'Installing SDK packages (this is the long part)'
+# sdkmanager has no timeout of its own: a download whose connection stalls sits at
+# a few KB/s indefinitely, and with its output discarded nothing showed it. One
+# such run sat on the system image for over 30 minutes at ~19 KB/s while a fresh
+# connection to the same file got 5+ MB/s. So it runs in the background under a
+# watchdog: progress is printed from the size of its download folder (.temp), and
+# when that has not moved by $stallBytes in $stallSecs, sdkmanager is killed and
+# started again. The partial zip stays in .temp and the next attempt resumes it.
+$stallSecs   = if ($env:STALL_SECS) { [int]$env:STALL_SECS } else { 90 }
+$stallBytes  = 2MB
+$maxAttempts = 4
+$sdkLog      = Join-Path $LocalDir 'sdkmanager.log'
+$sdkErrLog   = Join-Path $LocalDir 'sdkmanager.err.log'
+$sdkTemp     = Join-Path $SdkDir '.temp'
+
+function Get-TempBytes {
+    if (-not (Test-Path $sdkTemp)) { return [long]0 }
+    $sum = (Get-ChildItem $sdkTemp -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum).Sum
+    if ($sum) { return [long]$sum } else { return [long]0 }
+}
+
+# sdkmanager.bat starts java.exe as a child, so stopping the .bat alone would
+# leave the download running: the whole tree has to go.
+function Stop-SdkManager($proc) {
+    if ($proc -and -not $proc.HasExited) {
+        & taskkill.exe /T /F /PID $proc.Id 2>&1 | Out-Null
+        $proc.WaitForExit()
+    }
+}
+
+# Install one package; returns sdkmanager's exit code, or 124 if every attempt stalled.
+function Install-SdkPackage($pkg) {
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        # Start-Process joins arguments with spaces and quotes none of them.
+        $proc = Start-Process -FilePath $sdkManager -NoNewWindow -PassThru `
+            -ArgumentList "`"--sdk_root=$SdkDir`"", "`"$pkg`"" `
+            -RedirectStandardOutput $sdkLog -RedirectStandardError $sdkErrLog
+        $null = $proc.Handle   # without this, ExitCode can read as empty afterwards
+        $stalled = $false
+        try {
+            $last = Get-TempBytes; $mark = $last; $markTime = Get-Date
+            while (-not $proc.WaitForExit(3000)) {
+                $now = Get-TempBytes
+                Write-Host -NoNewline ("`r    {0,6} MB in progress, {1,5} KB/s   " -f `
+                    [math]::Floor($now / 1MB), [math]::Floor(($now - $last) / 3KB))
+                $last = $now
+                # Any change counts as activity: .temp also shrinks when a finished
+                # download is unpacked and moved into place.
+                if ([math]::Abs($now - $mark) -ge $stallBytes) {
+                    $mark = $now; $markTime = Get-Date
+                } elseif (((Get-Date) - $markTime).TotalSeconds -ge $stallSecs) {
+                    $stalled = $true
+                    Stop-SdkManager $proc
+                    break
+                }
+            }
+        } finally {
+            # Also runs on Ctrl-C, so the download does not outlive the script.
+            Stop-SdkManager $proc
+            Write-Host -NoNewline ("`r" + (' ' * 60) + "`r")
+        }
+        if (-not $stalled) { return $proc.ExitCode }
+        if ($attempt -lt $maxAttempts) {
+            Write-Info ("  Download stalled (under {0} MB in {1}s) - restarting, attempt {2} of {3}." -f `
+                ($stallBytes / 1MB), $stallSecs, ($attempt + 1), $maxAttempts)
+        }
+    }
+    return 124
+}
+
 $packages = @('platform-tools', "platforms;android-$AndroidApi", 'emulator', $systemImage)
 foreach ($pkg in $packages) {
     Write-Info "-> $pkg"
-    & $sdkManager "--sdk_root=$SdkDir" $pkg 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    $pkgRc = Install-SdkPackage $pkg
+    if ($pkgRc -eq 124) {
+        Stop-WithHelp "The download of $pkg kept stalling ($maxAttempts attempts)." @(
+            "This is the connection to Google's download servers, not this script."
+            'Re-run later; what was downloaded so far is kept and resumed.'
+            "Last sdkmanager output: $sdkLog"
+        )
+    }
+    if ($pkgRc -ne 0) {
+        Write-Host "  --- last lines of $sdkLog ---"
+        $tail = @()
+        foreach ($f in @($sdkLog, $sdkErrLog)) {
+            if (Test-Path $f) { $tail += (Get-Content $f -Raw) -split "[`r`n]+" | Where-Object { $_.Trim() } }
+        }
+        $tail | Select-Object -Last 8 | ForEach-Object { Write-Host "  $_" }
         if ($pkg -eq $systemImage) {
             Stop-WithHelp "Could not install the system image: $pkg" @(
                 "API $AndroidApi may not have an image for $abi yet."
@@ -299,6 +382,15 @@ if (Test-Path $avdIni) {
         )
     }
     Write-Info "Created at $avdPath"
+}
+# avdmanager writes hw.keyboard=no, which ignores the computer's keyboard: typing
+# into the emulator does nothing, and with no physical keys at all `monkey`
+# refuses to run. run.ps1 repairs it too, for devices made
+# before this was here.
+$avdConfig = Join-Path $AvdDir "$AvdName.avd\config.ini"
+if ((Test-Path $avdConfig) -and -not (Select-String -Path $avdConfig -Pattern '^hw\.keyboard *= *yes' -Quiet)) {
+    $lines = @(Get-Content $avdConfig | Where-Object { $_ -notmatch '^hw\.keyboard *=' }) + 'hw.keyboard=yes'
+    Set-Content -Path $avdConfig -Value $lines -Encoding ASCII
 }
 
 # --- Record the environment for run.ps1 / uninstall.ps1 ----------------------------

@@ -154,6 +154,15 @@ if ($attached.Count -eq 1) {
     if (-not (Test-Path $emulator)) {
         Stop-WithHelp 'The emulator is missing from the SDK.' @('Re-run install.bat to repair it.')
     }
+    # avdmanager writes hw.keyboard=no, which ignores the computer's keyboard: typing
+    # into the emulator does nothing, and with no physical keys at all `monkey`
+    # refuses to run. Turned on here as well as in install.ps1 so a device
+    # created by an older install.ps1 is repaired on its next boot.
+    $avdConfig = Join-Path $env:ANDROID_AVD_HOME "$AvdName.avd\config.ini"
+    if ((Test-Path $avdConfig) -and -not (Select-String -Path $avdConfig -Pattern '^hw\.keyboard *= *yes' -Quiet)) {
+        $lines = @(Get-Content $avdConfig | Where-Object { $_ -notmatch '^hw\.keyboard *=' }) + 'hw.keyboard=yes'
+        Set-Content -Path $avdConfig -Value $lines -Encoding ASCII
+    }
     $proc = Start-Process -FilePath $emulator `
         -ArgumentList @('-avd', $AvdName, '-no-snapshot-save', '-no-boot-anim') `
         -RedirectStandardOutput $log -RedirectStandardError "$log.err" `
@@ -220,14 +229,28 @@ if ($LASTEXITCODE -ne 0) {
 Write-Info 'Installed.'
 
 Write-Step 'Launching'
-Invoke-Adb shell monkey -p $AppId -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) {
+# Not `monkey`: it exits with "SYS_KEYS has no physical keys" on a device without
+# a hardware keyboard, which is how avdmanager makes them, so the app never
+# opened. Resolve the launcher activity and start it by name instead.
+$launchActivity = @(Invoke-Adb shell cmd package resolve-activity --brief `
+    -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $AppId 2>&1) |
+    ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Select-Object -Last 1
+if (-not ("$launchActivity".StartsWith("$AppId/"))) {
+    Stop-WithHelp "Installed, but the device found no launcher activity for $AppId." @(
+        "Open 'ConnectOnion' from the device's app list by hand."
+    )
+}
+$launchOut = (Invoke-Adb shell am start -W -n $launchActivity 2>&1 | Out-String)
+if ($launchOut -notmatch 'Status: ok') {
     # Matches run.sh, which exits non-zero here: the same failure must not look
     # like success on one platform and failure on the other.
+    ($launchOut -split "[`r`n]+" | Where-Object { $_.Trim() } | Select-Object -Last 5) |
+        ForEach-Object { Write-Host "  $_" }
     Stop-WithHelp 'Installed, but the app would not start.' @(
         "Open 'ConnectOnion' from the device's app list by hand."
     )
 }
+Write-Info 'Opened.'
 
 # --- What to do next ------------------------------------------------------------------
 Write-Step 'Running'

@@ -160,6 +160,16 @@ else
   info "None attached. Booting the virtual device '$AVD_NAME'."
   [ -x "$EMULATOR" ] || fail "The emulator is missing from the SDK." "Re-run ./install.sh to repair it."
 
+  # avdmanager writes hw.keyboard=no, which ignores the computer's keyboard: typing
+  # into the emulator does nothing, and with no physical keys at all `monkey`
+  # refuses to run. Turned on here as well as in install.sh so a device created
+  # by an older install.sh is repaired on its next boot.
+  AVD_CONFIG="$ANDROID_AVD_HOME/$AVD_NAME.avd/config.ini"
+  if [ -f "$AVD_CONFIG" ] && ! grep -q '^hw\.keyboard *= *yes' "$AVD_CONFIG"; then
+    { grep -v '^hw\.keyboard *=' "$AVD_CONFIG" || true; echo "hw.keyboard=yes"; } > "$AVD_CONFIG.tmp" \
+      && mv "$AVD_CONFIG.tmp" "$AVD_CONFIG"
+  fi
+
   "$EMULATOR" -avd "$AVD_NAME" -no-snapshot-save -no-boot-anim \
       >"$LOCAL_DIR/emulator.log" 2>&1 &
   EMU_PID=$!
@@ -247,9 +257,24 @@ fi
 info "Installed."
 
 step "Launching"
-adbt shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 \
-  || fail "Installed, but the app would not start." \
-          "Open 'ConnectOnion' from the device's app list by hand."
+# Not `monkey`: it exits with "SYS_KEYS has no physical keys" on a device without
+# a hardware keyboard, which is how avdmanager makes them, so the app never
+# opened. Resolve the launcher activity and start it by name instead.
+LAUNCH_ACTIVITY="$(adbt shell cmd package resolve-activity --brief \
+    -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$APP_ID" 2>/dev/null \
+    | tr -d '\r' | tail -n 1 || true)"
+case "$LAUNCH_ACTIVITY" in
+  "$APP_ID"/*) ;;
+  *) fail "Installed, but the device found no launcher activity for $APP_ID." \
+          "Open 'ConnectOnion' from the device's app list by hand." ;;
+esac
+LAUNCH_OUT="$(adbt shell am start -W -n "$LAUNCH_ACTIVITY" 2>&1 | tr -d '\r' || true)"
+case "$LAUNCH_OUT" in
+  *"Status: ok"*) info "Opened." ;;
+  *) echo "$LAUNCH_OUT" | grep -v '^$' | tail -5 | sed 's/^/  /' || true
+     fail "Installed, but the app would not start." \
+          "Open 'ConnectOnion' from the device's app list by hand." ;;
+esac
 
 # --- What to do next ----------------------------------------------------------
 step "Running"

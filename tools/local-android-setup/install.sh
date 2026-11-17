@@ -285,10 +285,79 @@ fi
 info "Done."
 
 step "Installing SDK packages (this is the long part)"
+# sdkmanager has no timeout of its own: a download whose connection stalls sits at
+# a few KB/s indefinitely, and with its output discarded nothing showed it. One
+# such run sat on the system image for over 30 minutes at ~19 KB/s while a fresh
+# connection to the same file got 5+ MB/s. So it runs in the background under a
+# watchdog: progress is printed from the size of its download folder (.temp), and
+# when that has not moved by STALL_KB in STALL_SECS, sdkmanager is killed and
+# started again. The partial zip stays in .temp and the next attempt resumes it.
+STALL_SECS="${STALL_SECS:-90}"
+STALL_KB=2048
+MAX_ATTEMPTS=4
+SDK_LOG="$LOCAL_DIR/sdkmanager.log"
+SDK_PID=""
+# Background jobs of a script ignore SIGINT, so Ctrl-C would otherwise leave
+# sdkmanager downloading after the script itself has gone.
+stop_sdkmanager() { [ -n "$SDK_PID" ] && kill "$SDK_PID" 2>/dev/null; SDK_PID=""; }
+trap 'stop_sdkmanager' EXIT
+trap 'stop_sdkmanager; echo; exit 130' INT TERM
+
+temp_kb() { du -sk "$SDK_DIR/.temp" 2>/dev/null | cut -f1 || echo 0; }
+
+# Install one package; returns sdkmanager's status, or 124 if every attempt stalled.
+install_package() {
+  local pkg="$1" attempt=1 rc
+  while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+    "$SDKMANAGER" --sdk_root="$SDK_DIR" "$pkg" >"$SDK_LOG" 2>&1 &
+    SDK_PID=$!
+    local pid=$SDK_PID last_kb mark_kb now_kb mark_t=$SECONDS stalled=0
+    last_kb=$(temp_kb); mark_kb=$last_kb
+    while kill -0 "$SDK_PID" 2>/dev/null; do
+      sleep 3
+      now_kb=$(temp_kb)
+      if [ -t 1 ]; then
+        printf '\r    %6d MB in progress, %5d KB/s   ' \
+          "$((now_kb / 1024))" "$(( (now_kb - last_kb) / 3 ))"
+      fi
+      last_kb=$now_kb
+      # Any change counts as activity: .temp also shrinks when a finished
+      # download is unpacked and moved into place.
+      local delta=$((now_kb - mark_kb)); [ "$delta" -lt 0 ] && delta=$((-delta))
+      if [ "$delta" -ge "$STALL_KB" ]; then
+        mark_kb=$now_kb; mark_t=$SECONDS
+      elif [ $((SECONDS - mark_t)) -ge "$STALL_SECS" ]; then
+        stalled=1; stop_sdkmanager; break
+      fi
+    done
+    [ -t 1 ] && printf '\r%60s\r' ''
+    if [ "$stalled" = "1" ]; then
+      wait "$pid" 2>/dev/null || true
+      attempt=$((attempt + 1))
+      [ "$attempt" -le "$MAX_ATTEMPTS" ] && info "  Download stalled (under $((STALL_KB / 1024)) MB in ${STALL_SECS}s) — restarting, attempt $attempt of $MAX_ATTEMPTS."
+      continue
+    fi
+    rc=0; wait "$SDK_PID" || rc=$?
+    SDK_PID=""
+    return "$rc"
+  done
+  SDK_PID=""
+  return 124
+}
+
 PACKAGES=("platform-tools" "platforms;android-${ANDROID_API}" "emulator" "$SYSTEM_IMAGE")
 for pkg in "${PACKAGES[@]}"; do
   info "→ $pkg"
-  if ! "$SDKMANAGER" --sdk_root="$SDK_DIR" "$pkg" >/dev/null; then
+  pkg_rc=0; install_package "$pkg" || pkg_rc=$?
+  if [ "$pkg_rc" -eq 124 ]; then
+    fail "The download of $pkg kept stalling ($MAX_ATTEMPTS attempts)." \
+         "This is the connection to Google's download servers, not this script." \
+         "Re-run later; what was downloaded so far is kept and resumed." \
+         "Last sdkmanager output: $SDK_LOG"
+  fi
+  if [ "$pkg_rc" -ne 0 ]; then
+    echo "  --- last lines of $SDK_LOG ---"
+    tail -n 15 "$SDK_LOG" | tr '\r' '\n' | grep -v '^\s*$' | tail -n 8 | sed 's/^/  /' || true
     case "$pkg" in
       "$SYSTEM_IMAGE")
         fail "Could not install the system image: $pkg" \
@@ -350,6 +419,15 @@ else
             "The full log is at $AVD_LOG" \
             "Without that file the emulator cannot find the device."
   info "Created at $AVD_DIR/$AVD_NAME.avd"
+fi
+# avdmanager writes hw.keyboard=no, which ignores the computer's keyboard: typing
+# into the emulator does nothing, and with no physical keys at all `monkey`
+# refuses to run. run.sh repairs it too, for devices made
+# before this was here.
+AVD_CONFIG="$AVD_DIR/$AVD_NAME.avd/config.ini"
+if [ -f "$AVD_CONFIG" ] && ! grep -q '^hw\.keyboard *= *yes' "$AVD_CONFIG"; then
+  { grep -v '^hw\.keyboard *=' "$AVD_CONFIG" || true; echo "hw.keyboard=yes"; } > "$AVD_CONFIG.tmp" \
+    && mv "$AVD_CONFIG.tmp" "$AVD_CONFIG"
 fi
 
 # --- Record the environment for run.sh / uninstall.sh -------------------------

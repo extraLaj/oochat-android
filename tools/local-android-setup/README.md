@@ -9,6 +9,10 @@ is, [`INSTALL.md`](../../INSTALL.md) covers the same ground manually.
 
 ## Quick start
 
+**First, JDK 17.** Both scripts need it and neither installs it (see
+[If a step fails](#if-a-step-fails) for why). Check with `java -version`; get it
+from [Adoptium](https://adoptium.net/temurin/releases/?version=17).
+
 **macOS / Linux**
 
 ```bash
@@ -35,7 +39,7 @@ having changed anything. Pass `-y` to skip the prompt.
 | Script | What it does |
 |---|---|
 | `install.sh` / `install.bat` | Downloads a private Android SDK, the emulator, an API 36 system image, and creates one virtual device. 10–25 minutes, about 1.8 GB of download. |
-| `run.sh` / `run.bat` | Boots that virtual device — or uses a physical phone if one is attached — installs the app and launches it. Prints a live agent address to test against. |
+| `run.sh` / `run.bat` | Boots that virtual device — or uses a physical phone if one is attached — installs the app and launches it. Prints a live agent address to test against. Installs the newest APK in the repository's `apk/` folder if there is one, else an earlier build, else builds one from source (about four minutes the first time). On a fresh clone that means building. |
 | `uninstall.sh` / `uninstall.bat` | Removes the app from the device and deletes everything `install` downloaded. |
 
 ## Where things go, and what is left alone
@@ -87,7 +91,7 @@ are launchers that pass arguments through to PowerShell.
 | Effect | macOS / Linux | Windows |
 |---|---|---|
 | Skip the confirmation prompt | `-y` or `--yes` | `-y` |
-| Build from source instead of using the pre-built APK (needs JDK 17) | `./run.sh --build` | `run.bat -Build` |
+| Always build from source, even if an APK is in `apk/` or left from an earlier build | `./run.sh --build` | `run.bat -Build` |
 | Reuse an SDK already on the machine rather than downloading one | `./install.sh --use-system-sdk` | `install.bat -UseSystemSdk` |
 | Use a different platform level, if API 36 has no image for your CPU | `ANDROID_API=35 ./install.sh` | `install.bat -AndroidApi 35` |
 
