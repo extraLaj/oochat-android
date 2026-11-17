@@ -65,6 +65,8 @@ import kotlinx.coroutines.withContext
  *   saying so the run stalls out of sight — see [ChatViewModel.chatAwaitsUser].
  * @param besideChat The page is next to the chat, not in place of it. There is
  *   then no way back to show, and no waiting notice, since the chat is in view.
+ * @param onOpenChat Where the waiting notice leads. The same place as back,
+ *   unless back from this page is somewhere other than the chat.
  * @param buildDispatcher Where a snapshot is wrapped. For tests, which hold
  *   it back to see the screen draw before the document is ready.
  */
@@ -78,7 +80,8 @@ fun DashboardScreen(
     chatAwaitsUser: Boolean = false,
     besideChat: Boolean = false,
     modifier: Modifier = Modifier,
-    buildDispatcher: CoroutineDispatcher = DashboardBuildDispatcher
+    buildDispatcher: CoroutineDispatcher = DashboardBuildDispatcher,
+    onOpenChat: () -> Unit = onNavigateBack
 ) {
     // A fallback for pages that declare no background of their own; one that
     // does still wins, since its rule comes later in the document. Resolved
@@ -117,7 +120,8 @@ fun DashboardScreen(
         onNavigationBlocked = { navigationBlocked = true },
         onDismissNavigationBlocked = { navigationBlocked = false },
         besideChat = besideChat,
-        modifier = modifier
+        modifier = modifier,
+        onOpenChat = onOpenChat
     )
 }
 
@@ -145,7 +149,8 @@ internal fun DashboardScreenContent(
     onDismissNavigationBlocked: () -> Unit,
     besideChat: Boolean = false,
     modifier: Modifier = Modifier,
-    building: Boolean = false
+    building: Boolean = false,
+    onOpenChat: () -> Unit = onNavigateBack
 ) {
     Scaffold(
         modifier = modifier,
@@ -165,7 +170,7 @@ internal fun DashboardScreenContent(
                 // The nav-blocked notice is merely informational and
                 // dismissible, so it stacks below rather than displacing the
                 // bar that actually matters.
-                if (chatAwaitsUser && !besideChat) ChatAwaitsUserBar(onNavigateBack = onNavigateBack)
+                if (chatAwaitsUser && !besideChat) ChatAwaitsUserBar(onNavigateBack = onOpenChat)
                 if (navigationBlocked) NavigationBlockedBar(onDismiss = onDismissNavigationBlocked)
                 // The page below is the agent's own document and usually
                 // brings its own palette, so its edge against our chrome is a

@@ -87,6 +87,8 @@ fun ChatTopBar(
     // The owner's Rem notebook (W16AAPPLE-69). Offered on any live connection:
     // only the Host knows who its owner is, and a non-owner is told so there.
     onOpenRem: () -> Unit = {},
+    // False on the agent's Dashboard, which has this bar but no conversation to clear.
+    showClearChat: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -219,23 +221,25 @@ fun ChatTopBar(
                             onNavigateToLogs()
                         }
                     )
-                    // Gap, then the rule. A hairline alone still leaves the
-                    // destructive item one thumb-width from the safe one; the
-                    // space is what stops a reach-through.
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider()
-                    // Not red: it only opens the confirmation, whose Clear is the red one
-                    // (W16AAPPLE-128). The gap and rule above still set it apart.
-                    DropdownMenuItem(
-                        text = { Text("Clear chat") },
-                        leadingIcon = {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = null)
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            showClearChatSheet = true
-                        }
-                    )
+                    if (showClearChat) {
+                        // Gap, then the rule. A hairline alone still leaves the
+                        // destructive item one thumb-width from the safe one; the
+                        // space is what stops a reach-through.
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider()
+                        // Not red: it only opens the confirmation, whose Clear is the red one
+                        // (W16AAPPLE-128). The gap and rule above still set it apart.
+                        DropdownMenuItem(
+                            text = { Text("Clear chat") },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                showClearChatSheet = true
+                            }
+                        )
+                    }
                 }
             }
         }

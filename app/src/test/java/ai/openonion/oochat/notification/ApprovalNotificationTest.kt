@@ -140,6 +140,7 @@ class ApprovalNotificationTest {
     @Test
     fun `the chat route names the agent and the conversation, encoded`() {
         assertEquals("chat/$address?sessionId=a%20b", notificationChatRoute(target.copy(sessionId = "a b")))
-        assertEquals("chat/$address", notificationChatRoute(NotificationTarget(address)))
+        // With no conversation to name, it still asks for the chat, not the agent's Dashboard.
+        assertEquals("chat/$address?openChat=true", notificationChatRoute(NotificationTarget(address)))
     }
 }

@@ -160,21 +160,35 @@ before they are sent.
 
 ---
 
-## 5a. An agent's own Home page
+## 5a. The Dashboard, and an agent's own page
 
-Some agents send the app a page of their own — a status board, a form, a set of
-shortcuts, whatever their author built. When one does, a tab named **Dashboard**
-or, for a Control Center, **Control Center** appears next to **Chat** at the top of
-the screen; tap it to open the page, and tap **Chat** or use back to return to the
-conversation.
+On a phone the app opens on the **Dashboard** tab, next to **Chat** at the top of
+the screen. It shows the agent's name and what it is doing, and from it you can:
+
+- start a **New chat**;
+- open one of your **Latest** chats, or **See all** of them (the same list as the
+  menu button);
+- see the agent's **Capabilities**, the skills it has published;
+- see and change its **Trust level**, how much it may do before asking you:
+  *Careful* asks first, *Balanced* runs routine work unasked, *Unattended* runs
+  everything. Tapping it opens the same approval-mode picker as the chat's;
+- open **Host details** for the connection, the agent's address and the logs.
+
+Opening a particular conversation, from the menu, a link or a notification, goes
+straight to the Chat tab.
+
+Some agents also send the app a page of their own — a status board, a form, a set
+of shortcuts, whatever their author built. When one does, the Dashboard has a row
+for it, named **Control Center** or **Agent's page**; tap it to open the page, and
+use back to return to the Dashboard.
 
 The page is the agent's, not the app's, so what it contains is up to whoever
 wrote the agent. It is displayed in a locked-down view: it cannot reach the
-network, cannot store anything, and cannot navigate anywhere. If there is neither
-a tab nor an icon, this agent has not sent one.
+network, cannot store anything, and cannot navigate anywhere. If the Dashboard
+has no such row, this agent has not sent one.
 
 Some agents publish a full **Control Center** instead: a reviewed web app that
-can show live information and act for you. The same tab opens it. Anything it
+can show live information and act for you. The same row opens it. Anything it
 does for you, such as sending a message or running a skill, appears in the chat
 as a message from you, so you can always see it. It cannot use your camera,
 microphone or location, read your clipboard, or open other sites. Going back to
@@ -186,15 +200,15 @@ how far you had scrolled, and the page keeps whatever it was showing. The
 keyboard closes when you switch. Running a skill from the page's tab sends its
 message and takes you to the Chat tab, where the turn it started is.
 
-On a tablet, or a foldable that is open, the page does not get a tab: it sits
-beside the chat, so you can use both at once. The tabs and the back arrow are not
+On a tablet, or a foldable that is open, there are no tabs: the agent's page, if
+it has one, sits beside the chat, so you can use both at once. The tabs and the back arrow are not
 shown then, because the page is already open. Running a skill from the page sends
 its message and leaves the page where it is. Fold the device and the page goes
 back to its tab, and whatever you had typed in the chat is still there. A phone,
 even turned on its side, uses the tabs.
 
-A device that cannot show a Control Center app has no tab for it. A grid icon in
-the chat's top bar opens a screen that says so.
+On a device that cannot show a Control Center app, its row opens a screen that says
+so (on a tablet, a grid icon in the chat's top bar does).
 
 The page is only open while the chat is. Go from the chat to Settings, Logs or the
 agent list and it is closed; when you come back it is loaded again from the start.

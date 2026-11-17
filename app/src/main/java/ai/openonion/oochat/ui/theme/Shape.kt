@@ -22,6 +22,12 @@ object Radii {
     // design (W16AAPPLE-112) at about three-eighths of the box's height —
     // generously round without being a pill.
     val composer = 22.dp
+
+    // The agent's Dashboard, measured off its design (W16AAPPLE-115): the page the app
+    // opens on is drawn softer than the screens behind it. The hero card and the button
+    // in it take the first, the tiles and rows under it the second.
+    val dashboardHero = 20.dp
+    val dashboardTile = 16.dp
 }
 
 /**

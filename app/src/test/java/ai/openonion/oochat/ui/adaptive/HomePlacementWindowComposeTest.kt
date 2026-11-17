@@ -59,7 +59,7 @@ class HomePlacementWindowComposeTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp")
-    fun `a phone with no Home to show has no tab`() {
-        assertEquals(HomePlacement.OWN_SCREEN, placementWithHome(hasHome = false))
+    fun `a phone has the Home tab even for an agent with no page of its own`() {
+        assertEquals(HomePlacement.TABBED, placementWithHome(hasHome = false))
     }
 }

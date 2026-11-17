@@ -11,10 +11,13 @@ import androidx.navigation.NavHostController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** [target]'s conversation: that agent's chat, on that conversation when the target names one. */
+/**
+ * [target]'s conversation: that agent's chat, on that conversation when the target names one. It
+ * opens on the chat either way, not on the agent's Dashboard: a notification is about a conversation.
+ */
 internal fun notificationChatRoute(target: NotificationTarget): String {
-    val session = target.sessionId?.let { "?sessionId=${Uri.encode(it)}" }.orEmpty()
-    return "chat/${Uri.encode(target.agentAddress)}$session"
+    val query = target.sessionId?.let { "sessionId=${Uri.encode(it)}" } ?: "$OPEN_CHAT_ARG=true"
+    return "chat/${Uri.encode(target.agentAddress)}?$query"
 }
 
 /**

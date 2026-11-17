@@ -39,8 +39,13 @@ class HomePlacementTest {
     }
 
     @Test
-    fun `with no Home to show there is no pane and no tab`() {
+    fun `an agent with no page of its own gets no pane on a wide window`() {
         assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(1280), hasHome = false))
-        assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(360), hasHome = false))
+    }
+
+    @Test
+    fun `a phone has the Home tab for every agent, as its Home is the app's own Dashboard`() {
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(360), hasHome = false))
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(915, heightDp = 412), hasHome = false))
     }
 }

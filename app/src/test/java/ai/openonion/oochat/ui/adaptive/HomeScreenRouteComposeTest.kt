@@ -44,11 +44,12 @@ class HomeScreenRouteComposeTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp")
-    fun `on a phone a Home that has no tab keeps its screen`() {
+    fun `on a phone the screen is left whatever the agent has, as every agent has the Dashboard tab`() {
+        // A Control Center the device cannot host is opened from the Dashboard's row there (W16AAPPLE-115).
         show(hasHome = false)
 
-        composeRule.onNodeWithText("home screen").assertIsDisplayed()
-        assertEquals("nothing to leave", 0, left)
+        composeRule.onNodeWithText("home screen").assertDoesNotExist()
+        assertEquals("left exactly once", 1, left)
     }
 
     @Test

@@ -26,12 +26,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  *
  * @param besideChat The page is next to the chat, not in place of it. It then has no way back to
  *   show, and running a skill leaves it where it is rather than going back to the chat.
+ * @param onOpenChat Shows the chat, for a skill run and the waiting notice. The same as back
+ *   unless back from this page is somewhere else, as it is when the page was opened from the
+ *   agent's Dashboard.
  */
 @Composable
 fun DashboardScreenWrapper(
     chatViewModelStoreOwner: ViewModelStoreOwner?,
     onNavigateBack: () -> Unit,
-    besideChat: Boolean = false
+    besideChat: Boolean = false,
+    onOpenChat: () -> Unit = onNavigateBack
 ) {
     val application = LocalContext.current.applicationContext as Application
     val viewModel: ChatViewModel = viewModel(
@@ -47,11 +51,12 @@ fun DashboardScreenWrapper(
     DashboardScreen(
         html = html,
         allowedSkills = profile?.skills?.map { it.name },
-        onRunSkill = { message -> runSkillFromHome(message, besideChat, viewModel::sendMessage, onNavigateBack) },
+        onRunSkill = { message -> runSkillFromHome(message, besideChat, viewModel::sendMessage, onOpenChat) },
         onNavigateBack = onNavigateBack,
         agentName = profile?.name,
         chatAwaitsUser = awaitsUser,
-        besideChat = besideChat
+        besideChat = besideChat,
+        onOpenChat = onOpenChat
     )
 }
 

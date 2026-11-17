@@ -200,7 +200,13 @@ fun NavigationGraph(
             var linkApproved by rememberSaveable(linkedAddress) { mutableStateOf(false) }
             var linkAnswered by rememberSaveable(linkedAddress) { mutableStateOf(false) }
 
-            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeInLayout ->
+            ChatWithHomeRoute(
+                chatEntry = backStackEntry,
+                // A link is to a conversation with the agent it names, so it opens on the chat.
+                opensOnHome = linkedAddress.isEmpty(),
+                onNavigateToLogs = { navController.navigate(Routes.LOGS) },
+                onNavigateToRem = { navController.navigate(Routes.REM) }
+            ) { chatViewModel, homeInLayout, openDrawerRequest ->
                 ChatScreen(
                     // Until the user accepts, this screen behaves exactly as a
                     // normal launch: it connects to their own configured agent.
@@ -234,7 +240,8 @@ fun NavigationGraph(
                     },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
-                    homeInLayout = homeInLayout
+                    homeInLayout = homeInLayout,
+                    openDrawerRequest = openDrawerRequest
                 )
             }
 
@@ -281,7 +288,7 @@ fun NavigationGraph(
         }
 
         composable(
-            route = "${Routes.CHAT_WITH_AGENT}?sessionId={sessionId}&startNew={startNew}",
+            route = CHAT_WITH_AGENT_ROUTE,
             arguments = listOf(
                 navArgument("agentId") { type = NavType.StringType },
                 navArgument("sessionId") {
@@ -292,13 +299,24 @@ fun NavigationGraph(
                 navArgument("startNew") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument(OPEN_CHAT_ARG) {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
             val agentId = backStackEntry.arguments?.getString("agentId") ?: ""
             val sessionId = backStackEntry.arguments?.getString("sessionId")
             val startNew = backStackEntry.arguments?.getBoolean("startNew") ?: false
-            ChatWithHomeRoute(chatEntry = backStackEntry) { chatViewModel, homeInLayout ->
+            val openChat = backStackEntry.arguments?.getBoolean(OPEN_CHAT_ARG) ?: false
+            ChatWithHomeRoute(
+                chatEntry = backStackEntry,
+                // Opened for a conversation (a drawer row, a new chat, a notification), it shows it.
+                opensOnHome = sessionId == null && !startNew && !openChat,
+                onNavigateToLogs = { navController.navigate(Routes.LOGS) },
+                onNavigateToRem = { navController.navigate(Routes.REM) }
+            ) { chatViewModel, homeInLayout, openDrawerRequest ->
                 ChatScreen(
                     connectToAgentId = agentId,
                     sessionIdToRestore = sessionId,
@@ -326,7 +344,8 @@ fun NavigationGraph(
                     },
                     onNavigateToAgentChat = navigateToAgentChat,
                     viewModel = chatViewModel,
-                    homeInLayout = homeInLayout
+                    homeInLayout = homeInLayout,
+                    openDrawerRequest = openDrawerRequest
                 )
             }
         }
@@ -507,12 +526,21 @@ fun NavigationGraph(
 }
 
 /**
+ * Set on a chat route that must show the conversation and not the agent's Dashboard, when it
+ * names no conversation to say so by itself: a notification about the agent's open chat.
+ */
+internal const val OPEN_CHAT_ARG = "openChat"
+
+internal const val CHAT_WITH_AGENT_ROUTE =
+    "${Routes.CHAT_WITH_AGENT}?sessionId={sessionId}&startNew={startNew}&$OPEN_CHAT_ARG={$OPEN_CHAT_ARG}"
+
+/**
  * The two destinations that host a [ai.openonion.oochat.ui.chat.ChatViewModel].
  * Only one is ever on the stack at a time — each chat hop pops the other.
  */
 internal val CHAT_ROUTES = listOf(
     "${Routes.CHAT}?onboardPending={onboardPending}",
-    "${Routes.CHAT_WITH_AGENT}?sessionId={sessionId}&startNew={startNew}"
+    CHAT_WITH_AGENT_ROUTE
 )
 
 /**

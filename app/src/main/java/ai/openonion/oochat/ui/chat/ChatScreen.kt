@@ -111,6 +111,9 @@ fun ChatScreen(
     // Home is already part of this layout, beside the chat or as a tab, so the top bar's button to
     // open it would only open what is there.
     homeInLayout: Boolean = false,
+    // Counts the times something outside this screen (the agent's Dashboard, a tab beside this
+    // one) has asked for the drawer of conversations. Each new count opens it; 0 is never asked.
+    openDrawerRequest: Int = 0,
     // Drawer row tapped for an agent other than the one this ChatViewModel
     // is connected to — the caller (NavigationGraph) re-navigates to that
     // agent's own chat/{address} destination, tearing down this ChatViewModel
@@ -186,6 +189,12 @@ fun ChatScreen(
     LaunchedEffect(drawerState) {
         snapshotFlow { drawerState.isOpen || drawerState.isAnimationRunning }.first { it }
         drawerEverOpened = true
+    }
+    LaunchedEffect(openDrawerRequest) {
+        if (openDrawerRequest > 0) {
+            drawerEverOpened = true
+            drawerState.open()
+        }
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val renderMarkdown by viewModel.renderMarkdown.collectAsState()
