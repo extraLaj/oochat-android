@@ -1,12 +1,16 @@
 package ai.openonion.oochat.ui.navigation
 
 import ai.openonion.oochat.domain.model.NotificationTarget
+import ai.openonion.oochat.ui.chat.ChatViewModel
 import ai.openonion.oochat.util.FileLogger
 import ai.openonion.oochat.util.LogTags
+import android.app.Application
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,7 +47,8 @@ internal fun OpenNotificationTarget(
     navController: NavHostController,
     target: NotificationTarget?,
     isSavedAgent: suspend (String) -> Boolean,
-    onHandled: () -> Unit
+    onHandled: () -> Unit,
+    showsTarget: (NavBackStackEntry, NotificationTarget) -> Boolean = { _, _ -> false }
 ) {
     LaunchedEffect(target) {
         val tapped = target ?: return@LaunchedEffect
@@ -67,8 +72,14 @@ internal fun OpenNotificationTarget(
             onHandled()
             return@LaunchedEffect
         }
-        navController.navigate(notificationChatRoute(tapped)) {
-            popUpTo(chat) { inclusive = true }
+        // Only answered approvals are saved, so a waiting one lives only in the chat's
+        // ViewModel: keep the chat when it already shows this conversation.
+        if (showsTarget(navController.getBackStackEntry(chat), tapped)) {
+            navController.popBackStack(chat, inclusive = false)
+        } else {
+            navController.navigate(notificationChatRoute(tapped)) {
+                popUpTo(chat) { inclusive = true }
+            }
         }
         tapped.invocationId?.let { invocationId ->
             // The Work Room reads its run from the chat under it, which loads the
@@ -92,6 +103,13 @@ private const val LOADING_WAIT_MS = 60_000L
 
 /** How long a Work Room tap waits for its chat to show before opening the room anyway. */
 private const val CHAT_SHOWN_WAIT_MS = 5_000L
+
+/** Whether the chat in [entry] is on [target]'s agent and conversation. */
+internal fun chatShowsTarget(application: Application, entry: NavBackStackEntry, target: NotificationTarget): Boolean {
+    val chat = ViewModelProvider(entry, ViewModelProvider.AndroidViewModelFactory.getInstance(application))[ChatViewModel::class.java]
+    return chat.targetAgentAddress.value.equals(target.agentAddress, ignoreCase = true) &&
+        (target.sessionId == null || target.sessionId == chat.activeSessionId.value)
+}
 
 /** The chat route on the back stack, or null while there is none yet (Loading, Onboarding). */
 private fun chatEntryRoute(navController: NavHostController): String? =

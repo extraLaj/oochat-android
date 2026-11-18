@@ -5,9 +5,11 @@ import ai.openonion.oochat.domain.model.NotificationTarget
 import ai.openonion.oochat.ui.navigation.NavigationGraph
 import ai.openonion.oochat.ui.navigation.OpenNotificationTarget
 import ai.openonion.oochat.ui.navigation.Routes
+import ai.openonion.oochat.ui.navigation.chatShowsTarget
 import ai.openonion.oochat.ui.theme.Motion
 import ai.openonion.oochat.ui.theme.spacing
 import ai.openonion.oochat.util.runCatchingCancellable
+import android.app.Application
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -149,7 +151,10 @@ fun ConnectOnionApp(
                 isSavedAgent = { address ->
                     withContext(Dispatchers.IO) { context.appContainer.agentRepository.getAgentByAddress(address) != null }
                 },
-                onHandled = onNotificationTargetHandled
+                onHandled = onNotificationTargetHandled,
+                showsTarget = { entry, target ->
+                    chatShowsTarget(context.applicationContext as Application, entry, target)
+                }
             )
         } else {
             SplashScreen()

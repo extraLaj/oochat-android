@@ -39,7 +39,7 @@ class OpenNotificationTargetTest {
     private var target by mutableStateOf<NotificationTarget?>(null)
     private var handled = 0
 
-    private fun show(start: String, saved: Boolean = true) {
+    private fun show(start: String, saved: Boolean = true, showsTarget: Boolean = false) {
         composeRule.setContent {
             nav = rememberNavController()
             NavHost(nav, startDestination = start) {
@@ -62,11 +62,12 @@ class OpenNotificationTargetTest {
                     )
                 ) { Text("agent chat") }
                 composable("${Routes.WORK_ROOM}/{invocationId}") { Text("work room") }
+                composable(Routes.SETTINGS) { Text("settings") }
             }
             OpenNotificationTarget(nav, target, isSavedAgent = { saved }, onHandled = {
                 handled++
                 target = null
-            })
+            }, showsTarget = { _, _ -> showsTarget })
         }
         composeRule.waitForIdle()
     }
@@ -89,6 +90,20 @@ class OpenNotificationTargetTest {
         assertEquals(CHAT_ROUTES[1], route())
         assertEquals(address, arg("agentId"))
         assertEquals("s-1", arg("sessionId"))
+        assertEquals(1, handled)
+    }
+
+    @Test
+    fun `a tap for the conversation already open keeps its chat, so a waiting approval is still there`() {
+        show(start = CHAT_ROUTES[0], showsTarget = true)
+        composeRule.runOnIdle { nav.navigate(Routes.SETTINGS) }
+
+        composeRule.runOnIdle { target = workRoomTarget }
+        composeRule.waitForIdle()
+
+        assertEquals("${Routes.WORK_ROOM}/{invocationId}", route())
+        composeRule.runOnIdle { nav.popBackStack() }
+        assertEquals(CHAT_ROUTES[0], route())
         assertEquals(1, handled)
     }
 
