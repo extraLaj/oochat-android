@@ -9,7 +9,6 @@ import ai.openonion.oochat.ui.chat.ChatScreen
 import ai.openonion.oochat.ui.components.ConfirmationSheet
 import ai.openonion.oochat.ui.components.DangerConfirmActions
 import ai.openonion.oochat.ui.controlcenter.ControlCenterScreenWrapper
-import ai.openonion.oochat.ui.controlcenter.controlCenterSupported
 import ai.openonion.oochat.ui.loading.LoadingScreen
 import ai.openonion.oochat.ui.logs.LogsScreen
 import ai.openonion.oochat.ui.onboarding.OnboardingScreen
@@ -506,17 +505,14 @@ fun NavigationGraph(
             )
         }
 
-        // The agent's Home on a screen of its own, which only a Control Center app the device cannot
-        // host has: the screen says why. Any other Home is in the chat's layout, beside it or as a
-        // tab. Reached only from the chat top bar, and only once the agent has sent its app, so the
-        // chat entry it borrows its ChatViewModel from is always still on the stack — see
-        // DashboardScreenWrapper for why that matters.
+        // The agent's Home on a screen of its own. Every Home is now in the chat's layout, as a tab
+        // on a phone and beside the chat on a tablet, where a Control Center the device cannot host
+        // is opened from the Dashboard to say why (W16AAPPLE-115), so HomeScreenRoute leaves at once.
+        // Its chat entry, which it borrows its ChatViewModel from, is always still on the stack —
+        // see DashboardScreenWrapper for why that matters.
         composable(Routes.CONTROL_CENTER) {
-            // A device that can host the app has no screen for it, and HomeScreenRoute leaves.
-            val hostsApps = remember { controlCenterSupported() }
             HomeScreenRoute(
-                onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) },
-                hasHome = hostsApps
+                onLeave = { navController.popBackStack(Routes.CONTROL_CENTER, inclusive = true) }
             ) {
                 ControlCenterScreenWrapper(
                     chatViewModelStoreOwner = CHAT_ROUTES.firstNotNullOfOrNull { route ->

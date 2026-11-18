@@ -200,15 +200,18 @@ how far you had scrolled, and the page keeps whatever it was showing. The
 keyboard closes when you switch. Running a skill from the page's tab sends its
 message and takes you to the Chat tab, where the turn it started is.
 
-On a tablet, or a foldable that is open, there are no tabs: the agent's page, if
-it has one, sits beside the chat, so you can use both at once. The tabs and the back arrow are not
-shown then, because the page is already open. Running a skill from the page sends
-its message and leaves the page where it is. Fold the device and the page goes
-back to its tab, and whatever you had typed in the chat is still there. A phone,
-even turned on its side, uses the tabs.
+On a tablet, or a foldable that is open, there are no tabs: the Dashboard sits
+beside the chat, for every agent, so you can use both at once. Its taps work on the
+chat next to it: **New chat** and a row under **Latest** show that conversation,
+and **Recent chats** or **See all** open the chat's list of conversations. The
+agent's own page opens from its row in place of the Dashboard, with a back arrow
+to return to it. Running a skill from the page sends its message and leaves the
+page where it is, since the chat is already in view. Fold the device and the
+Dashboard goes back to its tab, and whatever you had typed in the chat is still
+there. A phone, even turned on its side, uses the tabs.
 
 On a device that cannot show a Control Center app, its row opens a screen that says
-so (on a tablet, a grid icon in the chat's top bar does).
+so.
 
 The page is only open while the chat is. Go from the chat to Settings, Logs or the
 agent list and it is closed; when you come back it is loaded again from the start.

@@ -172,5 +172,5 @@ private fun RowScope.HomeTabItem(
 
 /** Where Home goes in the window this is composed in; see [homePlacementFor]. */
 @Composable
-internal fun currentHomePlacement(hasHome: Boolean): HomePlacement =
-    homePlacementFor(currentWindowAdaptiveInfo().windowSizeClass, hasHome)
+internal fun currentHomePlacement(): HomePlacement =
+    homePlacementFor(currentWindowAdaptiveInfo().windowSizeClass)

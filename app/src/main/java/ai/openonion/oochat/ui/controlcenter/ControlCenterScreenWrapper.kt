@@ -16,7 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * [chatViewModelStoreOwner] is the chat destination's back-stack entry, so the app's actions go
  * through the same [ChatViewModel] as the conversation underneath.
  *
- * @param besideChat The app is next to the chat, not in place of it, so it has no way back to show.
+ * @param besideChat The app is next to the chat, not in place of it, so it shows no waiting notice.
  */
 @Composable
 fun ControlCenterScreenWrapper(

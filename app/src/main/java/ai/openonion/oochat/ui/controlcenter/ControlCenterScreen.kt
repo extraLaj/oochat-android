@@ -33,8 +33,8 @@ import androidx.webkit.WebViewCompat
  * the app replaces the chat, so a conversation waiting on the user still has to say so here.
  *
  * @param app The published app, or null until the Host sends it for this connection.
- * @param besideChat The app is next to the chat, not in place of it. There is then no way back to
- *   show, and no waiting notice, since the chat is in view.
+ * @param besideChat The app is next to the chat, not in place of it. There is then no waiting
+ *   notice, since the chat is in view.
  * @param onOpenChat Where the waiting notice leads; the same place as back unless back from
  *   this page is somewhere other than the chat.
  * @param supported Whether this device's WebView can host it; see [controlCenterSupported].
@@ -110,7 +110,6 @@ internal fun ControlCenterScreenContent(
             Column {
                 HomeTopBar(
                     title = agentName?.takeIf { it.isNotBlank() } ?: "Agent home",
-                    besideChat = besideChat,
                     onNavigateBack = onNavigateBack
                 )
                 if (chatAwaitsUser && !besideChat) ChatAwaitsUserBar(onNavigateBack = onOpenChat)

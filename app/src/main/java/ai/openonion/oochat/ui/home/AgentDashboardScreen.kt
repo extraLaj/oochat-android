@@ -103,7 +103,8 @@ internal data class AgentDashboardState(
 /** What the dashboard can ask for. Each is something another part of the app already does. */
 @Immutable
 internal data class AgentDashboardActions(
-    val onOpenMenu: () -> Unit = {},
+    /** Null for no menu button: beside the chat, whose own is right next to it. */
+    val onOpenMenu: (() -> Unit)? = {},
     val onNewChat: () -> Unit = {},
     val onOpenChat: (sessionId: String) -> Unit = {},
     val onSeeAllChats: () -> Unit = {},

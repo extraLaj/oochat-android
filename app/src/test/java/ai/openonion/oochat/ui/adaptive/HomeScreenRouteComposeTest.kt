@@ -27,9 +27,9 @@ class HomeScreenRouteComposeTest {
 
     private var left = 0
 
-    private fun show(hasHome: Boolean = true) {
+    private fun show() {
         left = 0
-        composeRule.setContent { HomeScreenRoute(onLeave = { left++ }, hasHome = hasHome) { Text("home screen") } }
+        composeRule.setContent { HomeScreenRoute(onLeave = { left++ }) { Text("home screen") } }
         composeRule.waitForIdle()
     }
 
@@ -37,16 +37,6 @@ class HomeScreenRouteComposeTest {
     @Config(sdk = [34], qualifiers = "w360dp-h800dp")
     fun `on a phone the screen is left once, for the chat with Home as a tab`() {
         show()
-
-        composeRule.onNodeWithText("home screen").assertDoesNotExist()
-        assertEquals("left exactly once", 1, left)
-    }
-
-    @Test
-    @Config(sdk = [34], qualifiers = "w360dp-h800dp")
-    fun `on a phone the screen is left whatever the agent has, as every agent has the Dashboard tab`() {
-        // A Control Center the device cannot host is opened from the Dashboard's row there (W16AAPPLE-115).
-        show(hasHome = false)
 
         composeRule.onNodeWithText("home screen").assertDoesNotExist()
         assertEquals("left exactly once", 1, left)
@@ -76,18 +66,6 @@ class HomeScreenRouteComposeTest {
 
         composeRule.onNodeWithText("home screen").assertDoesNotExist()
         assertEquals("left exactly once", 1, left)
-    }
-
-    @Test
-    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `on a tablet a Home that cannot sit beside the chat keeps its screen`() {
-        composeRule.setContent {
-            HomeScreenRoute(onLeave = { left++ }, hasHome = false) { Text("home screen") }
-        }
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText("home screen").assertIsDisplayed()
-        assertEquals("nothing to leave", 0, left)
     }
 
     @Test

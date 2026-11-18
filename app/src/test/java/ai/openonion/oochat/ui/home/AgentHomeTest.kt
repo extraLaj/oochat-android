@@ -16,40 +16,37 @@ class AgentHomeTest {
             deviceHostsApps
         }
 
-    private fun assertHome(home: AgentHome, hasPage: Boolean, opensControlCenter: Boolean, canSitBesideChat: Boolean) {
+    private fun assertHome(home: AgentHome, hasPage: Boolean, opensControlCenter: Boolean) {
         assertEquals("has a page", hasPage, home.hasPage)
         assertEquals("opens the Control Center", opensControlCenter, home.opensControlCenter)
-        assertEquals("can sit beside the chat", canSitBesideChat, home.canSitBesideChat)
     }
 
     @Test
-    fun `an agent with no Home has nothing to open or to put beside the chat`() {
-        assertHome(home(hasDashboard = false, hasApp = false), hasPage = false, opensControlCenter = false, canSitBesideChat = false)
+    fun `an agent with no Home page has nothing to open`() {
+        assertHome(home(hasDashboard = false, hasApp = false), hasPage = false, opensControlCenter = false)
     }
 
     @Test
-    fun `a Dashboard opens as the Dashboard and can sit beside the chat`() {
-        assertHome(home(hasDashboard = true, hasApp = false), hasPage = true, opensControlCenter = false, canSitBesideChat = true)
+    fun `a Dashboard opens as the Dashboard`() {
+        assertHome(home(hasDashboard = true, hasApp = false), hasPage = true, opensControlCenter = false)
     }
 
     @Test
-    fun `a Control Center the device can host opens as the Control Center and can sit beside the chat`() {
-        assertHome(home(hasDashboard = false, hasApp = true), hasPage = true, opensControlCenter = true, canSitBesideChat = true)
+    fun `a Control Center the device can host opens as the Control Center`() {
+        assertHome(home(hasDashboard = false, hasApp = true), hasPage = true, opensControlCenter = true)
     }
 
     @Test
-    fun `a Control Center the device cannot host still opens, to say why, but stays behind the Home button`() {
+    fun `a Control Center the device cannot host still opens, to say why`() {
         assertHome(
             home(hasDashboard = false, hasApp = true, deviceHostsApps = false),
             hasPage = true,
-            opensControlCenter = true,
-            canSitBesideChat = false
-        )
+            opensControlCenter = true)
     }
 
     @Test
     fun `with both, a device that can host the app gets the Control Center`() {
-        assertHome(home(hasDashboard = true, hasApp = true), hasPage = true, opensControlCenter = true, canSitBesideChat = true)
+        assertHome(home(hasDashboard = true, hasApp = true), hasPage = true, opensControlCenter = true)
     }
 
     @Test
@@ -57,9 +54,7 @@ class AgentHomeTest {
         assertHome(
             home(hasDashboard = true, hasApp = true, deviceHostsApps = false),
             hasPage = true,
-            opensControlCenter = false,
-            canSitBesideChat = true
-        )
+            opensControlCenter = false)
     }
 
     @Test
@@ -67,7 +62,6 @@ class AgentHomeTest {
         val noApp = home(hasDashboard = true, hasApp = false)
         noApp.hasPage
         noApp.opensControlCenter
-        noApp.canSitBesideChat
 
         assertEquals("asked", 0, asked)
     }

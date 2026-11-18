@@ -25,9 +25,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Which Home the chat gets with it — see [ChatWithHomePanes]. On a phone every agent has a
- * Dashboard tab, which is where the app opens (W16AAPPLE-115); on a tablet the page an agent
- * published sits beside the chat, as before. The panes are stand-ins that say which one was asked
+ * Which Home the chat gets with it — see [ChatWithHomePanes]. Every agent has the app's own
+ * Dashboard (W16AAPPLE-115): a tab on a phone, which is where the app opens, and a pane beside
+ * the chat, with no tabs, on a tablet. The panes are stand-ins that say which one was asked
  * for; the view model is a real [ChatViewModel] over fakes, as in
  * [ai.openonion.oochat.ui.chat.ChatScreenRecompositionTest].
  */
@@ -67,6 +67,7 @@ class ChatWithHomePanesComposeTest {
                 Column {
                     Text("Dashboard pane")
                     Text("agent page: ${navigation.agentPageLabel}")
+                    Text("Dashboard menu: ${navigation.showsMenu}")
                     Text("open the chat", Modifier.clickable(onClick = navigation.onOpenChat))
                     Text("open the chat list", Modifier.clickable(onClick = navigation.onOpenChatList))
                     Text("open the agent page", Modifier.clickable(onClick = navigation.onOpenAgentPage))
@@ -94,13 +95,56 @@ class ChatWithHomePanesComposeTest {
         composeRule.waitForIdle()
     }
 
-    // ── Tablet: unchanged. The agent's own page beside the chat, and no Dashboard tab. ──
+    // ── Tablet: the Dashboard beside the chat, and no tabs. ──
 
     @Test
     @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `on a tablet an agent with a page gets it beside the chat`() {
+    fun `on a tablet the Dashboard is beside the chat, with no tabs, for an agent with no page of its own too`() {
+        show()
+
+        composeRule.onNodeWithText("Dashboard pane").assertIsDisplayed()
+        composeRule.onNodeWithText("chat, Home in layout: true").assertIsDisplayed()
+        composeRule.onNodeWithText("agent page: null").assertIsDisplayed()
+        composeRule.onNodeWithText("Chat").assertDoesNotExist()
+        composeRule.onNodeWithText("Dashboard").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `a chat opened for a conversation on a tablet still has the Dashboard beside it`() {
+        show(opensOnHome = false)
+
+        composeRule.onNodeWithText("Dashboard pane").assertIsDisplayed()
+        composeRule.onNodeWithText("chat, Home in layout: true").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet the Dashboard has no menu button of its own, as the chat's is beside it`() {
+        show()
+
+        composeRule.onNodeWithText("Dashboard menu: false").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet the Dashboard asking for the chat list asks the chat beside it for its drawer`() {
+        show()
+
+        composeRule.onNodeWithText("open the chat list").performClick()
+
+        composeRule.onNodeWithText("drawer requests: 1").assertIsDisplayed()
+        composeRule.onNodeWithText("Dashboard pane").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet the agent's page opens beside the chat in place of the Dashboard`() {
         connectUseCase.dashboard.value = "<p>home</p>"
         show()
+        composeRule.onNodeWithText("agent page: Agent's page").assertIsDisplayed()
+
+        composeRule.onNodeWithText("open the agent page").performClick()
 
         composeRule.onNodeWithText("Agent page").assertIsDisplayed()
         composeRule.onNodeWithText("page beside: true").assertIsDisplayed()
@@ -110,33 +154,48 @@ class ChatWithHomePanesComposeTest {
 
     @Test
     @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `on a tablet an agent with a Control Center the device can host gets it beside the chat`() {
+    fun `on a tablet going back from the agent's page returns to the Dashboard`() {
+        connectUseCase.dashboard.value = "<p>home</p>"
+        show()
+        composeRule.onNodeWithText("open the agent page").performClick()
+
+        composeRule.onNodeWithText("back from the page").performClick()
+
+        composeRule.onNodeWithText("Dashboard pane").assertIsDisplayed()
+        composeRule.onNodeWithText("Agent page").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet the back button returns from the agent's page to the Dashboard`() {
+        connectUseCase.dashboard.value = "<p>home</p>"
+        show()
+        composeRule.onNodeWithText("open the agent page").performClick()
+
+        pressBack()
+
+        composeRule.onNodeWithText("Dashboard pane").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
+    fun `on a tablet a Control Center the device can host is opened from the Dashboard`() {
         connectUseCase.controlCenter.value = app
         show(deviceHostsApps = true)
 
+        composeRule.onNodeWithText("agent page: Control Center").assertIsDisplayed()
+        composeRule.onNodeWithText("open the agent page").performClick()
+
         composeRule.onNodeWithText("Control Center page").assertIsDisplayed()
-        composeRule.onNodeWithText("chat, Home in layout: true").assertIsDisplayed()
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `on a tablet an agent with no page gets nothing beside the chat`() {
-        show()
-
-        composeRule.onNodeWithText("Dashboard pane").assertDoesNotExist()
-        composeRule.onNodeWithText("Agent page").assertDoesNotExist()
-        composeRule.onNodeWithText("Control Center page").assertDoesNotExist()
-        composeRule.onNodeWithText("chat, Home in layout: false").assertIsDisplayed()
-    }
-
-    @Test
-    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `on a tablet a Control Center the device cannot host stays behind the Home button`() {
+    fun `on a tablet a Control Center the device cannot host is still opened from the Dashboard, where it says why`() {
         connectUseCase.controlCenter.value = app
         show(deviceHostsApps = false)
 
-        composeRule.onNodeWithText("Control Center page").assertDoesNotExist()
-        composeRule.onNodeWithText("chat, Home in layout: false").assertIsDisplayed()
+        composeRule.onNodeWithText("agent page: Control Center").assertIsDisplayed()
     }
 
     @Test
@@ -145,6 +204,9 @@ class ChatWithHomePanesComposeTest {
         connectUseCase.dashboard.value = "<p>home</p>"
         connectUseCase.controlCenter.value = app
         show(deviceHostsApps = false)
+
+        composeRule.onNodeWithText("agent page: Agent's page").assertIsDisplayed()
+        composeRule.onNodeWithText("open the agent page").performClick()
 
         composeRule.onNodeWithText("Agent page").assertIsDisplayed()
         composeRule.onNodeWithText("Control Center page").assertDoesNotExist()

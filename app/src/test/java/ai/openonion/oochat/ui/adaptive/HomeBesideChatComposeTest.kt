@@ -73,11 +73,14 @@ class HomeBesideChatComposeTest {
     }
 
     @Test
-    fun `a Dashboard beside the chat is titled with the agent but has no way back`() {
-        setDashboard(besideChat = true)
+    fun `a Dashboard beside the chat is titled with the agent and goes back to the app's Dashboard`() {
+        var backCount = 0
+        setDashboard(besideChat = true, onBack = { backCount++ })
 
         composeRule.onNodeWithText("Aria").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(1, backCount)
     }
 
     @Test
@@ -99,11 +102,14 @@ class HomeBesideChatComposeTest {
     }
 
     @Test
-    fun `a Control Center beside the chat is titled with the agent but has no way back`() {
-        setControlCenter(besideChat = true)
+    fun `a Control Center beside the chat is titled with the agent and goes back to the app's Dashboard`() {
+        var backCount = 0
+        setControlCenter(besideChat = true, onBack = { backCount++ })
 
         composeRule.onNodeWithText("Aria").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(1, backCount)
     }
 
     @Test

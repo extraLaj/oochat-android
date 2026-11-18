@@ -15,12 +15,12 @@ class HomePlacementTest {
     fun `a window 600dp wide or more, and tall enough, puts Home beside the chat`() {
         // 600 is where Medium starts, 700 is a foldable unfolded in portrait, the rest are tablets.
         listOf(600, 700, 840, 1280).forEach { width ->
-            assertEquals("$width dp wide", HomePlacement.BESIDE_CHAT, homePlacementFor(window(width), hasHome = true))
+            assertEquals("$width dp wide", HomePlacement.BESIDE_CHAT, homePlacementFor(window(width)))
         }
         assertEquals(
             "480dp tall is the shortest that still fits two panes",
             HomePlacement.BESIDE_CHAT,
-            homePlacementFor(window(900, heightDp = 480), hasHome = true)
+            homePlacementFor(window(900, heightDp = 480))
         )
     }
 
@@ -28,24 +28,19 @@ class HomePlacementTest {
     fun `a narrower window puts Home in a tab`() {
         // A phone, or a foldable that is still folded.
         listOf(320, 360, 411, 599).forEach { width ->
-            assertEquals("$width dp wide", HomePlacement.TABBED, homePlacementFor(window(width), hasHome = true))
+            assertEquals("$width dp wide", HomePlacement.TABBED, homePlacementFor(window(width)))
         }
     }
 
     @Test
     fun `a wide but short window, a phone on its side, puts Home in a tab`() {
-        assertEquals(HomePlacement.TABBED, homePlacementFor(window(915, heightDp = 412), hasHome = true))
-        assertEquals(HomePlacement.TABBED, homePlacementFor(window(900, heightDp = 479), hasHome = true))
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(915, heightDp = 412)))
+        assertEquals(HomePlacement.TABBED, homePlacementFor(window(900, heightDp = 479)))
     }
 
     @Test
-    fun `an agent with no page of its own gets no pane on a wide window`() {
-        assertEquals(HomePlacement.OWN_SCREEN, homePlacementFor(window(1280), hasHome = false))
-    }
-
-    @Test
-    fun `a phone has the Home tab for every agent, as its Home is the app's own Dashboard`() {
-        assertEquals(HomePlacement.TABBED, homePlacementFor(window(360), hasHome = false))
-        assertEquals(HomePlacement.TABBED, homePlacementFor(window(915, heightDp = 412), hasHome = false))
+    fun `a wide window puts the Dashboard beside the chat even for an agent with no page of its own`() {
+        // Home is the app's own Dashboard, so there is always something to put beside the chat.
+        assertEquals(HomePlacement.BESIDE_CHAT, homePlacementFor(window(1280)))
     }
 }

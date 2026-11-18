@@ -64,7 +64,7 @@ import kotlinx.coroutines.withContext
  *   can answer. On a screen of its own this replaces the chat, so without
  *   saying so the run stalls out of sight — see [ChatViewModel.chatAwaitsUser].
  * @param besideChat The page is next to the chat, not in place of it. There is
- *   then no way back to show, and no waiting notice, since the chat is in view.
+ *   then no waiting notice, since the chat is in view.
  * @param onOpenChat Where the waiting notice leads. The same place as back,
  *   unless back from this page is somewhere other than the chat.
  * @param buildDispatcher Where a snapshot is wrapped. For tests, which hold
@@ -158,7 +158,6 @@ internal fun DashboardScreenContent(
             Column {
                 HomeTopBar(
                     title = agentName?.takeIf { it.isNotBlank() } ?: "Agent home",
-                    besideChat = besideChat,
                     onNavigateBack = onNavigateBack
                 )
                 // Both bars are pinned here, not inside the scrollable content:

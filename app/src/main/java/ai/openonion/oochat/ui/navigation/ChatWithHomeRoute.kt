@@ -26,9 +26,9 @@ import androidx.navigation.NavBackStackEntry
 
 /**
  * A chat destination: the chat, and the agent's Home with it (see
- * [ai.openonion.oochat.ui.adaptive.homePlacementFor]). On a phone Home is a tab beside the chat's,
- * showing the Dashboard the app draws for every agent (W16AAPPLE-115); where the window has room,
- * the page the agent published, if it has one, sits beside the chat.
+ * [ai.openonion.oochat.ui.adaptive.homePlacementFor]). Home is the Dashboard the app draws for
+ * every agent (W16AAPPLE-115): a tab beside the chat's on a phone, and a pane beside the chat
+ * itself, with no tabs, where the window has room for both (a tablet, or a foldable unfolded).
  *
  * [chat] gets the [ChatViewModel] of [chatEntry], the one Home reads from too, whether Home is
  * already part of the layout, and a count of the times Home has asked for the chat's drawer of
@@ -59,6 +59,7 @@ internal fun ChatWithHomeRoute(
                     onOpenChat = navigation.onOpenChat,
                     onOpenChatList = navigation.onOpenChatList,
                     onOpenAgentPage = navigation.onOpenAgentPage,
+                    showsMenu = navigation.showsMenu,
                     onNavigateToLogs = onNavigateToLogs,
                     onNavigateToRem = onNavigateToRem
                 )
@@ -78,11 +79,11 @@ internal fun ChatWithHomeRoute(
  * The panes of [ChatWithHomeRoute], with the parts that need a navigation back stack and a WebView
  * passed in. [hostsApps] says whether the device can host a Control Center app.
  *
- * [dashboard] draws the app's own Dashboard, which is what the Home tab shows. [agentPage] draws
- * the page the agent published, as the Control Center when its first argument is true and as its
- * `dashboard.html` otherwise: beside the chat where there is room (its second argument), and on a
- * phone in place of the Dashboard once it is opened from there. Its third argument goes back from
- * it, to the Dashboard, and its fourth shows the chat.
+ * [dashboard] draws the app's own Dashboard, which is what Home shows: the Home tab on a phone,
+ * the pane beside the chat where there is room. [agentPage] draws the page the agent published, as
+ * the Control Center when its first argument is true and as its `dashboard.html` otherwise, in
+ * place of the Dashboard once it is opened from there. Its second argument says whether the chat
+ * is in view beside it, its third goes back from it to the Dashboard, and its fourth shows the chat.
  */
 @Composable
 internal fun ChatWithHomePanes(
@@ -98,16 +99,18 @@ internal fun ChatWithHomePanes(
     // Lazy: asking loads the WebView, which only an agent with both kinds of Home page needs.
     val webViewHostsApps = remember { lazy { hostsApps() } }
     val agentHome = AgentHome(dashboardHtml != null, controlCenterApp != null) { webViewHostsApps.value }
-    val placement = currentHomePlacement(agentHome.canSitBesideChat)
+    val placement = currentHomePlacement()
     var tab by rememberSaveable { mutableStateOf(if (opensOnHome) HomeTab.HOME else HomeTab.CHAT) }
     // The agent's own page, opened from the Dashboard and shown in its place until gone back from.
     var agentPageOpen by rememberSaveable { mutableStateOf(false) }
     // Not saved: a request is acted on once, and a recreated screen must not open the drawer again.
     var openDrawerRequest by remember { mutableIntStateOf(0) }
     val showsAgentPage = agentPageOpen && agentHome.hasPage
-    // Back from the agent's page is back to the Dashboard it was opened from. The tabs themselves
-    // are peers, so back from either leaves the screen as it does anywhere else.
-    BackHandler(enabled = placement == HomePlacement.TABBED && tab == HomeTab.HOME && showsAgentPage) {
+    val besideChat = placement == HomePlacement.BESIDE_CHAT
+    // Back from the agent's page is back to the Dashboard it was opened from, whenever that page
+    // is in view: beside the chat, or on the Home tab. The tabs themselves are peers, so back from
+    // either leaves the screen as it does anywhere else.
+    BackHandler(enabled = showsAgentPage && (besideChat || tab == HomeTab.HOME)) {
         agentPageOpen = false
     }
 
@@ -122,10 +125,8 @@ internal fun ChatWithHomePanes(
         home = { modifier ->
             Pane(modifier) {
                 when {
-                    placement == HomePlacement.BESIDE_CHAT ->
-                        agentPage(agentHome.opensControlCenter, true, {}, {})
                     showsAgentPage ->
-                        agentPage(agentHome.opensControlCenter, false, { agentPageOpen = false }, { tab = HomeTab.CHAT })
+                        agentPage(agentHome.opensControlCenter, besideChat, { agentPageOpen = false }, { tab = HomeTab.CHAT })
                     else -> dashboard(
                         viewModel,
                         AgentDashboardNavigation(
@@ -140,7 +141,9 @@ internal fun ChatWithHomePanes(
                                 tab = HomeTab.CHAT
                                 openDrawerRequest++
                             },
-                            onOpenAgentPage = { agentPageOpen = true }
+                            onOpenAgentPage = { agentPageOpen = true },
+                            // Beside the chat, the chat's own menu is right next to this one.
+                            showsMenu = !besideChat
                         )
                     )
                 }

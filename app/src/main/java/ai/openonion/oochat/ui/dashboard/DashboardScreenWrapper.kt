@@ -24,8 +24,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
  * The allowlist is the live `AGENT_PROFILE`'s skills. Null until that frame
  * arrives, and [DashboardSkillIntent] refuses everything while it is.
  *
- * @param besideChat The page is next to the chat, not in place of it. It then has no way back to
- *   show, and running a skill leaves it where it is rather than going back to the chat.
+ * @param besideChat The page is next to the chat, not in place of it. Running a skill then leaves
+ *   it where it is rather than going back to the chat.
  * @param onOpenChat Shows the chat, for a skill run and the waiting notice. The same as back
  *   unless back from this page is somewhere else, as it is when the page was opened from the
  *   agent's Dashboard.

@@ -1,9 +1,8 @@
 package ai.openonion.oochat.ui.home
 
 /**
- * What an agent's Home is on this device: whether there is one, which screen opens it, and
- * whether it can sit beside the chat. The chat screen and the pane beside the chat both ask this,
- * so they cannot disagree.
+ * What an agent's own Home page is on this device: whether there is one and which screen opens
+ * it. The chat screen and the Dashboard both ask this, so they cannot disagree.
  *
  * An agent can send a Dashboard page, a Control Center app, or both. [appSupported] says whether
  * the device's WebView can host the app; it loads the WebView, so it is only asked when the answer
@@ -22,10 +21,4 @@ internal class AgentHome(
      * app, and also when there is no Dashboard, so the screen can say why it cannot.
      */
     val opensControlCenter: Boolean get() = hasApp && (!hasDashboard || appSupported())
-
-    /**
-     * Home can be drawn beside the chat: a Dashboard, or a Control Center the device can host. A
-     * Control Center it cannot host stays behind the Home button, where its notice has a screen.
-     */
-    val canSitBesideChat: Boolean get() = hasDashboard || (hasApp && appSupported())
 }

@@ -12,19 +12,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 
 /**
- * Where the Dashboard's taps lead. The Dashboard is a tab beside the chat's, so most of them end
- * on the Chat tab.
+ * Where the Dashboard's taps lead. The Dashboard is a tab beside the chat's on a phone, and a pane
+ * beside the chat itself on a tablet, so most of them end on the chat.
  *
  * @param agentPageLabel What the agent's own published page is called, or null when it has none.
- * @param onOpenChat Shows the Chat tab.
- * @param onOpenChatList Shows the Chat tab with its drawer of conversations open.
+ * @param onOpenChat Shows the chat: the Chat tab, or nothing more where it is already in view.
+ * @param onOpenChatList Shows the chat with its drawer of conversations open.
  * @param onOpenAgentPage Shows the agent's own page in place of the Dashboard.
+ * @param showsMenu The top bar has the button for the drawer of conversations. Not beside the
+ *   chat, whose own top bar, with the same button, is right next to it.
  */
 internal class AgentDashboardNavigation(
     val agentPageLabel: String? = null,
     val onOpenChat: () -> Unit = {},
     val onOpenChatList: () -> Unit = {},
     val onOpenAgentPage: () -> Unit = {},
+    val showsMenu: Boolean = true,
     val onNavigateToLogs: () -> Unit = {},
     val onNavigateToRem: () -> Unit = {}
 )
@@ -78,7 +81,7 @@ internal fun AgentDashboardScreenWrapper(viewModel: ChatViewModel, navigation: A
             now = remember(chats) { System.currentTimeMillis() }
         ),
         actions = AgentDashboardActions(
-            onOpenMenu = navigation.onOpenChatList,
+            onOpenMenu = navigation.onOpenChatList.takeIf { navigation.showsMenu },
             onNewChat = {
                 viewModel.startNewSession()
                 navigation.onOpenChat()

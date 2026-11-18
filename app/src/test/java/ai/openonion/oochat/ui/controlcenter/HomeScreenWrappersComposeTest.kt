@@ -78,10 +78,10 @@ class HomeScreenWrappersComposeTest {
     }
 
     @Test
-    fun `a Control Center beside the chat has no way back`() {
+    fun `a Control Center beside the chat has the way back to the app's Dashboard`() {
         showControlCenter(besideChat = true)
 
-        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").assertIsDisplayed()
     }
 
     @Test
@@ -92,9 +92,9 @@ class HomeScreenWrappersComposeTest {
     }
 
     @Test
-    fun `a Dashboard beside the chat has no way back`() {
+    fun `a Dashboard beside the chat has the way back to the app's Dashboard`() {
         showDashboard(besideChat = true)
 
-        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").assertIsDisplayed()
     }
 }

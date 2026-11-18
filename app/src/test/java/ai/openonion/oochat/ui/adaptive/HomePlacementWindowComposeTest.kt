@@ -20,9 +20,9 @@ class HomePlacementWindowComposeTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun placementWithHome(hasHome: Boolean = true): HomePlacement {
+    private fun placement(): HomePlacement {
         var seen: HomePlacement? = null
-        composeRule.setContent { seen = currentHomePlacement(hasHome) }
+        composeRule.setContent { seen = currentHomePlacement() }
         composeRule.waitForIdle()
         return checkNotNull(seen)
     }
@@ -30,36 +30,24 @@ class HomePlacementWindowComposeTest {
     @Test
     @Config(sdk = [34], qualifiers = "w900dp-h800dp")
     fun `a tablet puts Home beside the chat`() {
-        assertEquals(HomePlacement.BESIDE_CHAT, placementWithHome())
+        assertEquals(HomePlacement.BESIDE_CHAT, placement())
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w700dp-h840dp")
     fun `a foldable unfolded in portrait puts Home beside the chat`() {
-        assertEquals(HomePlacement.BESIDE_CHAT, placementWithHome())
+        assertEquals(HomePlacement.BESIDE_CHAT, placement())
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w360dp-h800dp")
     fun `a phone puts Home in a tab`() {
-        assertEquals(HomePlacement.TABBED, placementWithHome())
+        assertEquals(HomePlacement.TABBED, placement())
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w915dp-h412dp")
     fun `a phone on its side puts Home in a tab`() {
-        assertEquals(HomePlacement.TABBED, placementWithHome())
-    }
-
-    @Test
-    @Config(sdk = [34], qualifiers = "w900dp-h800dp")
-    fun `a tablet with no Home to show puts nothing beside the chat`() {
-        assertEquals(HomePlacement.OWN_SCREEN, placementWithHome(hasHome = false))
-    }
-
-    @Test
-    @Config(sdk = [34], qualifiers = "w360dp-h800dp")
-    fun `a phone has the Home tab even for an agent with no page of its own`() {
-        assertEquals(HomePlacement.TABBED, placementWithHome(hasHome = false))
+        assertEquals(HomePlacement.TABBED, placement())
     }
 }
